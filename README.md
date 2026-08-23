@@ -147,11 +147,52 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and the [decision records](docs/adr).
 
 ```bash
 pnpm install
-pnpm verify      # format check + lint + typecheck + tests
+pnpm verify      # format check + lint + typecheck (packages and app) + tests
 pnpm test:watch
 ```
 
-Requires Node 20+ and pnpm.
+Node 20+ and pnpm. To run the app:
+
+```bash
+pnpm --filter @sheaf/mobile start
+```
+
+It needs a development build rather than Expo Go, because `expo-sqlite`,
+`expo-secure-store` and `expo-camera` are native modules.
+
+## Verification
+
+204 tests. What each one is worth:
+
+|               |                                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| `core`, `pdf` | Pure; ~100% of statements. SHA-256 cross-checked against `node:crypto` at every length from 0 to 200. |
+| `store`       | Real SQL against `node:sqlite`. Both log implementations held to one parametrised suite.              |
+| `paperless`   | Every branch, against an injected transport — including four tests that the token cannot escape.      |
+| `engine`      | Unit tested, and driven by the simulator across hundreds of fault schedules.                          |
+| `apps/mobile` | Typechecked and linted. **Never run** — see below.                                                    |
+
+Three bugs were found by tests written to be hard rather than to pass:
+
+- The **simulator's own fake server** consumed a task only when polled, which made
+  the duplicate path unreachable — the suite passed while testing nothing.
+- **SHA-256 padding** added an extra block whenever `length + 9` was a multiple of 64.
+  All three published test vectors passed; lengths 55, 119 and 183 did not.
+- **Reconciliation** would have trusted a server-side filter that DRF silently
+  ignores, marking un-uploaded documents as synced.
+
+## Roadmap
+
+Next, in order of how much they would change:
+
+1. **Contract tests against a real Paperless-ngx** in Docker. Two assumptions are
+   still unverified: that `original_filename__istartswith` filters, and that the
+   duplicate wording matches what `interpretTask` looks for.
+2. **Run the app.** It has never been launched.
+3. Page editing — crop, rotate, perspective correction — as post-capture repair.
+4. On-device OCR, scoped to offline search of your own outbox and near-duplicate
+   detection. Not to guessing metadata: Paperless's classifier knows your corpus.
+5. Background sync, where the OS allows it.
 
 ## Privacy
 
