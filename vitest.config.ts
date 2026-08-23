@@ -16,7 +16,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/*/test/**/*.test.ts', 'packages/*/src/**/*.test.ts'],
+    include: [
+      'packages/*/test/**/*.test.ts',
+      'packages/*/src/**/*.test.ts',
+      // The app's pure helpers. Anything importing react-native stays out.
+      'apps/*/test/**/*.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       include: [

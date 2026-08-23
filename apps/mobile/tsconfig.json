@@ -1,0 +1,23 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@sheaf/core": ["../../packages/core/src/index.ts"],
+      "@sheaf/engine": ["../../packages/engine/src/index.ts"],
+      "@sheaf/paperless": ["../../packages/paperless/src/index.ts"],
+      "@sheaf/pdf": ["../../packages/pdf/src/index.ts"],
+      "@sheaf/store": ["../../packages/store/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules"]
+}

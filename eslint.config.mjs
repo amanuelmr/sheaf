@@ -4,7 +4,15 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', '**/.expo/**'],
+    ignores: [
+      '**/dist/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      '**/.expo/**',
+      // CommonJS build config, outside any TypeScript project.
+      'apps/*/babel.config.js',
+      'apps/*/metro.config.js',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -40,6 +48,16 @@ export default tseslint.config(
     // The purity rules above only apply to the pure core; app + adapters may read clocks.
     files: ['packages/paperless/**', 'packages/sim/**', 'apps/**'],
     rules: { 'no-restricted-syntax': 'off' },
+  },
+  {
+    // The app is its own TypeScript project (Expo's base config, JSX, RN types).
+    files: ['apps/mobile/**/*.ts', 'apps/mobile/**/*.tsx'],
+    // projectService finds apps/mobile/tsconfig.json on its own; overriding it
+    // here only fights with the root setting.
+    rules: {
+      // React components legitimately return unions the compiler cannot narrow.
+      '@typescript-eslint/no-unnecessary-condition': 'off',
+    },
   },
   {
     files: ['**/*.test.ts', '**/test/**'],

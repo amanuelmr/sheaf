@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Sheaf",
+    "slug": "sheaf",
+    "scheme": "sheaf",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.sheaf.capture",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Sheaf uses the camera to scan documents and send them to your own Paperless server."
+      }
+    },
+    "android": {
+      "package": "dev.sheaf.capture",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Sheaf uses the camera to scan documents and send them to your own Paperless server."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
