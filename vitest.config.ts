@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       '@sheaf/core': pkg('core'),
       '@sheaf/paperless': pkg('paperless'),
+      '@sheaf/pdf': pkg('pdf'),
       '@sheaf/sim': pkg('sim'),
     },
   },
@@ -16,7 +17,7 @@ export default defineConfig({
     include: ['packages/*/test/**/*.test.ts', 'packages/*/src/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['packages/core/src/**', 'packages/paperless/src/**'],
+      include: ['packages/core/src/**', 'packages/paperless/src/**', 'packages/pdf/src/**'],
       // Type declarations and re-export barrels carry no logic to cover.
       exclude: ['**/events.ts', '**/types.ts', '**/index.ts'],
       thresholds: {

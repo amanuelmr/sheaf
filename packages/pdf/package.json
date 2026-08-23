@@ -1,0 +1,12 @@
+{
+  "name": "@sheaf/pdf",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Byte-deterministic PDF assembly and content hashing. No dependencies, no clock.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -121,6 +121,7 @@ being wrong is expensive.
 apps/mobile          Expo + React Native. Camera, SQLite executor, UI projections.
       │
       ├── packages/core        pure decisions: reduce(events) → state, next(state, tick) → command
+      ├── packages/pdf         pages → deterministic PDF bytes → SHA-256 identity
       ├── packages/paperless   Paperless-ngx API + response interpretation
       └── packages/sim         virtual clock, seeded RNG, injected faults
 ```
