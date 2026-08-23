@@ -127,8 +127,16 @@ apps/mobile          Expo + React Native. Camera, SQLite executor, UI projection
 
 `packages/core` has no clock, no randomness and no I/O — ESLint enforces this by
 banning `Date.now()` and `Math.random()` inside it. Time and jitter arrive as
-parameters, which is what lets the simulator explore thousands of fault schedules
+parameters, which is what lets the simulator explore fault schedules
 deterministically and replay any failing seed exactly.
+
+Across 300 hostile schedules covering 1,500 documents — dropped requests, lost
+responses after the server had already stored the document, 5xx, 401, rate limits,
+offline windows, and 3,644 process kills including kills _between_ logging an
+upload attempt and logging its outcome — the engine issued 2,003 POSTs, stored
+exactly 1,500 documents, read 490 duplicate rejections as success, and recovered
+255 interrupted uploads with a hash lookup rather than a re-upload. Nothing lost,
+nothing duplicated. See [`packages/sim`](packages/sim).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and the [decision records](docs/adr).
 

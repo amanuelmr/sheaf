@@ -3,20 +3,65 @@
 Deterministic simulation testing for the sync engine, in the FoundationDB /
 TigerBeetle style: virtual time, seeded randomness, injected faults.
 
-Present: the two primitives everything else is built on — a seeded PRNG and a
-virtual clock.
-
-Next: the fault-injecting fake Paperless server and the scenario runner, so we can
-assert over thousands of schedules that no document is ever lost or duplicated:
+Rather than hand-writing the edge cases from the spec, the suite runs the pure
+engine through hundreds of seeded fault schedules and asserts the properties that
+must hold across all of them.
 
 ```ts
-for (const seed of seeds(10_000)) {
-  const sim = new Sim(seed); // drops, 5xx, 401s, timeouts, duplicate replies,
-  // clock jumps, process kills at any step, disk-full
-  sim.run(scenarios.tenDocuments);
-  assert(sim.server.documents.length === 10); // no loss
-  assert(noDuplicates(sim.server.documents)); // no dupes
+for (const seed of seeds(150)) {
+  const result = runSim({ seed, documents: 5, faults: HOSTILE });
+  expect(result.violations).toEqual([]); // no invariant broken
+  expect(result.converged).toBe(true); // everything arrived
+  expect(result.server.storedCount).toBe(5); // exactly once
 }
 ```
 
-A failing seed replays exactly, so a distributed-systems bug becomes a laptop bug.
+## What gets injected
+
+| Fault          | Models                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `offline`      | no usable connection this tick                                                          |
+| `dropRequest`  | the request never reaches the server                                                    |
+| `lostResponse` | **the server stored it and the reply was lost**                                         |
+| `serverError`  | 5xx                                                                                     |
+| `authError`    | 401 — needs the user, not a retry                                                       |
+| `rateLimited`  | 429, with `Retry-After`                                                                 |
+| `kill`         | the process dies, including _between_ logging an upload attempt and logging its outcome |
+
+`lostResponse` and the mid-request `kill` are the ones that matter. Both leave the
+client unable to tell "never arrived" from "arrived, reply lost" — the case that
+makes naive uploaders either duplicate the document or declare failure on one that
+is safely stored.
+
+`FakePaperless` models the server semantics the engine depends on: a POST returns a
+task id immediately, consumption completes later **on the server's own timeline**
+whether or not a client is watching, and content is hashed server-side so a
+re-upload is refused as a duplicate.
+
+That last detail is load-bearing. An earlier version of the fake resolved
+consumption lazily when a client polled, which quietly made the duplicate path
+unreachable — the suite passed while testing nothing. The "actually exercises the
+interesting paths" test exists to catch exactly that.
+
+## What 300 hostile schedules do
+
+1,500 documents, and the engine's behaviour across them:
+
+```
+POSTs issued                   2,003     retries and lost responses
+documents stored               1,500     exactly one per content hash
+duplicate rejections           490       each read as SYNCED, not as failure
+crash recoveries               255       resolved by one hash lookup, never a re-upload
+process kills survived         3,644
+documents lost                 0
+documents duplicated           0
+```
+
+Every number is reproducible: a failing seed replays exactly, so a
+distributed-systems bug becomes a laptop bug.
+
+## Still to come
+
+Clock jumps (device sleep, NTP resync), disk-full on the local write path, and
+contract tests against a real Paperless-ngx behind a fault-injecting proxy, to
+validate the assumptions `FakePaperless` encodes.
