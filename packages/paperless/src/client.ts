@@ -2,12 +2,15 @@ import { classifyResponse, classifyThrown } from './errors';
 import { joinUrl, redact, type PaperlessConfig } from './config';
 import { err, ok, type ApiResult } from './result';
 import type { FormDataLike, HttpRequest, UploadFile } from './http';
+import { captureFilename, matchesCaptureId } from './reconcile';
 import type {
+  DocumentPatch,
+  DocumentSummary,
+  NamedResource,
   PaperlessTask,
   RawSuggestions,
+  ReconcileProbe,
   ServerInfo,
-  NamedResource,
-  DocumentPatch,
 } from './types';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -126,6 +129,73 @@ export class PaperlessClient {
       body: JSON.stringify(body),
     });
     return result.ok ? ok(null) : err(result.reason);
+  }
+
+  /**
+   * Find a document by the content hash we named it with.
+   *
+   * Fails towards "not found" at every step. A wrong negative costs one redundant
+   * upload that the server refuses as a duplicate; a wrong positive would let a
+   * retention policy delete the only copy of a document that never arrived.
+   */
+  async findByCaptureId(sha256: string): Promise<ApiResult<number | null>> {
+    const filename = captureFilename(sha256);
+    const result = await this.#json<{ results?: readonly DocumentSummary[] }>(
+      `api/documents/?original_filename__istartswith=${encodeURIComponent(filename)}&page_size=25&ordering=id`,
+    );
+    if (!result.ok) return err(result.reason);
+
+    // Re-check every candidate. If the server ignored the filter, this page is
+    // just "some documents", and none of them will carry our filename.
+    const confirmed = (result.value.results ?? [])
+      .filter((row) => matchesCaptureId(row.original_filename, sha256))
+      .map((row) => row.id)
+      .sort((a, b) => a - b);
+
+    return ok(confirmed[0] ?? null);
+  }
+
+  /**
+   * Check that `original_filename__istartswith` actually filters on this server.
+   *
+   * DRF ignores query parameters it does not recognise, so an unsupported filter
+   * looks like a successful search that matched everything. We search for a
+   * filename that cannot exist: an empty result means the filter works, and any
+   * result at all means it was ignored.
+   *
+   * Reconciliation stays safe either way -- findByCaptureId re-checks filenames --
+   * but knowing tells us whether recovery costs one request or one re-upload, and
+   * it belongs in the diagnostics screen rather than in a surprise.
+   */
+  async probeReconciliation(): Promise<ApiResult<ReconcileProbe>> {
+    const total = await this.#json<{ count?: number }>('api/documents/?page_size=1');
+    if (!total.ok) return err(total.reason);
+    const documentCount = total.value.count ?? 0;
+
+    if (documentCount === 0) {
+      return ok({
+        filterSupported: false,
+        conclusive: false,
+        detail: 'the server has no documents yet, so the filter cannot be tested',
+      });
+    }
+
+    const impossible = captureFilename('0'.repeat(64));
+    const probe = await this.#json<{ count?: number; results?: readonly DocumentSummary[] }>(
+      `api/documents/?original_filename__istartswith=${encodeURIComponent(impossible)}&page_size=1`,
+    );
+    if (!probe.ok) return err(probe.reason);
+
+    const matched = probe.value.count ?? probe.value.results?.length ?? 0;
+    return ok(
+      matched === 0
+        ? { filterSupported: true, conclusive: true, detail: 'filter narrows results as expected' }
+        : {
+            filterSupported: false,
+            conclusive: true,
+            detail: 'the server ignored the filter and answered with unrelated documents',
+          },
+    );
   }
 
   getCorrespondents(): Promise<ApiResult<readonly NamedResource[]>> {

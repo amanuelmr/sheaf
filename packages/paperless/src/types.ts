@@ -36,3 +36,18 @@ export interface DocumentPatch {
   readonly tags?: readonly number[];
   readonly created?: string;
 }
+
+/** The fields of a document list row that reconciliation depends on. */
+export interface DocumentSummary {
+  readonly id: number;
+  readonly original_filename?: string | null;
+  readonly title?: string | null;
+}
+
+/** Whether this server's document filter can be relied on to narrow results. */
+export interface ReconcileProbe {
+  readonly filterSupported: boolean;
+  /** False when the server had no documents to test the filter against. */
+  readonly conclusive: boolean;
+  readonly detail: string;
+}
