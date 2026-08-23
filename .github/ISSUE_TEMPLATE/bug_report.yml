@@ -1,0 +1,50 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please redact API tokens, server hostnames, and document contents from
+        anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: doc-state
+    attributes:
+      label: Document status shown in the outbox, if relevant
+      placeholder: e.g. "Sync failed", "Waiting for connection"
+  - type: textarea
+    id: paper-trail
+    attributes:
+      label: Paper trail
+      description: The event list from the document's details screen, if you have it.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Sheaf version
+  - type: input
+    id: platform
+    attributes:
+      label: Device and OS
+      placeholder: e.g. Pixel 7, Android 15

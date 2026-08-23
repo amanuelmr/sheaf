@@ -1,0 +1,28 @@
+name: UX feedback
+description: Something was confusing, slow, or untrustworthy
+labels: [ux]
+body:
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the app
+    validations:
+      required: true
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: What kind of problem was it
+      options:
+        - I could not tell what state my document was in
+        - An error did not tell me whether my document was safe
+        - Something took more taps than it should
+        - Something felt slow
+        - Wording was unclear
+        - Accessibility problem
+        - Other

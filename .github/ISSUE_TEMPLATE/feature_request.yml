@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something Sheaf should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sheaf is deliberately narrow: capture and reliable delivery. It will not grow
+        a document browser, search, or a dashboard — Paperless-ngx already does those
+        better. Requests that reduce friction between paper and Paperless are the
+        ones most likely to land.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is slow, awkward, or unreliable today
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: How does this reduce friction between a physical document and Paperless
+    validations:
+      required: true

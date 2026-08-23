@@ -1,0 +1,39 @@
+name: Paperless compatibility
+description: Sheaf misreads a response from your Paperless-ngx server
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Response shapes and consumer messages differ across Paperless-ngx versions.
+        These reports become test cases, so raw output is the most useful thing you
+        can give — with tokens, hostnames, and document contents redacted.
+  - type: input
+    id: paperless-version
+    attributes:
+      label: Paperless-ngx version
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How is it deployed
+      options: [Docker, docker-compose, bare metal, NAS package, other]
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What Sheaf got wrong
+      placeholder: e.g. "showed Sync failed for a document that is actually in Paperless"
+    validations:
+      required: true
+  - type: textarea
+    id: task-row
+    attributes:
+      label: The /api/tasks/ row for the document
+      description: Redact anything sensitive.
+      render: json
+  - type: input
+    id: reverse-proxy
+    attributes:
+      label: Reverse proxy or tunnel in front of it
+      placeholder: e.g. nginx, Caddy, Traefik, Tailscale, Cloudflare Tunnel, none
