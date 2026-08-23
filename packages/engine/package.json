@@ -1,8 +1,8 @@
 {
-  "name": "@sheaf/sim",
+  "name": "@sheaf/engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Deterministic simulator: virtual clock, seeded randomness, injected faults.",
+  "description": "The loop: take a command from the core, perform the effect, append the event.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@sheaf/core": "workspace:*",
-    "@sheaf/engine": "workspace:*",
     "@sheaf/paperless": "workspace:*",
     "@sheaf/store": "workspace:*"
   }

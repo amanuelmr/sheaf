@@ -38,6 +38,18 @@ importers:
 
   packages/core: {}
 
+  packages/engine:
+    dependencies:
+      '@sheaf/core':
+        specifier: workspace:*
+        version: link:../core
+      '@sheaf/paperless':
+        specifier: workspace:*
+        version: link:../paperless
+      '@sheaf/store':
+        specifier: workspace:*
+        version: link:../store
+
   packages/paperless:
     dependencies:
       '@sheaf/core':
@@ -51,9 +63,15 @@ importers:
       '@sheaf/core':
         specifier: workspace:*
         version: link:../core
+      '@sheaf/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@sheaf/paperless':
         specifier: workspace:*
         version: link:../paperless
+      '@sheaf/store':
+        specifier: workspace:*
+        version: link:../store
 
   packages/store:
     dependencies:

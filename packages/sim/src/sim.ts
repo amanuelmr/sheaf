@@ -1,17 +1,14 @@
 import {
-  MAX_AUTO_ATTEMPTS,
-  next,
-  reduce,
   shouldAutoRetryOnReconnect,
-  type CaptureEvent,
   type Command,
   type DocId,
   type DocState,
-  type FailureReason,
   type NetStatus,
   type SyncPolicy,
 } from '@sheaf/core';
-import { interpretTask } from '@sheaf/paperless';
+import { SyncEngine, type EnginePorts } from '@sheaf/engine';
+import { err, ok } from '@sheaf/paperless';
+import { DocumentStore, MemoryEventLog, type EventLog } from '@sheaf/store';
 import { FakePaperless } from './fake-paperless';
 import { rollAttempt, rollKill, rollOffline, type FaultProfile } from './faults';
 import { rng, type Rng } from './random';
@@ -29,7 +26,7 @@ export interface SimOptions {
 export interface SimResult {
   readonly server: FakePaperless;
   readonly states: Map<DocId, DocState>;
-  readonly logs: Map<DocId, readonly CaptureEvent[]>;
+  readonly log: EventLog;
   readonly steps: number;
   readonly converged: boolean;
   readonly uploads: Map<DocId, number>;
@@ -42,28 +39,37 @@ export interface SimResult {
 const STEP_MS = 250;
 const DEFAULT_MAX_STEPS = 4_000;
 
+/** Thrown by a port when the process dies mid-request. Never caught by the engine. */
+class ProcessKilled extends Error {
+  constructor() {
+    super('process killed mid-request');
+  }
+}
+
 /**
- * Drives the pure engine through a hostile world on a virtual clock.
+ * Drives the REAL engine through a hostile world on a virtual clock.
  *
- * Everything nondeterministic comes from the seed, so a failing seed is a
- * reproducible bug rather than a story about a flaky test.
+ * The faults live in the ports, not in a parallel copy of the executor. That
+ * matters: an earlier version of this file re-implemented the upload loop, so the
+ * suite could have gone on passing while the shipping engine drifted away from it.
+ * Now the only thing simulated is the world.
  */
 class Sim {
   private readonly clock: VirtualClock;
   private readonly rand: Rng;
   private readonly server: FakePaperless;
-  private readonly logs = new Map<DocId, CaptureEvent[]>();
+  private readonly log = new MemoryEventLog();
+  private readonly store = new DocumentStore(this.log);
+  private readonly engine: SyncEngine;
+  private readonly policy: SyncPolicy;
   private readonly uploads = new Map<DocId, number>();
   private readonly violations: string[] = [];
-  private readonly policy: SyncPolicy;
+  private readonly docIds: DocId[] = [];
 
   private net: NetStatus = 'wifi';
   private resuming = false;
-  /** Set when the process died mid-request; the next step resumes. */
   private pendingResume = false;
-  /** The process is gone for the rest of this step. */
   private dead = false;
-  private progressed = false;
   private waitTargets: number[] = [];
   private reconciles = 0;
   private kills = 0;
@@ -73,51 +79,42 @@ class Sim {
     this.rand = rng(options.seed);
     this.server = new FakePaperless(options.consumeDelayMs ?? 500);
     this.policy = options.policy ?? { wifiOnly: false, keepLocalAfterSync: true };
+    this.engine = new SyncEngine(this.store, this.ports());
 
     for (let i = 0; i < options.documents; i++) {
-      // The content hash is the identity, so a synthetic hash per document is enough.
       const docId = `${options.seed}-${i}`.padStart(64, '0');
-      const at = this.clock.now();
-      this.logs.set(docId, [
-        {
-          type: 'Captured',
-          docId,
-          at,
-          pages: [
-            {
-              id: `${docId}-p1`,
-              path: `/d/${docId}.jpg`,
-              width: 1700,
-              height: 2200,
-              bytes: 210_000,
-            },
-          ],
-          sha256: docId,
-          bytes: 210_000,
-        },
-        { type: 'Enqueued', docId, at, sha256: docId },
-      ]);
+      this.docIds.push(docId);
       this.uploads.set(docId, 0);
     }
   }
 
-  run(): SimResult {
+  async run(): Promise<SimResult> {
+    // The shutter fires for every document before anything is sent.
+    for (const docId of this.docIds) {
+      await this.engine.capture({
+        docId,
+        sha256: docId,
+        bytes: 210_000,
+        pages: [
+          { id: `${docId}-p1`, path: `/d/${docId}.jpg`, width: 1700, height: 2200, bytes: 210_000 },
+        ],
+      });
+    }
+
     const maxSteps = this.options.maxSteps ?? DEFAULT_MAX_STEPS;
     let steps = 0;
 
-    while (steps < maxSteps && !this.allSettled()) {
+    while (steps < maxSteps && !(await this.allSettled())) {
       steps += 1;
-      this.progressed = false;
       this.waitTargets = [];
+      const before = await this.log.count();
 
-      // A restart carries over from a kill that interrupted a request last step.
       this.resuming = this.pendingResume;
       this.pendingResume = false;
       this.dead = false;
 
       if (rollKill(this.options.faults, this.rand, this.clock.now())) {
-        // Killed while idle. State is replayed from the log; nothing was in flight.
-        this.resuming = true;
+        this.resuming = true; // killed while idle: nothing was in flight
         this.kills += 1;
       }
 
@@ -130,24 +127,21 @@ class Sim {
           ? 'cellular'
           : 'wifi';
 
-      for (const docId of this.shuffledDocIds()) {
+      for (const docId of this.shuffled()) {
         if (this.isDead()) break; // nothing else runs after the process dies
-        this.stepDocument(docId);
+        await this.stepDocument(docId);
       }
 
       this.resuming = false;
-      if (!this.madeProgress()) this.advanceClock();
+      if ((await this.log.count()) === before) this.advanceClock();
     }
-
-    const states = new Map<DocId, DocState>();
-    for (const [docId, log] of this.logs) states.set(docId, reduce(log));
 
     return {
       server: this.server,
-      states,
-      logs: this.logs,
+      states: await this.store.states(),
+      log: this.log,
       steps,
-      converged: this.allSettled(),
+      converged: await this.allSettled(),
       uploads: this.uploads,
       reconciles: this.reconciles,
       kills: this.kills,
@@ -155,192 +149,131 @@ class Sim {
     };
   }
 
-  private stepDocument(docId: DocId): void {
-    let state = reduce(this.log(docId));
+  private async stepDocument(docId: DocId): Promise<void> {
+    const state = await this.store.state(docId);
+    if (state === null) return;
 
-    // Once the world is healthy again, a stalled document gets another chance:
-    // the user fixes their token, or connectivity returning re-arms a retry.
+    // Once the world is healthy again, a stalled document gets another chance: the
+    // user fixes their token, or connectivity returning re-arms a retry.
     if (this.clock.now() >= this.options.faults.healAtMs) {
       if (state.status === 'BLOCKED' || shouldAutoRetryOnReconnect(state)) {
-        this.append({ type: 'RetryRequested', docId, at: this.clock.now() });
-        state = reduce(this.log(docId));
+        await this.engine.requestRetry(docId);
+        return;
       }
     }
 
-    const command = next(state, {
-      now: this.clock.now(),
-      net: this.net,
-      policy: this.policy,
-      resuming: this.resuming,
-    });
-
-    this.execute(command, state);
-  }
-
-  private execute(command: Command, state: DocState): void {
-    const now = this.clock.now();
-    const docId = state.docId;
-
-    switch (command.type) {
-      case 'upload': {
-        if (state.taskId !== null) {
-          this.violations.push(
-            `${docId}: uploaded while task ${state.taskId} was still outstanding`,
-          );
-        }
-        this.uploads.set(docId, (this.uploads.get(docId) ?? 0) + 1);
-        const attempt = state.attempts + 1;
-        this.append({ type: 'UploadStarted', docId, at: now, attempt });
-        this.applyAttemptFault(docId, attempt);
-        return;
-      }
-
-      case 'pollTask': {
-        const outcome = interpretTask(this.server.task(command.taskId));
-        if (outcome === 'pending') return; // let the clock move on
-        this.append({ type: 'ServerConfirmed', docId, at: now, outcome });
-        return;
-      }
-
-      case 'reconcile': {
-        this.reconciles += 1;
-        const found = this.server.findByHash(command.sha256);
-        if (found) {
-          // The bytes did land. Discovering this costs one lookup, not a re-upload.
-          this.append({
-            type: 'ServerConfirmed',
-            docId,
-            at: now,
-            outcome: { kind: 'stored', remoteId: found.id },
-          });
-          return;
-        }
-        // It never landed. Fold it back into the retry path.
-        this.append({
-          type: 'UploadFailed',
-          docId,
-          at: now,
-          attempt: Math.max(1, state.attempts),
-          reason: { kind: 'unreachable' },
-          jitter: this.rand.next(),
-        });
-        return;
-      }
-
-      case 'fetchSuggestions': {
-        this.append({
-          type: 'SuggestionsReceived',
-          docId,
-          at: now,
-          suggestions: { title: `Document ${command.remoteId}`, documentType: 'Receipt' },
-        });
-        if (this.rand.chance(0.5)) {
-          this.append({
-            type: 'MetadataAccepted',
-            docId,
-            at: now,
-            patch: { title: `Document ${command.remoteId}` },
-          });
-        }
-        return;
-      }
-
-      case 'patchMetadata': {
-        const patched = this.server.patch(command.remoteId, {
-          title: command.patch.title,
-          correspondentId: command.patch.correspondentId,
-          documentTypeId: command.patch.documentTypeId,
-          tagIds: command.patch.tagIds,
-        });
-        if (!patched) this.violations.push(`${docId}: patched a document the server lacks`);
-        this.append({ type: 'MetadataPatched', docId, at: now });
-        return;
-      }
-
-      case 'releaseLocalFiles': {
-        if (!this.server.has(state.sha256)) {
-          this.violations.push(`${docId}: released local files for a document not on the server`);
-        }
-        this.append({ type: 'LocalFilesReleased', docId, at: now });
-        return;
-      }
-
-      case 'wait': {
-        if (command.untilMs !== null) this.waitTargets.push(command.untilMs);
-        return;
-      }
-
-      case 'idle':
-        return;
-    }
-  }
-
-  private applyAttemptFault(docId: DocId, attempt: number): void {
-    const now = this.clock.now();
-
-    if (rollKill(this.options.faults, this.rand, now)) {
-      // The process dies between logging the attempt and logging its outcome.
-      // The log now ends at UploadStarted, so on resume the engine cannot know
-      // whether the bytes landed -- which is exactly the spec's crash scenario.
-      // Half the time they did land, and reconciliation has to notice.
-      if (this.rand.chance(0.5)) this.server.post(docId, now);
-      this.pendingResume = true;
-      this.dead = true;
-      this.kills += 1;
+    // Sometimes the user accepts what Paperless suggested.
+    if (state.suggestions !== null && state.metadata === null && this.rand.chance(0.3)) {
+      await this.engine.acceptMetadata(docId, { title: `Document ${state.remoteId ?? 0}` });
       return;
     }
 
-    const fault = rollAttempt(this.options.faults, this.rand, now);
-    const fail = (reason: FailureReason): void => {
-      this.append({
-        type: 'UploadFailed',
-        docId,
-        at: now,
-        attempt,
-        reason,
-        jitter: this.rand.next(),
-      });
-    };
-
-    switch (fault) {
-      case 'dropRequest':
-        fail({ kind: 'unreachable' });
-        return;
-      case 'serverError':
-        fail({ kind: 'server_error', status: 503 });
-        return;
-      case 'authError':
-        fail({ kind: 'auth', status: 401 });
-        return;
-      case 'rateLimited':
-        fail({ kind: 'rate_limited', retryAfterMs: 3_000 });
-        return;
-      case 'lostResponse':
-        // The server accepts the document and the client never hears back. The
-        // bytes are safe; the client has no idea. This is the case that breaks
-        // naive uploaders.
-        this.server.post(docId, now);
-        fail({ kind: 'unreachable' });
-        return;
-      case 'none': {
-        const taskId = this.server.post(docId, now);
-        this.append({ type: 'TaskAccepted', docId, at: now, taskId });
-        return;
-      }
+    try {
+      const command = await this.engine.tick(docId, this.resuming);
+      this.noteWait(command);
+    } catch (error) {
+      if (!(error instanceof ProcessKilled)) throw error;
+      // The log ends at UploadStarted. That is the spec's crash scenario.
     }
   }
 
-  private allSettled(): boolean {
-    for (const log of this.logs.values()) {
-      const state = reduce(log);
+  private noteWait(command: Command | null): void {
+    if (command?.type === 'wait' && command.untilMs !== null) {
+      this.waitTargets.push(command.untilMs);
+    }
+  }
+
+  private ports(): EnginePorts {
+    return {
+      now: () => this.clock.now(),
+      jitter: () => this.rand.next(),
+      net: () => this.net,
+      policy: () => this.policy,
+      api: {
+        postDocument: (state) => Promise.resolve(this.post(state)),
+        getTask: (taskId) => Promise.resolve(ok(this.server.task(taskId))),
+        findByCaptureId: (sha256) => {
+          this.reconciles += 1;
+          return Promise.resolve(ok(this.server.findByHash(sha256)?.id ?? null));
+        },
+        getSuggestions: (remoteId) =>
+          Promise.resolve(ok({ title: `Document ${remoteId}`, documentType: 'Receipt' })),
+        patchDocument: (remoteId, patch) => {
+          const applied = this.server.patch(remoteId, {
+            title: patch.title,
+            correspondentId: patch.correspondentId,
+            documentTypeId: patch.documentTypeId,
+            tagIds: patch.tagIds,
+          });
+          if (!applied)
+            this.violations.push(`patched document ${remoteId}, which the server lacks`);
+          return Promise.resolve(ok(null));
+        },
+      },
+      files: {
+        release: (state) => {
+          if (!this.server.has(state.sha256)) {
+            this.violations.push(
+              `${state.docId}: released local files for a document not on the server`,
+            );
+          }
+          return Promise.resolve();
+        },
+      },
+    };
+  }
+
+  private post(
+    state: DocState,
+  ): ReturnType<EnginePorts['api']['postDocument']> extends Promise<infer R> ? R : never {
+    const now = this.clock.now();
+
+    if (state.taskId !== null) {
+      this.violations.push(`${state.docId}: uploaded while task ${state.taskId} was outstanding`);
+    }
+    this.uploads.set(state.docId, (this.uploads.get(state.docId) ?? 0) + 1);
+
+    if (rollKill(this.options.faults, this.rand, now)) {
+      // Dies between the attempt being logged and its outcome being logged. Half
+      // the time the bytes landed anyway, and reconciliation has to notice.
+      if (this.rand.chance(0.5)) this.server.post(state.sha256, now);
+      this.pendingResume = true;
+      this.dead = true;
+      this.kills += 1;
+      throw new ProcessKilled();
+    }
+
+    switch (rollAttempt(this.options.faults, this.rand, now)) {
+      case 'dropRequest':
+        return err({ kind: 'unreachable' });
+      case 'serverError':
+        return err({ kind: 'server_error', status: 503 });
+      case 'authError':
+        return err({ kind: 'auth', status: 401 });
+      case 'rateLimited':
+        return err({ kind: 'rate_limited', retryAfterMs: 3_000 });
+      case 'lostResponse':
+        // The server accepts it and the client never hears back. The bytes are
+        // safe; the client has no idea. This is what breaks naive uploaders.
+        this.server.post(state.sha256, now);
+        return err({ kind: 'unreachable' });
+      case 'none':
+        return ok(this.server.post(state.sha256, now));
+    }
+  }
+
+  // Read through an accessor: `dead` is set inside a port call, which the
+  // compiler's control-flow analysis cannot see from the run loop.
+  private isDead(): boolean {
+    return this.dead;
+  }
+
+  private async allSettled(): Promise<boolean> {
+    for (const state of (await this.store.states()).values()) {
       if (state.status !== 'SYNCED') return false;
-      const command = next(state, {
-        now: this.clock.now(),
-        net: 'wifi',
-        policy: this.policy,
-        resuming: false,
-      });
-      if (command.type !== 'idle') return false;
+      if (state.suggestions === null) return false;
+      if (state.metadata !== null && !state.metadataPatched) return false;
+      if (!this.policy.keepLocalAfterSync && state.localFilesPresent) return false;
     }
     return true;
   }
@@ -352,18 +285,8 @@ class Sim {
     this.clock.advance(Math.max(STEP_MS, target - now));
   }
 
-  // Read through accessors: these flags are mutated inside stepDocument, which
-  // the compiler's control-flow analysis cannot see from the run loop.
-  private isDead(): boolean {
-    return this.dead;
-  }
-
-  private madeProgress(): boolean {
-    return this.progressed;
-  }
-
-  private shuffledDocIds(): DocId[] {
-    const ids = [...this.logs.keys()];
+  private shuffled(): DocId[] {
+    const ids = [...this.docIds];
     for (let i = ids.length - 1; i > 0; i--) {
       const j = this.rand.int(i + 1);
       const a = ids[i]!;
@@ -372,20 +295,9 @@ class Sim {
     }
     return ids;
   }
-
-  private log(docId: DocId): CaptureEvent[] {
-    const log = this.logs.get(docId);
-    if (!log) throw new Error(`unknown document ${docId}`);
-    return log;
-  }
-
-  private append(event: CaptureEvent): void {
-    this.log(event.docId).push(event);
-    this.progressed = true;
-  }
 }
 
-export function runSim(options: SimOptions): SimResult {
+export function runSim(options: SimOptions): Promise<SimResult> {
   return new Sim(options).run();
 }
 
@@ -393,5 +305,3 @@ export function runSim(options: SimOptions): SimResult {
 export function seeds(count: number, from = 1): number[] {
   return Array.from({ length: count }, (_, i) => from + i);
 }
-
-export { MAX_AUTO_ATTEMPTS };

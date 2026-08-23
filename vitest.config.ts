@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@sheaf/core': pkg('core'),
+      '@sheaf/engine': pkg('engine'),
       '@sheaf/paperless': pkg('paperless'),
       '@sheaf/pdf': pkg('pdf'),
       '@sheaf/store': pkg('store'),

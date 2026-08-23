@@ -3,9 +3,11 @@
 Deterministic simulation testing for the sync engine, in the FoundationDB /
 TigerBeetle style: virtual time, seeded randomness, injected faults.
 
-Rather than hand-writing the edge cases from the spec, the suite runs the pure
-engine through hundreds of seeded fault schedules and asserts the properties that
-must hold across all of them.
+Rather than hand-writing the edge cases from the spec, the suite runs the **real**
+engine — `@sheaf/engine` writing to a real `DocumentStore` — through hundreds of
+seeded fault schedules, and asserts the properties that must hold across all of
+them. Only the world is simulated: the clock is virtual, randomness is seeded, and
+the faults live in the ports.
 
 ```ts
 for (const seed of seeds(150)) {
@@ -43,16 +45,18 @@ consumption lazily when a client polled, which quietly made the duplicate path
 unreachable — the suite passed while testing nothing. The "actually exercises the
 interesting paths" test exists to catch exactly that.
 
-## What 300 hostile schedules do
+## What 200 hostile schedules do
 
-1,500 documents, and the engine's behaviour across them:
+1,000 documents through the real engine:
 
 ```
-POSTs issued                   2,003     retries and lost responses
-documents stored               1,500     exactly one per content hash
-duplicate rejections           490       each read as SYNCED, not as failure
-crash recoveries               255       resolved by one hash lookup, never a re-upload
-process kills survived         3,644
+events appended                9,986
+POSTs issued                   1,327     retries and lost responses
+documents stored               1,000     exactly one per content hash
+duplicate rejections           324       each read as SYNCED, not as failure
+crash recoveries               161       resolved by one hash lookup, never a re-upload
+process kills survived         2,459
+metadata patches applied       733
 documents lost                 0
 documents duplicated           0
 ```
