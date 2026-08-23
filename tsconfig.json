@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@sheaf/core": ["./packages/core/src/index.ts"],
+      "@sheaf/paperless": ["./packages/paperless/src/index.ts"],
+      "@sheaf/sim": ["./packages/sim/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "*.ts", "*.mjs"]
+}

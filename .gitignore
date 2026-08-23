@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# expo / react native
+.expo/
+.expo-shared/
+android/
+ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# secrets & local config
+.env
+.env.*
+!.env.example
+*.pem
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# test / debug artifacts
+sim-failures/
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
