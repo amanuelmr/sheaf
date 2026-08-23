@@ -1,0 +1,10 @@
+export type { SqlDriver, SqlValue } from './driver';
+export { SCHEMA_VERSION, migrate } from './schema';
+export type { EventLog, EventRecord } from './log';
+export { MemoryEventLog } from './memory-log';
+export { SqlEventLog } from './sql-log';
+export { DocumentStore } from './store';
+export type { OutboxRow } from './outbox';
+export { pendingCount, projectOutbox, toOutboxRow } from './outbox';
+export type { TrailEntry } from './trail';
+export { paperTrail } from './trail';

@@ -44,6 +44,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/pdf: {}
+
   packages/sim:
     dependencies:
       '@sheaf/core':
@@ -52,6 +54,12 @@ importers:
       '@sheaf/paperless':
         specifier: workspace:*
         version: link:../paperless
+
+  packages/store:
+    dependencies:
+      '@sheaf/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

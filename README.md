@@ -122,6 +122,7 @@ apps/mobile          Expo + React Native. Camera, SQLite executor, UI projection
       │
       ├── packages/core        pure decisions: reduce(events) → state, next(state, tick) → command
       ├── packages/pdf         pages → deterministic PDF bytes → SHA-256 identity
+      ├── packages/store       the durable log, and every projection read off it
       ├── packages/paperless   Paperless-ngx API + response interpretation
       └── packages/sim         virtual clock, seeded RNG, injected faults
 ```
