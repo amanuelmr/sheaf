@@ -10,7 +10,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "dev.sheaf.capture",
       "infoPlist": {
-        "NSCameraUsageDescription": "Sheaf uses the camera to scan documents and send them to your own Paperless server."
+        "NSCameraUsageDescription": "Sheaf uses the camera to scan documents and send them to your own Paperless server.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
