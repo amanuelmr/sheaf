@@ -47,3 +47,9 @@ jobs:
 
       - name: Test
         run: pnpm run test:coverage
+
+      # The app cannot be run here, so bundle it instead. Metro resolving every
+      # workspace import and every screen is a far stronger signal than typecheck
+      # alone -- and it is how the missing @expo/metro-runtime peer was found.
+      - name: Bundle the app
+        run: pnpm run bundle

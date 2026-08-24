@@ -203,10 +203,11 @@ post-sync work is bounded.
 
 Next, in order of how much they would change:
 
-1. **Contract tests against a real Paperless-ngx** in Docker. Two assumptions are
+1. **Run the app on a device.** It bundles, but nothing device-side has executed:
+   no camera, no permission flow, no native SQLite write, no layout.
+2. **Contract tests against a real Paperless-ngx** in Docker. Two assumptions are
    still unverified: that `original_filename__istartswith` filters, and that the
    duplicate wording matches what `interpretTask` looks for.
-2. **Run the app.** It has never been launched.
 3. Page editing — crop, rotate, perspective correction — as post-capture repair.
 4. On-device OCR, scoped to offline search of your own outbox and near-duplicate
    detection. Not to guessing metadata: Paperless's classifier knows your corpus.

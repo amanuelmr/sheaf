@@ -64,9 +64,15 @@ Needs a development build rather than Expo Go, because `expo-sqlite`,
 ## What is verified, and what is not
 
 `pnpm verify` typechecks this app under the same strict settings as the packages,
-lints it, and runs the pure helpers in `src/lib`.
+lints it, and runs the pure helpers in `src/lib`. `pnpm bundle` then builds it with
+Metro — 1,211 modules into 2.7 MB of Hermes bytecode — which proves every workspace
+import resolves and every screen and adapter loads. Both run in CI.
 
-It does **not** run the app. Nothing here has been executed on a device or a
+That is a real signal, and it caught two things typecheck could not: a missing
+`@expo/metro-runtime` peer, and pnpm's strict symlinked layout being unresolvable by
+Metro (hence `node-linker=hoisted` in the root `.npmrc`).
+
+It still does **not** run the app. Nothing here has been executed on a device or a
 simulator: no camera capture, no permission flow, no SQLite write on real hardware,
 no layout at any screen size. The engine underneath it is covered by
 [`@sheaf/sim`](../../packages/sim), but the wiring in `adapters/` and every screen is

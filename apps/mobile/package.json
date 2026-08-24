@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~57.0.13",
     "@react-native-community/netinfo": "12.0.1",
     "@sheaf/core": "workspace:*",
     "@sheaf/engine": "workspace:*",

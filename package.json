@@ -22,7 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "bundle": "pnpm --filter @sheaf/mobile exec expo export --platform ios --output-dir .expo/export"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
