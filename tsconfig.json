@@ -8,6 +8,7 @@
       "@sheaf/engine": ["./packages/engine/src/index.ts"],
       "@sheaf/paperless": ["./packages/paperless/src/index.ts"],
       "@sheaf/pdf": ["./packages/pdf/src/index.ts"],
+      "@sheaf/protocol": ["./packages/protocol/src/index.ts"],
       "@sheaf/store": ["./packages/store/src/index.ts"],
       "@sheaf/sim": ["./packages/sim/src/index.ts"]
     }

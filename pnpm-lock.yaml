@@ -152,6 +152,8 @@ importers:
 
   packages/pdf: {}
 
+  packages/protocol: {}
+
   packages/sim:
     dependencies:
       '@sheaf/core':

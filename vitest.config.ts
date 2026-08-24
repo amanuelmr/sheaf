@@ -11,6 +11,7 @@ export default defineConfig({
       '@sheaf/engine': pkg('engine'),
       '@sheaf/paperless': pkg('paperless'),
       '@sheaf/pdf': pkg('pdf'),
+      '@sheaf/protocol': pkg('protocol'),
       '@sheaf/store': pkg('store'),
       '@sheaf/sim': pkg('sim'),
     },
@@ -18,6 +19,7 @@ export default defineConfig({
   test: {
     include: [
       'packages/*/test/**/*.test.ts',
+      'services/*/test/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
       // The app's pure helpers. Anything importing react-native stays out.
       'apps/*/test/**/*.test.ts',
@@ -29,6 +31,7 @@ export default defineConfig({
         'packages/engine/src/**',
         'packages/paperless/src/**',
         'packages/pdf/src/**',
+        'packages/protocol/src/**',
         'packages/store/src/**',
       ],
       // Type declarations and re-export barrels carry no logic to cover.
