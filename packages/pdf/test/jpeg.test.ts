@@ -70,7 +70,7 @@ suite('malformed and hostile input', () => {
       new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11]), // length but no frame
       new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x00]), // length below the minimum
       new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff]), // segment longer than the file
-      new Uint8Array([0xff, 0xd8, ...Array(64).fill(0xff)]), // nothing but fill bytes
+      new Uint8Array([0xff, 0xd8, ...Array<number>(64).fill(0xff)]), // nothing but fill bytes
       new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0]), // scan, no frame
     ];
     for (const bytes of nasty) {
