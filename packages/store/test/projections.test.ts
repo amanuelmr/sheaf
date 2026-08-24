@@ -295,3 +295,75 @@ suite('post-sync failures are visible, not silent', () => {
     expect(trail[1]!.notable).toBe(true);
   });
 });
+
+suite('derived state is memoised, and invalidated exactly', () => {
+  it('serves repeated reads without replaying the log again', async () => {
+    let replays = 0;
+    const log = new MemoryEventLog();
+    const counting = {
+      append: (events: readonly CaptureEvent[]) => log.append(events),
+      replay: (docId: string) => {
+        replays += 1;
+        return log.replay(docId);
+      },
+      docIds: () => log.docIds(),
+      since: (seq: number) => log.since(seq),
+      count: () => log.count(),
+    };
+    const store = new DocumentStore(counting);
+    await store.commit(...base(DOC_A));
+
+    await store.states();
+    await store.states();
+    await store.states();
+    expect(replays).toBe(1);
+  });
+
+  it('notices its own writes', async () => {
+    const store = new DocumentStore(new MemoryEventLog());
+    await store.commit(...base(DOC_A));
+    expect((await store.state(DOC_A))!.status).toBe('QUEUED');
+
+    await store.commit({ type: 'UploadStarted', docId: DOC_A, at: 2_000, attempt: 1 });
+    // A stale memo here would hide the transition entirely.
+    expect((await store.state(DOC_A))!.status).toBe('UPLOADING');
+
+    await store.commit({ type: 'TaskAccepted', docId: DOC_A, at: 2_100, taskId: 't' });
+    expect((await store.state(DOC_A))!.taskId).toBe('t');
+  });
+
+  it('picks up a document it had never seen', async () => {
+    const store = new DocumentStore(new MemoryEventLog());
+    await store.commit(...base(DOC_A));
+    expect((await store.states()).size).toBe(1);
+    await store.commit(...base(DOC_B));
+    expect((await store.states()).size).toBe(2);
+  });
+
+  it('can be told to forget everything', async () => {
+    const store = new DocumentStore(new MemoryEventLog());
+    await store.commit(...base(DOC_A));
+    await store.states();
+    store.invalidate();
+    // Same answer, just recomputed — the memo changes speed, never results.
+    expect((await store.state(DOC_A))!.status).toBe('QUEUED');
+  });
+
+  it('stays flat as the library grows, rather than quadratic', async () => {
+    const store = new DocumentStore(new MemoryEventLog());
+    for (let i = 0; i < 600; i++) {
+      const id = String(i).padStart(64, '0');
+      await store.commit(
+        { type: 'Captured', docId: id, at: 1, pages: [page('p1')], sha256: id, bytes: 1 },
+        { type: 'Enqueued', docId: id, at: 1, sha256: id },
+      );
+    }
+    await store.states(); // warm
+
+    const start = process.hrtime.bigint();
+    for (let i = 0; i < 20; i++) await store.states();
+    const perPass = Number(process.hrtime.bigint() - start) / 1e6 / 20;
+    // Before the memo, one pass over 600 documents cost tens of milliseconds.
+    expect(perPass, `${perPass.toFixed(2)} ms per pass`).toBeLessThan(5);
+  });
+});

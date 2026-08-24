@@ -162,7 +162,7 @@ It needs a development build rather than Expo Go, because `expo-sqlite`,
 
 ## Verification
 
-228 tests. What each one is worth:
+233 tests. What each one is worth:
 
 |               |                                                                                                                                                                                                                                                                         |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -172,7 +172,7 @@ It needs a development build rather than Expo Go, because `expo-sqlite`,
 | `engine`      | Unit tested, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                                            |
 | `apps/mobile` | Typechecked and linted. **Never run** — see below.                                                                                                                                                                                                                      |
 
-Six bugs were found by tests and probes written to be hard rather than to pass:
+Seven defects were found by tests and probes written to be hard rather than to pass:
 
 - The **simulator's own fake server** consumed a task only when polled, which made
   the duplicate path unreachable — the suite passed while testing nothing.
@@ -189,10 +189,15 @@ Six bugs were found by tests and probes written to be hard rather than to pass:
   the content hash, so the second capture was inert — but it appended two dead events
   and the shutter still said "Saved. On its way to Paperless."
 
-The last three were missed by the simulator because its ports always answered `ok`
-for post-sync work, and it generated a unique hash per document so identical content
-never recurred. Both gaps are now injected faults, and the suite asserts post-sync
-work is bounded.
+- **The tick loop was quadratic.** Every pass replayed every document's log,
+  including thousands of long-synced ones: 107 ms at 1,000 documents, blocking the JS
+  thread every three seconds. Fixed with the cache ADR 0001 had already reserved the
+  right to add — 0.3 ms now.
+
+The three post-sync defects were missed by the simulator because its ports always
+answered `ok` for that work, and it generated a unique hash per document so identical
+content never recurred. Both gaps are now injected faults, and the suite asserts
+post-sync work is bounded.
 
 ## Roadmap
 
