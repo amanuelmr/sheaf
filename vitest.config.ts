@@ -26,6 +26,7 @@ export default defineConfig({
       provider: 'v8',
       include: [
         'packages/core/src/**',
+        'packages/engine/src/**',
         'packages/paperless/src/**',
         'packages/pdf/src/**',
         'packages/store/src/**',
@@ -35,6 +36,8 @@ export default defineConfig({
       thresholds: {
         // The sync core is the part that must not be wrong. Keep the bar high here.
         'packages/core/src/**': { statements: 90, branches: 85, functions: 90, lines: 90 },
+        'packages/engine/src/**': { statements: 90, branches: 90, functions: 90, lines: 90 },
+        'packages/pdf/src/**': { statements: 90, branches: 85, functions: 90, lines: 90 },
       },
     },
   },

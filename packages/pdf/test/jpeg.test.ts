@@ -54,3 +54,77 @@ suite('readJpegInfo', () => {
     expect(readJpegInfo(full.slice(0, full.indexOf(0xc0) + 4))).toBeNull();
   });
 });
+
+suite('malformed and hostile input', () => {
+  /**
+   * This parser is the only place untrusted bytes are interpreted, and it was the
+   * weakest-covered file in the repo. A camera roll can contain anything, and a
+   * parser that loops or reads past the end here would take the app down at the
+   * exact moment the user is trying to save something.
+   */
+  it('never runs off the end, whatever the bytes are', () => {
+    const nasty: Uint8Array[] = [
+      new Uint8Array([0xff, 0xd8, 0xff]), // marker with no payload
+      new Uint8Array([0xff, 0xd8, 0xff, 0xc0]), // SOF with no length
+      new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00]), // length half written
+      new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11]), // length but no frame
+      new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x00]), // length below the minimum
+      new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff]), // segment longer than the file
+      new Uint8Array([0xff, 0xd8, ...Array(64).fill(0xff)]), // nothing but fill bytes
+      new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0]), // scan, no frame
+    ];
+    for (const bytes of nasty) {
+      expect(readJpegInfo(bytes), Array.from(bytes.slice(0, 8)).join(',')).toBeNull();
+    }
+  });
+
+  it('resynchronises through junk rather than giving up at the first odd byte', () => {
+    // Entropy-coded data and padding both look like junk between markers.
+    const real = jpeg({ width: 320, height: 240, withApp0: false });
+    const withJunk = new Uint8Array([
+      ...real.slice(0, 2),
+      0x00,
+      0x11,
+      0x22,
+      0x33, // bytes that are not a marker
+      ...real.slice(2),
+    ]);
+    expect(readJpegInfo(withJunk)).toEqual({
+      width: 320,
+      height: 240,
+      components: 3,
+      progressive: false,
+    });
+  });
+
+  it('skips restart markers and other standalone markers', () => {
+    const real = jpeg({ width: 64, height: 48, withApp0: false });
+    const withRestarts = new Uint8Array([
+      ...real.slice(0, 2),
+      0xff,
+      0xd0, // RST0 — standalone, no length
+      0xff,
+      0x01, // TEM — standalone
+      ...real.slice(2),
+    ]);
+    expect(readJpegInfo(withRestarts)?.width).toBe(64);
+  });
+
+  it('stops at start-of-scan instead of misreading compressed data as a header', () => {
+    // A file whose frame header is missing but which has a scan: the answer is
+    // "unknown", not a dimension invented from pixel data.
+    const bytes = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0,
+      0x12, 0x34, 0x56, 0xff, 0xd9,
+    ]);
+    expect(readJpegInfo(bytes)).toBeNull();
+  });
+
+  it('terminates on every truncation of a real file', () => {
+    // The cheap way to be sure there is no unbounded loop or out-of-range read.
+    const real = jpeg({ width: 800, height: 600 });
+    for (let cut = 0; cut <= real.length; cut++) {
+      expect(() => readJpegInfo(real.slice(0, cut))).not.toThrow();
+    }
+  });
+});

@@ -162,7 +162,7 @@ It needs a development build rather than Expo Go, because `expo-sqlite`,
 
 ## Verification
 
-233 tests. What each one is worth:
+238 tests, and coverage floors enforced on `core`, `engine` and `pdf`. What each is worth:
 
 |               |                                                                                                                                                                                                                                                                         |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
