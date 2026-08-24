@@ -36,8 +36,14 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Ghostscript (validates hand-written PDFs against a real parser)
-        run: gs --version
+      # The PDF writer is hand-rolled, so its output is checked by a parser nobody
+      # here wrote. Not preinstalled on the runner, so install it rather than skip
+      # the only assertion that does not trust our own reading of the format.
+      - name: Install Ghostscript
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ghostscript
+          gs --version
 
       - name: Test
         run: pnpm run test:coverage
