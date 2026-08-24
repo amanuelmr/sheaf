@@ -1,7 +1,8 @@
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
-import { createIngestServer } from './server';
-import { Storage } from './storage';
+import { createIngestServer } from './server.ts';
+import { Storage } from './storage.ts';
 
 /**
  * Entry point. Configuration is environment only — nothing about where documents
@@ -20,6 +21,10 @@ if (token === undefined || token.length < 16) {
 
 const dataDir = process.env['SHEAF_DATA_DIR'] ?? join(process.cwd(), '.sheaf-data');
 const port = Number(process.env['PORT'] ?? 8787);
+
+// SQLite will not create the directory it is asked to open a file in, so first
+// run fails with a bare "unable to open database file" unless we make it first.
+mkdirSync(dataDir, { recursive: true });
 
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });

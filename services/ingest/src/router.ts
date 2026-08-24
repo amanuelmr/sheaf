@@ -12,8 +12,8 @@ import {
   type HealthResponse,
   type ListResponse,
 } from '@sheaf/protocol';
-import type { Storage } from './storage';
-import { sha256Hex } from './storage';
+import type { Storage } from './storage.ts';
+import { sha256Hex } from './storage.ts';
 
 /**
  * Every route, as a pure function of a parsed request.

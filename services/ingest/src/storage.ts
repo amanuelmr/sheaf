@@ -44,10 +44,16 @@ export function sha256Hex(bytes: Uint8Array): string {
 }
 
 export class Storage {
-  private constructor(
-    private readonly driver: SqlDriver,
-    private readonly objectsDir: string,
-  ) {}
+  // Written out rather than declared as constructor parameter properties: Node
+  // runs this file by stripping types, which cannot handle TypeScript syntax that
+  // emits code. Anything not erasable fails at startup rather than at build time.
+  readonly #driver: SqlDriver;
+  readonly #objectsDir: string;
+
+  private constructor(driver: SqlDriver, objectsDir: string) {
+    this.#driver = driver;
+    this.#objectsDir = objectsDir;
+  }
 
   static async open(options: StorageOptions): Promise<Storage> {
     for (const statement of SCHEMA) await options.driver.exec(statement);
@@ -72,12 +78,12 @@ export class Storage {
     if (await this.has(sha256)) return 'already-stored';
 
     const target = this.pathFor(sha256);
-    mkdirSync(join(this.objectsDir, sha256.slice(0, 2)), { recursive: true });
+    mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
     const temp = `${target}.${process.pid}.tmp`;
     writeFileSync(temp, bytes);
     renameSync(temp, target);
 
-    await this.driver.run(
+    await this.#driver.run(
       `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
        VALUES (?, ?, ?, ?, '[]')
        ON CONFLICT(sha256) DO NOTHING`,
@@ -87,7 +93,7 @@ export class Storage {
   }
 
   async has(sha256: string): Promise<boolean> {
-    const rows = await this.driver.all<{ n: number }>(
+    const rows = await this.#driver.all<{ n: number }>(
       'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ?',
       [sha256],
     );
@@ -95,7 +101,7 @@ export class Storage {
   }
 
   async record(sha256: string): Promise<DocumentRecord | null> {
-    const rows = await this.driver.all<Row>('SELECT * FROM documents WHERE sha256 = ?', [sha256]);
+    const rows = await this.#driver.all<Row>('SELECT * FROM documents WHERE sha256 = ?', [sha256]);
     const row = rows[0];
     return row === undefined ? null : toRecord(row);
   }
@@ -106,7 +112,7 @@ export class Storage {
   }
 
   async list(limit = 200): Promise<readonly DocumentRecord[]> {
-    const rows = await this.driver.all<Row>(
+    const rows = await this.#driver.all<Row>(
       'SELECT * FROM documents ORDER BY received_at DESC, sha256 ASC LIMIT ?',
       [limit],
     );
@@ -114,7 +120,7 @@ export class Storage {
   }
 
   async count(): Promise<number> {
-    const rows = await this.driver.all<{ n: number }>('SELECT COUNT(*) AS n FROM documents');
+    const rows = await this.#driver.all<{ n: number }>('SELECT COUNT(*) AS n FROM documents');
     return rows[0]?.n ?? 0;
   }
 
@@ -139,14 +145,14 @@ export class Storage {
 
     if (sets.length > 0) {
       values.push(sha256);
-      await this.driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+      await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
     }
     return this.record(sha256);
   }
 
   private pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
-    return join(this.objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
+    return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
   }
 }
 

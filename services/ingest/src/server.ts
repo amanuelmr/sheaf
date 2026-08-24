@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { MAX_DOCUMENT_BYTES, ERROR_STATUS } from '@sheaf/protocol';
-import { handle, type RouterDeps } from './router';
+import { handle, type RouterDeps } from './router.ts';
 
 /**
  * The socket edge, and nothing else. All behaviour lives in `handle`.

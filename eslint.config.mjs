@@ -55,6 +55,17 @@ export default tseslint.config(
     },
   },
   {
+    // Node executes this service by stripping types, which cannot handle any
+    // TypeScript that emits code. Parameter properties are the easy one to reach
+    // for and they fail at startup, not at build time -- so they are banned here
+    // rather than rediscovered.
+    files: ['services/**/*.ts'],
+    rules: {
+      '@typescript-eslint/parameter-properties': ['error', { prefer: 'class-property' }],
+      '@typescript-eslint/no-namespace': 'error',
+    },
+  },
+  {
     // The app is its own TypeScript project (Expo's base config, JSX, RN types).
     // projectService finds apps/mobile/tsconfig.json on its own.
     files: ['apps/mobile/**/*.ts', 'apps/mobile/**/*.tsx'],

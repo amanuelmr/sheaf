@@ -9,6 +9,9 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
+    // The ingest service is executed by Node directly, whose ESM resolver
+    // requires explicit extensions. Bundled code stays extensionless.
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,

@@ -1,5 +1,5 @@
-export { Storage, sha256Hex } from './storage';
-export type { StorageOptions } from './storage';
-export { handle } from './router';
-export type { IngestRequest, IngestResponse, RouterDeps } from './router';
-export { createIngestServer } from './server';
+export { Storage, sha256Hex } from './storage.ts';
+export type { StorageOptions } from './storage.ts';
+export { handle } from './router.ts';
+export type { IngestRequest, IngestResponse, RouterDeps } from './router.ts';
+export { createIngestServer } from './server.ts';
