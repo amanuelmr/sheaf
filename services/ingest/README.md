@@ -10,6 +10,24 @@ export SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toSt
 pnpm --filter @sheaf/ingest start
 ```
 
+Or in Docker, which reads the token from a gitignored `.env` at the repo root:
+
+```bash
+echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
+docker compose up -d
+```
+
+## Reaching it from a phone
+
+The server listens on every interface, so a phone on the same network can reach it
+at your machine's LAN address — `http://192.168.x.x:8787`. `localhost` only works
+from the machine itself and from an iOS simulator, which shares its host's network.
+
+iOS will not talk to a plain-HTTP address on a local network without two things in
+`Info.plist`, both of which the app sets: `NSAllowsLocalNetworking`, and
+`NSLocalNetworkUsageDescription` so the permission prompt can explain itself. A
+missing prompt fails silently, and looks exactly like a server that is down.
+
 | Variable         | Default         |                                                                           |
 | ---------------- | --------------- | ------------------------------------------------------------------------- |
 | `SHEAF_TOKEN`    | —               | Required. At least 16 characters; the server refuses to start without it. |
