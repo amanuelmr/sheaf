@@ -12,6 +12,8 @@ export default defineConfig({
       '@sheaf/paperless': pkg('paperless'),
       '@sheaf/pdf': pkg('pdf'),
       '@sheaf/protocol': pkg('protocol'),
+      '@sheaf/store/node': fileURLToPath(new URL('./packages/store/src/node.ts', import.meta.url)),
+      '@sheaf/ingest': fileURLToPath(new URL('./services/ingest/src/index.ts', import.meta.url)),
       '@sheaf/store': pkg('store'),
       '@sheaf/sim': pkg('sim'),
     },
@@ -32,6 +34,7 @@ export default defineConfig({
         'packages/paperless/src/**',
         'packages/pdf/src/**',
         'packages/protocol/src/**',
+        'services/ingest/src/**',
         'packages/store/src/**',
       ],
       // Type declarations and re-export barrels carry no logic to cover.

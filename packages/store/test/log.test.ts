@@ -4,7 +4,7 @@ import { migrate, SCHEMA_VERSION } from '../src/schema';
 import { SqlEventLog } from '../src/sql-log';
 import { MemoryEventLog } from '../src/memory-log';
 import type { EventLog } from '../src/log';
-import { failingAfter, nodeDriver, type TestDriver } from './node-driver';
+import { failingAfter, nodeSqliteDriver, type TestDriver } from './node-driver';
 import { DOC_A, DOC_B, fullLife } from './events';
 
 /**
@@ -16,7 +16,7 @@ const implementations: Array<[string, () => Promise<EventLog>]> = [
   [
     'SqlEventLog',
     async () => {
-      const driver = nodeDriver();
+      const driver = nodeSqliteDriver();
       await migrate(driver);
       return new SqlEventLog(driver);
     },
@@ -83,7 +83,7 @@ for (const [name, make] of implementations) {
 suite('SqlEventLog durability', () => {
   let driver: TestDriver;
   beforeEach(async () => {
-    driver = nodeDriver();
+    driver = nodeSqliteDriver();
     await migrate(driver);
   });
 

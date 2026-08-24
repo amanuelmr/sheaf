@@ -1,0 +1,23 @@
+# The Sheaf server. Yours: it runs on your machine and holds your documents.
+#
+#   export SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+#   docker compose up -d
+#
+# For local development you do not need this at all -- the server has no runtime
+# dependencies, so `pnpm --filter @sheaf/ingest start` is faster and equivalent.
+services:
+  ingest:
+    build:
+      context: .
+      dockerfile: services/ingest/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      # No default. A server holding documents should not come up guessable.
+      SHEAF_TOKEN: ${SHEAF_TOKEN:?set SHEAF_TOKEN to a long random string}
+    volumes:
+      - documents:/data
+
+volumes:
+  documents:

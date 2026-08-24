@@ -41,3 +41,6 @@ sim-failures/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# local server data
+.sheaf-data/

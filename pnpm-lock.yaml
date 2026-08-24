@@ -175,6 +175,15 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  services/ingest:
+    dependencies:
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@sheaf/store':
+        specifier: workspace:*
+        version: link:../../packages/store
+
 packages:
 
   '@ampproject/remapping@2.3.0':

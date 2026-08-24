@@ -9,6 +9,7 @@ export default tseslint.config(
       '**/coverage/**',
       '**/node_modules/**',
       '**/.expo/**',
+      '**/.sheaf-data/**',
       // CommonJS build config, outside any TypeScript project.
       'apps/*/babel.config.js',
       'apps/*/metro.config.js',
@@ -29,6 +30,15 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'error',
+    },
+  },
+  {
+    // Purity is a requirement of the core specifically, not of the repo. Written as
+    // "only here" rather than "everywhere except these", because the second form
+    // silently exempts anything added later -- which is exactly what happened when
+    // the ingest service arrived and inherited a rule meant for the core.
+    files: ['packages/core/src/**/*.ts'],
+    rules: {
       'no-restricted-syntax': [
         'error',
         {
@@ -45,15 +55,9 @@ export default tseslint.config(
     },
   },
   {
-    // The purity rules above only apply to the pure core; app + adapters may read clocks.
-    files: ['packages/paperless/**', 'packages/sim/**', 'apps/**'],
-    rules: { 'no-restricted-syntax': 'off' },
-  },
-  {
     // The app is its own TypeScript project (Expo's base config, JSX, RN types).
+    // projectService finds apps/mobile/tsconfig.json on its own.
     files: ['apps/mobile/**/*.ts', 'apps/mobile/**/*.tsx'],
-    // projectService finds apps/mobile/tsconfig.json on its own; overriding it
-    // here only fights with the root setting.
     rules: {
       // React components legitimately return unions the compiler cannot narrow.
       '@typescript-eslint/no-unnecessary-condition': 'off',

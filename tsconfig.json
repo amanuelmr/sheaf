@@ -9,9 +9,18 @@
       "@sheaf/paperless": ["./packages/paperless/src/index.ts"],
       "@sheaf/pdf": ["./packages/pdf/src/index.ts"],
       "@sheaf/protocol": ["./packages/protocol/src/index.ts"],
+      "@sheaf/store/node": ["./packages/store/src/node.ts"],
+      "@sheaf/ingest": ["./services/ingest/src/index.ts"],
       "@sheaf/store": ["./packages/store/src/index.ts"],
       "@sheaf/sim": ["./packages/sim/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "*.ts", "*.mjs"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "services/*/src/**/*.ts",
+    "services/*/test/**/*.ts",
+    "*.ts",
+    "*.mjs"
+  ]
 }
