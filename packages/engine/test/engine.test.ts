@@ -302,3 +302,107 @@ suite('retrying', () => {
     expect(await h.engine.tick('unknown')).toBeNull();
   });
 });
+
+suite('post-sync work is bounded', () => {
+  /**
+   * These exist because it was not. A probe found 198 suggestion requests in 200
+   * ticks against a server answering 404 — per synced document, for ever.
+   */
+  const reachSynced = async (h: ReturnType<typeof harness>) => {
+    await capture(h.engine);
+    await h.engine.tick(DOC);
+    h.r.taskResult = ok({ task_id: 'task-1', status: 'SUCCESS', related_document: 4821 });
+    await h.engine.tick(DOC);
+  };
+
+  it('stops asking for suggestions the server will never give', async () => {
+    const h = harness();
+    await reachSynced(h);
+    h.r.suggestResult = err({ kind: 'not_found' });
+
+    h.r.calls = [];
+    for (let i = 0; i < 200; i++) await h.engine.tick(DOC);
+
+    const asked = h.r.calls.filter((c) => c === 'getSuggestions').length;
+    expect(asked).toBe(1); // 404 is not retryable: asked once, then never again
+    expect((await h.store.state(DOC))!.status).toBe('SYNCED');
+  });
+
+  it('spends a bounded budget on suggestions when the network is the problem', async () => {
+    const h = harness();
+    await reachSynced(h);
+    h.r.suggestResult = err({ kind: 'unreachable' });
+
+    h.r.calls = [];
+    for (let i = 0; i < 200; i++) {
+      h.r.now += 1_000_000; // jump past every backoff
+      await h.engine.tick(DOC);
+    }
+    expect(h.r.calls.filter((c) => c === 'getSuggestions').length).toBe(5);
+  });
+
+  it('stops trying to save details the server keeps refusing', async () => {
+    const h = harness();
+    await reachSynced(h);
+    await h.engine.tick(DOC); // suggestions
+    await h.engine.acceptMetadata(DOC, { title: 'Amazon receipt' });
+    h.r.patchResult = err({ kind: 'not_found' });
+
+    h.r.calls = [];
+    for (let i = 0; i < 200; i++) await h.engine.tick(DOC);
+    expect(h.r.calls.filter((c) => c === 'patchDocument').length).toBe(1);
+
+    // The document itself is untouched by any of this.
+    const state = (await h.store.state(DOC))!;
+    expect(state.status).toBe('SYNCED');
+    expect(state.remoteId).toBe(4821);
+    expect(state.localFilesPresent).toBe(true);
+  });
+
+  it('tries again when the user asks, without re-uploading the document', async () => {
+    const h = harness();
+    await reachSynced(h);
+    await h.engine.tick(DOC);
+    await h.engine.acceptMetadata(DOC, { title: 'Amazon receipt' });
+    h.r.patchResult = err({ kind: 'not_found' });
+    await h.engine.tick(DOC);
+
+    h.r.patchResult = ok(null);
+    h.r.calls = [];
+    await h.engine.requestRetry(DOC);
+    await h.engine.tick(DOC);
+    expect(h.r.calls).toEqual(['patchDocument']);
+    expect(h.r.calls).not.toContain('postDocument');
+    expect((await h.store.state(DOC))!.metadataPatched).toBe(true);
+  });
+});
+
+suite('scanning the same paper twice', () => {
+  it('recognises it instead of claiming a success that did not happen', async () => {
+    // Identity is the content hash, so this is the spec's duplicate detection for
+    // free. Before this, a re-scan appended two inert events and the shutter said
+    // "Saved. On its way to Paperless."
+    const h = harness();
+    await capture(h.engine);
+    await h.engine.tick(DOC);
+    h.r.taskResult = ok({ task_id: 'task-1', status: 'SUCCESS', related_document: 4821 });
+    await h.engine.tick(DOC);
+
+    const eventsBefore = await h.log.count();
+    h.r.calls = [];
+    const outcome = await capture(h.engine);
+
+    expect(outcome.kind).toBe('already-captured');
+    if (outcome.kind === 'already-captured') expect(outcome.state.remoteId).toBe(4821);
+    expect(await h.log.count()).toBe(eventsBefore); // no dead events in the trail
+    expect(h.r.calls).toEqual([]); // and nothing sent
+  });
+
+  it('recognises it while the first copy is still on its way', async () => {
+    const h = harness();
+    await capture(h.engine);
+    const outcome = await capture(h.engine);
+    expect(outcome.kind).toBe('already-captured');
+    if (outcome.kind === 'already-captured') expect(outcome.state.status).toBe('QUEUED');
+  });
+});

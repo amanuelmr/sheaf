@@ -208,3 +208,90 @@ suite('DocumentStore', () => {
     expect(await s.trail('missing')).toEqual([]);
   });
 });
+
+suite('post-sync failures are visible, not silent', () => {
+  const synced: CaptureEvent[] = [
+    ...base(DOC_A),
+    { type: 'UploadStarted', docId: DOC_A, at: 2_000, attempt: 1 },
+    { type: 'TaskAccepted', docId: DOC_A, at: 2_100, taskId: 'task-1' },
+    {
+      type: 'ServerConfirmed',
+      docId: DOC_A,
+      at: 2_200,
+      outcome: { kind: 'stored', remoteId: 4821 },
+    },
+  ];
+
+  it('says so when the document arrived but the details did not', () => {
+    const row = toOutboxRow(
+      stateFrom([
+        ...synced,
+        { type: 'MetadataAccepted', docId: DOC_A, at: 3_000, patch: { title: 'Amazon' } },
+        {
+          type: 'SideTaskFailed',
+          docId: DOC_A,
+          at: 3_100,
+          task: 'metadata',
+          attempt: 1,
+          reason: { kind: 'not_found' },
+          jitter: 0,
+        },
+      ]),
+    );
+    expect(row.status).toBe('SYNCED');
+    expect(row.symbol).toBe('⚠');
+    expect(row.label).toBe('Synced — details not saved');
+    // The distinction that matters: the document is fine, only the details are not.
+    expect(row.detail).toMatch(/document is in Paperless/i);
+    expect(row.actionable).toBe(true);
+  });
+
+  it('stays a plain success when only the suggestions failed', () => {
+    // The user never asked for suggestions, so their absence is not their problem.
+    const row = toOutboxRow(
+      stateFrom([
+        ...synced,
+        {
+          type: 'SideTaskFailed',
+          docId: DOC_A,
+          at: 3_000,
+          task: 'suggestions',
+          attempt: 1,
+          reason: { kind: 'not_found' },
+          jitter: 0,
+        },
+      ]),
+    );
+    expect(row.label).toBe('Synced');
+    expect(row.actionable).toBe(false);
+  });
+
+  it('records both kinds of failure in the trail, in plain language', () => {
+    const trail = paperTrail([
+      {
+        type: 'SideTaskFailed',
+        docId: DOC_A,
+        at: 1,
+        task: 'suggestions',
+        attempt: 1,
+        reason: { kind: 'not_found' },
+        jitter: 0,
+      },
+      {
+        type: 'SideTaskFailed',
+        docId: DOC_A,
+        at: 2,
+        task: 'metadata',
+        attempt: 2,
+        reason: { kind: 'unreachable' },
+        jitter: 0,
+      },
+    ]);
+    expect(trail[0]!.text).toBe(
+      "Couldn't get suggestions — that address doesn't look like a Paperless server.",
+    );
+    expect(trail[0]!.notable).toBe(false);
+    expect(trail[1]!.text).toBe("Couldn't save your details — couldn't reach Paperless.");
+    expect(trail[1]!.notable).toBe(true);
+  });
+});

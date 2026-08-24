@@ -1,4 +1,4 @@
-import type { DocId, FailureReason, MetadataPatch, PageRef, Suggestions } from './events';
+import type { DocId, FailureReason, MetadataPatch, PageRef, SideTask, Suggestions } from './events';
 
 /**
  * Status is DERIVED, never stored. That is what makes an invalid state transition
@@ -26,6 +26,14 @@ export type DocStatus =
   /** Automatic retries are done. The document is still safely on this device. */
   | 'FAILED';
 
+/** Retry budget for one piece of post-sync work. */
+export interface SideTaskState {
+  readonly attempts: number;
+  readonly nextAttemptAt: number | null;
+  /** Set once we have stopped trying. The document is already safe either way. */
+  readonly abandoned: FailureReason | null;
+}
+
 export interface DocState {
   readonly docId: DocId;
   readonly sha256: string;
@@ -43,6 +51,7 @@ export interface DocState {
   readonly metadata: MetadataPatch | null;
   readonly metadataPatched: boolean;
   readonly localFilesPresent: boolean;
+  readonly side: Readonly<Record<SideTask, SideTaskState>>;
   readonly createdAt: number;
   readonly updatedAt: number;
 }
@@ -50,6 +59,19 @@ export interface DocState {
 /** A document the user can no longer influence by waiting. */
 export function needsUser(state: DocState): boolean {
   return state.status === 'BLOCKED' || state.status === 'FAILED';
+}
+
+/**
+ * The document is on the server, but something the user asked for did not stick.
+ * Worth surfacing: it is the only case where SYNCED still needs attention.
+ */
+export function hasUnsavedDetails(state: DocState): boolean {
+  return (
+    state.status === 'SYNCED' &&
+    state.metadata !== null &&
+    !state.metadataPatched &&
+    state.side.metadata.abandoned !== null
+  );
 }
 
 /** The server has it. Safe to consider the local copy redundant. */

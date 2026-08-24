@@ -7,10 +7,11 @@ export type {
   PageId,
   PageRef,
   ServerOutcome,
+  SideTask,
   Suggestions,
 } from './events';
-export type { DocState, DocStatus } from './state';
-export { isSynced, mayBeOnServer, needsUser } from './state';
+export type { DocState, DocStatus, SideTaskState } from './state';
+export { hasUnsavedDetails, isSynced, mayBeOnServer, needsUser } from './state';
 export { apply, reduce } from './reduce';
 export type { Command, NetStatus, SyncPolicy, Tick } from './machine';
 export { next, shouldAutoRetryOnReconnect } from './machine';

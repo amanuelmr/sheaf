@@ -72,6 +72,12 @@ function describeEvent(event: CaptureEvent): { text: string; notable: boolean } 
       return { text: 'You accepted the suggested details', notable: false };
     case 'MetadataPatched':
       return { text: 'Details saved to Paperless', notable: false };
+    case 'SideTaskFailed': {
+      const why = lowerFirst(explainFailure(event.reason).title);
+      return event.task === 'suggestions'
+        ? { text: `Couldn't get suggestions — ${why}`, notable: false }
+        : { text: `Couldn't save your details — ${why}`, notable: true };
+    }
     case 'GaveUp':
       return { text: 'Stopped retrying — still saved on this device', notable: true };
     case 'RetryRequested':

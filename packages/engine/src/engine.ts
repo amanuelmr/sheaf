@@ -8,10 +8,21 @@ import {
   type FailureReason,
   type MetadataPatch,
   type PageRef,
+  type SideTask,
 } from '@sheaf/core';
 import { interpretTask } from '@sheaf/paperless';
 import type { DocumentStore } from '@sheaf/store';
 import type { EnginePorts } from './ports';
+
+/**
+ * What happened when the shutter fired.
+ *
+ * Because identity is the content hash, scanning the same piece of paper twice
+ * produces the same document — so this is also the spec's duplicate detection (§26),
+ * for free. The UI needs to know, or it reports a success that did not happen.
+ */
+export type CaptureOutcome =
+  { readonly kind: 'captured' } | { readonly kind: 'already-captured'; readonly state: DocState };
 
 export interface CaptureInput {
   readonly docId: DocId;
@@ -37,7 +48,13 @@ export class SyncEngine {
    * The shutter. Commits the capture and immediately makes it eligible for upload:
    * the document is durable and on its way before any human looks at it.
    */
-  async capture(input: CaptureInput): Promise<void> {
+  async capture(input: CaptureInput): Promise<CaptureOutcome> {
+    // Identical content is the same document. Appending a second Captured event
+    // would be inert -- the reducer ignores it -- but it would pad the log and let
+    // the UI claim a success that never happened.
+    const existing = await this.store.state(input.docId);
+    if (existing !== null) return { kind: 'already-captured', state: existing };
+
     const at = this.ports.now();
     await this.store.commit(
       {
@@ -50,6 +67,7 @@ export class SyncEngine {
       },
       { type: 'Enqueued', docId: input.docId, at, sha256: input.sha256 },
     );
+    return { kind: 'captured' };
   }
 
   /** Advance one document by exactly one command. */
@@ -188,7 +206,7 @@ export class SyncEngine {
 
   private async fetchSuggestions(state: DocState, remoteId: number): Promise<void> {
     const result = await this.ports.api.getSuggestions(remoteId);
-    if (!result.ok) return;
+    if (!result.ok) return this.sideTaskFailed(state, 'suggestions', result.reason);
     await this.store.commit({
       type: 'SuggestionsReceived',
       docId: state.docId,
@@ -203,7 +221,7 @@ export class SyncEngine {
     patch: MetadataPatch,
   ): Promise<void> {
     const result = await this.ports.api.patchDocument(remoteId, patch);
-    if (!result.ok) return;
+    if (!result.ok) return this.sideTaskFailed(state, 'metadata', result.reason);
     await this.store.commit({
       type: 'MetadataPatched',
       docId: state.docId,
@@ -217,6 +235,26 @@ export class SyncEngine {
       type: 'LocalFilesReleased',
       docId: state.docId,
       at: this.ports.now(),
+    });
+  }
+
+  /**
+   * Record a failed piece of post-sync work so the reducer can back it off and,
+   * eventually, stop. Without this the engine re-asks on every tick for ever.
+   */
+  private async sideTaskFailed(
+    state: DocState,
+    task: SideTask,
+    reason: FailureReason,
+  ): Promise<void> {
+    await this.store.commit({
+      type: 'SideTaskFailed',
+      docId: state.docId,
+      at: this.ports.now(),
+      task,
+      attempt: state.side[task].attempts + 1,
+      reason,
+      jitter: this.ports.jitter(),
     });
   }
 

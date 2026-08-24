@@ -70,6 +70,12 @@ export interface MetadataPatch {
   readonly createdDate?: string;
 }
 
+/**
+ * Work that happens after a document is safely on the server. Optional by nature,
+ * so it must be able to fail and stop rather than retry for ever.
+ */
+export type SideTask = 'suggestions' | 'metadata';
+
 interface EventBase {
   readonly docId: DocId;
   /** Milliseconds since epoch, supplied by the caller. The core never reads a clock. */
@@ -104,6 +110,18 @@ export type CaptureEvent =
   | (EventBase & { readonly type: 'SuggestionsReceived'; readonly suggestions: Suggestions })
   | (EventBase & { readonly type: 'MetadataAccepted'; readonly patch: MetadataPatch })
   | (EventBase & { readonly type: 'MetadataPatched' })
+  /**
+   * Post-sync enrichment failed. Carries the same shape as an upload failure so it
+   * gets the same discipline: backoff, a budget, and no retrying of a refusal that
+   * retrying cannot change.
+   */
+  | (EventBase & {
+      readonly type: 'SideTaskFailed';
+      readonly task: SideTask;
+      readonly attempt: number;
+      readonly reason: FailureReason;
+      readonly jitter: number;
+    })
   /** Automatic retries are exhausted. The document is still safely on this device. */
   | (EventBase & { readonly type: 'GaveUp'; readonly reason: FailureReason })
   /** The user (or regained connectivity) asked for another go. Resets the budget. */

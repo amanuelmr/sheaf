@@ -162,17 +162,17 @@ It needs a development build rather than Expo Go, because `expo-sqlite`,
 
 ## Verification
 
-204 tests. What each one is worth:
+228 tests. What each one is worth:
 
-|               |                                                                                                       |
-| ------------- | ----------------------------------------------------------------------------------------------------- |
-| `core`, `pdf` | Pure; ~100% of statements. SHA-256 cross-checked against `node:crypto` at every length from 0 to 200. |
-| `store`       | Real SQL against `node:sqlite`. Both log implementations held to one parametrised suite.              |
-| `paperless`   | Every branch, against an injected transport — including four tests that the token cannot escape.      |
-| `engine`      | Unit tested, and driven by the simulator across hundreds of fault schedules.                          |
-| `apps/mobile` | Typechecked and linted. **Never run** — see below.                                                    |
+|               |                                                                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`, `pdf` | Pure; ~100% of statements. SHA-256 cross-checked against `node:crypto` at every length from 0 to 200. Assembled PDFs are parsed and rendered by **Ghostscript**, from real JPEG fixtures — the one assertion here that does not depend on my own reading of the format. |
+| `store`       | Real SQL against `node:sqlite`. Both log implementations held to one parametrised suite.                                                                                                                                                                                |
+| `paperless`   | Every branch, against an injected transport — including four tests that the token cannot escape.                                                                                                                                                                        |
+| `engine`      | Unit tested, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                                            |
+| `apps/mobile` | Typechecked and linted. **Never run** — see below.                                                                                                                                                                                                                      |
 
-Three bugs were found by tests written to be hard rather than to pass:
+Six bugs were found by tests and probes written to be hard rather than to pass:
 
 - The **simulator's own fake server** consumed a task only when polled, which made
   the duplicate path unreachable — the suite passed while testing nothing.
@@ -180,6 +180,19 @@ Three bugs were found by tests written to be hard rather than to pass:
   All three published test vectors passed; lengths 55, 119 and 183 did not.
 - **Reconciliation** would have trusted a server-side filter that DRF silently
   ignores, marking un-uploaded documents as synced.
+- **Suggestions were retried for ever.** A server answering 404 on
+  `/suggestions/` was re-asked on every tick, per synced document — 198 requests in
+  200 ticks. Fifty documents would have meant ~17 requests/second against someone's
+  home server, for a _non-retryable_ error.
+- **Metadata patches had the same defect**, with the same unbounded shape.
+- **Re-scanning the same paper claimed a success that never happened.** Identity is
+  the content hash, so the second capture was inert — but it appended two dead events
+  and the shutter still said "Saved. On its way to Paperless."
+
+The last three were missed by the simulator because its ports always answered `ok`
+for post-sync work, and it generated a unique hash per document so identical content
+never recurred. Both gaps are now injected faults, and the suite asserts post-sync
+work is bounded.
 
 ## Roadmap
 

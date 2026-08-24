@@ -56,6 +56,10 @@ Three invariants matter more than the rest:
    document that is not `SYNCED`.
 3. **The log is append-only in the database**, enforced by triggers rather than by
    convention.
+4. **Post-sync work is bounded.** Fetching suggestions and saving details happen to a
+   document that is already safe, so they get a backoff, a budget, and a terminal
+   "given up" state. Without it, a server that answers 404 gets asked on every tick
+   for the life of the app.
 
 ## Why an event log
 
@@ -102,6 +106,11 @@ code.
 | `paperless`   | Every branch, against an injected transport. Not yet against a real Paperless-ngx.                                   |
 | `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                |
 | `apps/mobile` | Typechecked and linted. **Never run.** No camera, permission flow, native SQLite write, or layout has been executed. |
+
+The `pdf` row is worth expanding: assembled documents are parsed _and rendered_ by
+Ghostscript from real JPEG fixtures, and the rendered page is checked for the right
+geometry and for actually containing the image. Everything else about that package is
+my own reading of the PDF spec checking itself.
 
 The two open assumptions, both recorded in ADRs: that
 `original_filename__istartswith` filters on real servers

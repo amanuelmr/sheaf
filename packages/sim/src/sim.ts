@@ -10,7 +10,7 @@ import { SyncEngine, type EnginePorts } from '@sheaf/engine';
 import { err, ok } from '@sheaf/paperless';
 import { DocumentStore, MemoryEventLog, type EventLog } from '@sheaf/store';
 import { FakePaperless } from './fake-paperless';
-import { rollAttempt, rollKill, rollOffline, type FaultProfile } from './faults';
+import { rollAttempt, rollKill, rollOffline, rollSideTask, type FaultProfile } from './faults';
 import { rng, type Rng } from './random';
 import { virtualClock, type VirtualClock } from './clock';
 
@@ -32,6 +32,8 @@ export interface SimResult {
   readonly uploads: Map<DocId, number>;
   readonly reconciles: number;
   readonly kills: number;
+  /** How often post-sync work was attempted. Bounded, or the engine is looping. */
+  readonly sideTaskCalls: number;
   /** Invariants breached during the run. A correct engine leaves this empty. */
   readonly violations: readonly string[];
 }
@@ -73,6 +75,7 @@ class Sim {
   private waitTargets: number[] = [];
   private reconciles = 0;
   private kills = 0;
+  private sideTaskCalls = 0;
 
   constructor(private readonly options: SimOptions) {
     this.clock = virtualClock(0);
@@ -145,6 +148,7 @@ class Sim {
       uploads: this.uploads,
       reconciles: this.reconciles,
       kills: this.kills,
+      sideTaskCalls: this.sideTaskCalls,
       violations: this.violations,
     };
   }
@@ -196,9 +200,19 @@ class Sim {
           this.reconciles += 1;
           return Promise.resolve(ok(this.server.findByHash(sha256)?.id ?? null));
         },
-        getSuggestions: (remoteId) =>
-          Promise.resolve(ok({ title: `Document ${remoteId}`, documentType: 'Receipt' })),
+        getSuggestions: (remoteId) => {
+          this.sideTaskCalls += 1;
+          const fault = rollSideTask(this.options.faults, this.rand);
+          if (fault === 'permanent') return Promise.resolve(err({ kind: 'not_found' }));
+          if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
+          return Promise.resolve(ok({ title: `Document ${remoteId}`, documentType: 'Receipt' }));
+        },
         patchDocument: (remoteId, patch) => {
+          this.sideTaskCalls += 1;
+          const fault = rollSideTask(this.options.faults, this.rand);
+          if (fault === 'permanent')
+            return Promise.resolve(err({ kind: 'rejected', status: 400, message: 'no' }));
+          if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
           const applied = this.server.patch(remoteId, {
             title: patch.title,
             correspondentId: patch.correspondentId,
@@ -271,8 +285,16 @@ class Sim {
   private async allSettled(): Promise<boolean> {
     for (const state of (await this.store.states()).values()) {
       if (state.status !== 'SYNCED') return false;
-      if (state.suggestions === null) return false;
-      if (state.metadata !== null && !state.metadataPatched) return false;
+      // Work the engine has rightly given up on counts as settled: the document
+      // itself is confirmed, which is what actually matters.
+      if (state.suggestions === null && state.side.suggestions.abandoned === null) return false;
+      if (
+        state.metadata !== null &&
+        !state.metadataPatched &&
+        state.side.metadata.abandoned === null
+      ) {
+        return false;
+      }
       if (!this.policy.keepLocalAfterSync && state.localFilesPresent) return false;
     }
     return true;

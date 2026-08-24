@@ -52,13 +52,25 @@ export default function Shutter() {
       // The bytes land on disk before the event does, so a log entry never
       // describes a document that is not there.
       const file = writePdf(result.sha256, result.bytes);
-      await service.sync.capture({
+      const outcome = await service.sync.capture({
         docId: result.sha256,
         sha256: result.sha256,
         bytes: file.size ?? result.bytes.length,
         pages: collected.map((page) => page.ref),
       });
       setPages([]);
+
+      if (outcome.kind === 'already-captured') {
+        // Identical content is the same document, so this is duplicate detection
+        // for free -- and saying "saved" here would be a lie.
+        setNotice(
+          outcome.state.status === 'SYNCED'
+            ? 'You’ve scanned this one already — it’s in Paperless.'
+            : 'You’ve scanned this one already — it’s still on its way.',
+        );
+        return;
+      }
+
       setNotice(
         offline
           ? 'Saved on this device. It’ll sync when your server is reachable.'

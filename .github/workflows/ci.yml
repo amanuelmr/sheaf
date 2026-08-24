@@ -36,5 +36,8 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Ghostscript (validates hand-written PDFs against a real parser)
+        run: gs --version
+
       - name: Test
         run: pnpm run test:coverage

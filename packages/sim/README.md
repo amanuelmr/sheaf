@@ -35,6 +35,13 @@ client unable to tell "never arrived" from "arrived, reply lost" — the case th
 makes naive uploaders either duplicate the document or declare failure on one that
 is safely stored.
 
+`sideTaskError` was added after the fact. The ports here used to answer `ok` for
+suggestions and metadata patches, so the engine's behaviour when they fail was never
+exercised at all — and it turned out to retry a permanent 404 on every tick, for
+every synced document, indefinitely. Those faults deliberately do **not** heal: a
+server without a suggestions endpoint never grows one, and the engine has to notice
+and stop.
+
 `FakePaperless` models the server semantics the engine depends on: a POST returns a
 task id immediately, consumption completes later **on the server's own timeline**
 whether or not a client is watching, and content is hashed server-side so a

@@ -1,5 +1,5 @@
 import type { DocState, DocStatus } from '@sheaf/core';
-import { describe as explainFailure } from '@sheaf/core';
+import { describe as explainFailure, hasUnsavedDetails } from '@sheaf/core';
 
 /**
  * What the outbox screen renders.
@@ -107,6 +107,16 @@ function present(state: DocState): {
         actionable: false,
       };
     case 'SYNCED':
+      // The document itself is safe; only the details the user chose did not stick.
+      // That is worth surfacing, and it is the one case where SYNCED is actionable.
+      if (hasUnsavedDetails(state)) {
+        return {
+          symbol: '⚠',
+          label: 'Synced — details not saved',
+          detail: 'The document is in Paperless. Only the details you chose didn’t save.',
+          actionable: true,
+        };
+      }
       return { symbol: '✓', label: 'Synced', detail: null, actionable: false };
     case 'BLOCKED': {
       const error = state.lastError === null ? null : explainFailure(state.lastError);

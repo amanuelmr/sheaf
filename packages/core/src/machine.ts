@@ -1,6 +1,6 @@
 import { isRetryable } from './errors';
 import type { DocId, MetadataPatch } from './events';
-import type { DocState } from './state';
+import type { DocState, SideTaskState } from './state';
 
 export type NetStatus = 'offline' | 'cellular' | 'wifi';
 
@@ -38,6 +38,17 @@ export type Command =
   | { readonly type: 'releaseLocalFiles'; readonly docId: DocId }
   | { readonly type: 'wait'; readonly docId: DocId; readonly untilMs: number | null }
   | { readonly type: 'idle'; readonly docId: DocId };
+
+/**
+ * Whether a piece of post-sync work may run now, must wait, or has been given up on.
+ * Returning 'abandoned' is what stops a 404 on the suggestions endpoint from being
+ * re-asked on every tick for the life of the app.
+ */
+function sideTaskDue(task: SideTaskState, now: number): 'now' | 'abandoned' | number {
+  if (task.abandoned !== null) return 'abandoned';
+  if (task.nextAttemptAt !== null && now < task.nextAttemptAt) return task.nextAttemptAt;
+  return 'now';
+}
 
 function canReachServer(tick: Tick): boolean {
   if (tick.net === 'offline') return false;
@@ -92,13 +103,25 @@ export function next(state: DocState, tick: Tick): Command {
       return { type: 'idle', docId };
 
     case 'SYNCED': {
+      // The user's own intent outranks fetching hints.
       if (state.remoteId !== null && state.metadata !== null && !state.metadataPatched) {
-        return { type: 'patchMetadata', docId, remoteId: state.remoteId, patch: state.metadata };
+        const due = sideTaskDue(state.side.metadata, tick.now);
+        if (due === 'now') {
+          return { type: 'patchMetadata', docId, remoteId: state.remoteId, patch: state.metadata };
+        }
+        if (due !== 'abandoned') return { type: 'wait', docId, untilMs: due };
       }
+
       if (state.remoteId !== null && state.suggestions === null) {
-        return { type: 'fetchSuggestions', docId, remoteId: state.remoteId };
+        const due = sideTaskDue(state.side.suggestions, tick.now);
+        if (due === 'now') return { type: 'fetchSuggestions', docId, remoteId: state.remoteId };
+        if (due !== 'abandoned') return { type: 'wait', docId, untilMs: due };
       }
-      const metadataSettled = state.metadata === null || state.metadataPatched;
+
+      // Abandoned post-sync work must not hold the local copy hostage: the document
+      // itself is confirmed, which is what retention actually depends on.
+      const metadataSettled =
+        state.metadata === null || state.metadataPatched || state.side.metadata.abandoned !== null;
       if (!tick.policy.keepLocalAfterSync && state.localFilesPresent && metadataSettled) {
         return { type: 'releaseLocalFiles', docId };
       }

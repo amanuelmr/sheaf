@@ -1,7 +1,7 @@
 import { MAX_AUTO_ATTEMPTS, backoffMs } from './backoff';
 import { isBlocking, isRetryable } from './errors';
-import type { CaptureEvent, PageRef, ServerOutcome } from './events';
-import type { DocState } from './state';
+import type { CaptureEvent, PageRef, ServerOutcome, SideTask } from './events';
+import type { DocState, SideTaskState } from './state';
 
 /** Events that could move a document toward the server. Ignored once SYNCED. */
 const UPLOAD_EVENTS = new Set(['UploadStarted', 'UploadFailed', 'TaskAccepted', 'GaveUp']);
@@ -10,6 +10,32 @@ function replacePage(pages: readonly PageRef[], page: PageRef): readonly PageRef
   const i = pages.findIndex((p) => p.id === page.id);
   if (i === -1) return [...pages, page];
   return pages.map((p, j) => (j === i ? page : p));
+}
+
+const FRESH: SideTaskState = { attempts: 0, nextAttemptAt: null, abandoned: null };
+
+/**
+ * Post-sync work gets the same discipline as an upload: back off, spend a bounded
+ * budget, and stop for a refusal that retrying cannot change.
+ *
+ * Without this, a server whose suggestions endpoint answers 404 gets asked again on
+ * every tick, for every synced document, for ever.
+ */
+function applySideFailure(
+  state: DocState,
+  task: SideTask,
+  attempt: number,
+  reason: DocState['lastError'] & object,
+  jitter: number,
+  at: number,
+): DocState {
+  const giveUp = !isRetryable(reason) || attempt >= MAX_AUTO_ATTEMPTS;
+  const next: SideTaskState = {
+    attempts: attempt,
+    nextAttemptAt: giveUp ? null : at + backoffMs(attempt, jitter),
+    abandoned: giveUp ? reason : null,
+  };
+  return { ...state, side: { ...state.side, [task]: next }, updatedAt: at };
 }
 
 function applyServerConfirmed(state: DocState, outcome: ServerOutcome, at: number): DocState {
@@ -129,25 +155,52 @@ export function apply(state: DocState, event: CaptureEvent): DocState {
       };
 
     case 'RetryRequested':
+      // A synced document has nothing to re-upload, but its abandoned post-sync
+      // work can be given another go.
+      if (state.status === 'SYNCED') {
+        return { ...state, side: { suggestions: FRESH, metadata: FRESH }, updatedAt: at };
+      }
       // Never re-arm a document the server might already hold.
       if (state.status !== 'FAILED' && state.status !== 'BLOCKED' && state.status !== 'BACKOFF') {
         return state;
       }
-      return { ...state, status: 'QUEUED', attempts: 0, nextAttemptAt: null, updatedAt: at };
+      return {
+        ...state,
+        status: 'QUEUED',
+        attempts: 0,
+        nextAttemptAt: null,
+        side: { suggestions: FRESH, metadata: FRESH },
+        updatedAt: at,
+      };
 
     case 'SuggestionsReceived':
-      return { ...state, suggestions: event.suggestions, updatedAt: at };
+      return {
+        ...state,
+        suggestions: event.suggestions,
+        side: { ...state.side, suggestions: FRESH },
+        updatedAt: at,
+      };
 
     case 'MetadataAccepted':
+      // Fresh intent deserves a fresh budget, even if a previous patch was abandoned.
       return {
         ...state,
         metadata: { ...state.metadata, ...event.patch },
         metadataPatched: false,
+        side: { ...state.side, metadata: FRESH },
         updatedAt: at,
       };
 
     case 'MetadataPatched':
-      return { ...state, metadataPatched: true, updatedAt: at };
+      return {
+        ...state,
+        metadataPatched: true,
+        side: { ...state.side, metadata: FRESH },
+        updatedAt: at,
+      };
+
+    case 'SideTaskFailed':
+      return applySideFailure(state, event.task, event.attempt, event.reason, event.jitter, at);
 
     case 'LocalFilesReleased':
       // Only ever emitted after confirmation; the reducer does not police policy,
@@ -184,6 +237,7 @@ export function reduce(events: readonly CaptureEvent[]): DocState {
     metadata: null,
     metadataPatched: false,
     localFilesPresent: true,
+    side: { suggestions: FRESH, metadata: FRESH },
     createdAt: first.at,
     updatedAt: first.at,
   };

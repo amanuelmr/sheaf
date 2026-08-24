@@ -10,6 +10,7 @@
  */
 import { describe as suite, expect, it } from 'vitest';
 import { runSim, seeds, type SimResult } from '../src/sim';
+import { MAX_AUTO_ATTEMPTS } from '@sheaf/core';
 import { CALM, FLAKY, HOSTILE } from '../src/faults';
 
 function assertHealthy(result: SimResult, seed: number, documents: number): void {
@@ -70,8 +71,13 @@ suite('exactly-once delivery', () => {
     let reconciles = 0;
     let kills = 0;
     let patches = 0;
+    let abandoned = 0;
     for (const seed of seeds(50, 30_000)) {
       const result = await runSim({ seed, documents: 4, faults: HOSTILE });
+      for (const state of result.states.values()) {
+        if (state.side.suggestions.abandoned !== null) abandoned += 1;
+        if (state.side.metadata.abandoned !== null) abandoned += 1;
+      }
       duplicates += result.server.counters.duplicatesReported;
       reconciles += result.reconciles;
       kills += result.kills;
@@ -79,9 +85,25 @@ suite('exactly-once delivery', () => {
     }
     // Guards against the suite quietly passing because nothing interesting happened.
     expect(duplicates, 'no duplicate rejection was ever exercised').toBeGreaterThan(0);
+    expect(abandoned, 'post-sync work was never given up on').toBeGreaterThan(0);
     expect(reconciles, 'no crash recovery was ever exercised').toBeGreaterThan(0);
     expect(kills, 'no process kill was ever exercised').toBeGreaterThan(0);
     expect(patches, 'metadata was never patched').toBeGreaterThan(0);
+  });
+
+  it('bounds post-sync work instead of asking for ever', async () => {
+    // A server with no suggestions endpoint never grows one. The engine has to
+    // notice and stop -- it did not, and asked 198 times in 200 ticks.
+    for (const seed of seeds(40, 80_000)) {
+      const result = await runSim({ seed, documents: 5, faults: HOSTILE });
+      // At most one budget per task per document, plus the successes.
+      const ceiling = 5 * 2 * (MAX_AUTO_ATTEMPTS + 1);
+      expect(
+        result.sideTaskCalls,
+        `seed ${seed}: ${result.sideTaskCalls} calls`,
+      ).toBeLessThanOrEqual(ceiling);
+      expect(result.converged, `seed ${seed}`).toBe(true);
+    }
   });
 
   it('never uploads while the server might already hold the document', async () => {
