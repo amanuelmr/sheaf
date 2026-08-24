@@ -61,6 +61,10 @@ pnpm --filter @sheaf/mobile start
 Needs a development build rather than Expo Go, because `expo-sqlite`,
 `expo-secure-store` and `expo-camera` are native modules.
 
+The iOS build requires one patched dependency: `expo-modules-jsi@57.0.5` annotates
+two constructors with `SWIFT_RETURNS_RETAINED`, which Swift 6.2 (Xcode 26) rejects.
+It is a two-line, verified-redundant removal — see [`patches/README.md`](../../patches/README.md).
+
 ## What is verified, and what is not
 
 `pnpm verify` typechecks this app under the same strict settings as the packages,

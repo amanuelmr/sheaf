@@ -1,18 +1,12 @@
-// Monorepo-aware Metro: the app imports @sheaf/* straight from source, so Metro
-// has to watch the workspace root and resolve modules hoisted there.
+// The workspace root must be watched so Metro picks up edits to packages/*, which
+// are imported straight from TypeScript source. Everything else is left to
+// expo/metro-config: with a hoisted node_modules (see the root .npmrc) the usual
+// monorepo resolver overrides are unnecessary, and `disableHierarchicalLookup`
+// actively fights Expo's defaults.
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('node:path');
 
-const projectRoot = __dirname;
-const workspaceRoot = path.resolve(projectRoot, '../..');
-
-const config = getDefaultConfig(projectRoot);
-
-config.watchFolders = [workspaceRoot];
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
-];
-config.resolver.disableHierarchicalLookup = true;
+const config = getDefaultConfig(__dirname);
+config.watchFolders = [path.resolve(__dirname, '../..')];
 
 module.exports = config;

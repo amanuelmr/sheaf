@@ -6,7 +6,6 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.sheaf.capture",
@@ -15,8 +14,7 @@
       }
     },
     "android": {
-      "package": "dev.sheaf.capture",
-      "edgeToEdgeEnabled": true
+      "package": "dev.sheaf.capture"
     },
     "plugins": [
       "expo-router",
@@ -27,7 +25,8 @@
         {
           "cameraPermission": "Sheaf uses the camera to scan documents and send them to your own Paperless server."
         }
-      ]
+      ],
+      "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": true

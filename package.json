@@ -39,6 +39,13 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "patchedDependencies": {
+      "expo-modules-jsi@57.0.5": "patches/expo-modules-jsi@57.0.5.patch"
+    },
+    "overrides": {
+      "react-native-worklets": "0.10.1",
+      "react-native-reanimated": "4.5.1"
+    }
   }
 }
