@@ -38,7 +38,7 @@ export default function Inbox() {
         <EmptyState
           palette={palette}
           title="Nothing to file."
-          body="Documents already in Paperless show up here when it has suggestions about them."
+          body="Documents already on your server show up here when there is something to suggest."
         />
       ) : (
         pending.map((state) => (

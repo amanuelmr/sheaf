@@ -95,8 +95,8 @@ function present(state: DocState): {
     case 'AWAITING_SERVER':
       return {
         symbol: '⋯',
-        label: 'Checking with Paperless',
-        detail: 'Paperless has it and is filing it now.',
+        label: 'Checking with your server',
+        detail: 'Your server has it and is filing it now.',
         actionable: false,
       };
     case 'BACKOFF':
@@ -113,7 +113,7 @@ function present(state: DocState): {
         return {
           symbol: '⚠',
           label: 'Synced — details not saved',
-          detail: 'The document is in Paperless. Only the details you chose didn’t save.',
+          detail: 'The document is on your server. Only the details you chose didn’t save.',
           actionable: true,
         };
       }

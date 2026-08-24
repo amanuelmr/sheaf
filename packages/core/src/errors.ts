@@ -55,35 +55,35 @@ export function describe(reason: FailureReason): UserFacingError {
   switch (reason.kind) {
     case 'unreachable':
       return {
-        title: "Couldn't reach Paperless.",
+        title: "Couldn't reach your server.",
         reassurance: `${SAFE} We'll try again automatically.`,
         actions: ['retry', 'view_details'],
         technical: 'Network request failed before a response was received.',
       };
     case 'server_error':
       return {
-        title: 'Your Paperless server ran into a problem.',
+        title: 'Your server ran into a problem.',
         reassurance: `${SAFE} We'll try again automatically.`,
         actions: ['retry', 'view_details'],
         technical: `HTTP ${reason.status}`,
       };
     case 'rate_limited':
       return {
-        title: 'Paperless asked us to slow down.',
+        title: 'Your server asked us to slow down.',
         reassurance: `${SAFE} We'll try again shortly.`,
         actions: ['view_details'],
         technical: `HTTP 429${reason.retryAfterMs === undefined ? '' : ` retry-after=${reason.retryAfterMs}ms`}`,
       };
     case 'auth':
       return {
-        title: "We couldn't sign in to your Paperless server.",
+        title: "We couldn't sign in to your server.",
         reassurance: `${SAFE} Nothing will be sent until this is fixed.`,
         actions: ['check_token', 'view_details'],
         technical: `HTTP ${reason.status}`,
       };
     case 'not_found':
       return {
-        title: "That address doesn't look like a Paperless server.",
+        title: "That address doesn't look like a Sheaf server.",
         reassurance: `${SAFE} Nothing will be sent until this is fixed.`,
         actions: ['check_server_settings', 'view_details'],
         technical: 'HTTP 404 from the documents endpoint.',
@@ -104,7 +104,7 @@ export function describe(reason: FailureReason): UserFacingError {
       };
     case 'rejected':
       return {
-        title: 'Paperless declined this document.',
+        title: 'Your server declined this document.',
         reassurance: SAFE,
         actions: ['retry', 'view_details'],
         technical: `HTTP ${reason.status}: ${reason.message}`,

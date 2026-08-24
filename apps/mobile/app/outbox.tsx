@@ -48,7 +48,7 @@ export default function Outbox() {
         <EmptyState
           palette={palette}
           title="You’re all caught up."
-          body="Documents you scan appear here while they make their way to Paperless."
+          body="Documents you scan appear here while they make their way to your server."
           action={
             <Button label="Scan a document" palette={palette} onPress={() => router.replace('/')} />
           }

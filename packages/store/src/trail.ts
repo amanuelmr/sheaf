@@ -1,4 +1,4 @@
-import { describe as explainFailure, type CaptureEvent } from '@sheaf/core';
+import { describe as explainFailure, type CaptureEvent, type RemoteId } from '@sheaf/core';
 
 /**
  * The paper trail: the document's log, rendered.
@@ -17,6 +17,13 @@ export interface TrailEntry {
 const shortTask = (taskId: string): string =>
   taskId.length <= 10 ? taskId : `${taskId.slice(0, 8)}…`;
 
+/**
+ * How the server names the document, in a form a person can read. A serial number
+ * stays as it is; a content hash is far too long to show whole.
+ */
+const shortRemote = (id: RemoteId): string =>
+  typeof id === 'number' ? `#${id}` : `${id.slice(0, 8)}…`;
+
 export function paperTrail(events: readonly CaptureEvent[]): readonly TrailEntry[] {
   return events.map((event) => ({ at: event.at, ...describeEvent(event) }));
 }
@@ -27,17 +34,17 @@ function describeOutcome(outcome: Extract<CaptureEvent, { type: 'ServerConfirmed
 } {
   switch (outcome.kind) {
     case 'stored':
-      return { text: `Paperless confirmed — document #${outcome.remoteId}`, notable: true };
+      return { text: `Your server confirmed it — ${shortRemote(outcome.remoteId)}`, notable: true };
     case 'duplicate':
       return {
         text:
           outcome.remoteId === null
-            ? 'Paperless already had this document'
-            : `Paperless already had this document (#${outcome.remoteId})`,
+            ? 'Your server already had this document'
+            : `Your server already had this document (${shortRemote(outcome.remoteId)})`,
         notable: true,
       };
     case 'consumer_failed':
-      return { text: `Paperless declined it — ${outcome.message}`, notable: true };
+      return { text: `Your server declined it — ${outcome.message}`, notable: true };
   }
 }
 
@@ -54,7 +61,7 @@ function describeEvent(event: CaptureEvent): { text: string; notable: boolean } 
     case 'PageRemoved':
       return { text: 'Page removed', notable: false };
     case 'Enqueued':
-      return { text: 'Queued for Paperless', notable: false };
+      return { text: 'Queued to send', notable: false };
     case 'UploadStarted':
       return { text: `Upload attempt ${event.attempt}`, notable: false };
     case 'UploadFailed':
@@ -63,15 +70,15 @@ function describeEvent(event: CaptureEvent): { text: string; notable: boolean } 
         notable: true,
       };
     case 'TaskAccepted':
-      return { text: `Accepted by Paperless (task ${shortTask(event.taskId)})`, notable: false };
+      return { text: `Accepted by your server (task ${shortTask(event.taskId)})`, notable: false };
     case 'ServerConfirmed':
       return describeOutcome(event.outcome);
     case 'SuggestionsReceived':
-      return { text: 'Suggestions received from Paperless', notable: false };
+      return { text: 'Suggestions received', notable: false };
     case 'MetadataAccepted':
       return { text: 'You accepted the suggested details', notable: false };
     case 'MetadataPatched':
-      return { text: 'Details saved to Paperless', notable: false };
+      return { text: 'Details saved to your server', notable: false };
     case 'SideTaskFailed': {
       const why = lowerFirst(explainFailure(event.reason).title);
       return event.task === 'suggestions'

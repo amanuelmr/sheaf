@@ -21,7 +21,7 @@ interface PendingPage {
  *
  * A tap commits the document and hands it to the sync loop immediately — there is
  * no review step to pass, because the point of the product is that capture never
- * waits for a human. Details are filed later, from Paperless's own suggestions.
+ * waits for a human. Details are filed later, from whatever the server can tell us.
  */
 export default function Shutter() {
   const { palette, outbox, offline, service, settings, server, refresh } = useApp();
@@ -74,7 +74,7 @@ export default function Shutter() {
       setNotice(
         offline
           ? 'Saved on this device. It’ll sync when your server is reachable.'
-          : 'Saved. On its way to Paperless.',
+          : 'Saved. On its way to your server.',
       );
       await service.tick();
       await refresh();
@@ -131,8 +131,8 @@ export default function Shutter() {
           Your documents. Your server.
         </Text>
         <Text style={[styles.gateBody, { color: palette.textMuted }]}>
-          Sheaf sends what you scan straight to your own Paperless server. There is no account, and
-          no copy anywhere else.
+          Sheaf sends what you scan straight to your own server. There is no account, and no copy
+          anywhere else.
         </Text>
         <Button
           label="Connect your server"
@@ -156,8 +156,7 @@ export default function Shutter() {
       >
         <Text style={[styles.gateTitle, { color: palette.text }]}>Sheaf needs the camera.</Text>
         <Text style={[styles.gateBody, { color: palette.textMuted }]}>
-          It is used only to scan documents, and the images go to your Paperless server and nowhere
-          else.
+          It is used only to scan documents, and the images go to your own server and nowhere else.
         </Text>
         <Button label="Allow camera" palette={palette} onPress={() => void requestPermission()} />
       </View>

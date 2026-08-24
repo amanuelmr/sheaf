@@ -129,20 +129,20 @@ suite('paper trail', () => {
     const entries = paperTrail(fullLife());
     const text = entries.map((e) => e.text);
     expect(text[0]).toBe('Captured (2 pages)');
-    expect(text).toContain('Queued for Paperless');
+    expect(text).toContain('Queued to send');
     expect(text).toContain('Upload attempt 1');
-    expect(text).toContain("Attempt 1 failed — couldn't reach Paperless.");
-    expect(text).toContain('Paperless confirmed — document #4821');
-    expect(text).toContain('Details saved to Paperless');
+    expect(text).toContain("Attempt 1 failed — couldn't reach your server.");
+    expect(text).toContain('Your server confirmed it — #4821');
+    expect(text).toContain('Details saved to your server');
     expect(entries.map((e) => e.at)).toEqual(fullLife().map((e) => e.at));
   });
 
   it('shortens the task id instead of showing a raw uuid', () => {
     const entry = paperTrail(fullLife()).find((e) => e.text.startsWith('Accepted'))!;
-    expect(entry.text).toBe('Accepted by Paperless (task a3f9c1d2…)');
+    expect(entry.text).toBe('Accepted by your server (task a3f9c1d2…)');
   });
 
-  it('says plainly when Paperless already had the document', () => {
+  it('says plainly when the server already had the document', () => {
     const docId = DOC_A;
     const withId = paperTrail([
       {
@@ -152,12 +152,12 @@ suite('paper trail', () => {
         outcome: { kind: 'duplicate', remoteId: 77 },
       },
     ]);
-    expect(withId[0]!.text).toBe('Paperless already had this document (#77)');
+    expect(withId[0]!.text).toBe('Your server already had this document (#77)');
 
     const withoutId = paperTrail([
       { type: 'ServerConfirmed', docId, at: 1, outcome: { kind: 'duplicate', remoteId: null } },
     ]);
-    expect(withoutId[0]!.text).toBe('Paperless already had this document');
+    expect(withoutId[0]!.text).toBe('Your server already had this document');
   });
 
   it('marks the moments worth noticing', () => {
@@ -165,7 +165,7 @@ suite('paper trail', () => {
       .filter((e) => e.notable)
       .map((e) => e.text);
     expect(notable).toContain('Captured (2 pages)');
-    expect(notable).toContain('Paperless confirmed — document #4821');
+    expect(notable).toContain('Your server confirmed it — #4821');
     expect(notable).not.toContain('Upload attempt 1');
   });
 
@@ -242,7 +242,7 @@ suite('post-sync failures are visible, not silent', () => {
     expect(row.symbol).toBe('⚠');
     expect(row.label).toBe('Synced — details not saved');
     // The distinction that matters: the document is fine, only the details are not.
-    expect(row.detail).toMatch(/document is in Paperless/i);
+    expect(row.detail).toMatch(/document is on your server/i);
     expect(row.actionable).toBe(true);
   });
 
@@ -288,10 +288,10 @@ suite('post-sync failures are visible, not silent', () => {
       },
     ]);
     expect(trail[0]!.text).toBe(
-      "Couldn't get suggestions — that address doesn't look like a Paperless server.",
+      "Couldn't get suggestions — that address doesn't look like a Sheaf server.",
     );
     expect(trail[0]!.notable).toBe(false);
-    expect(trail[1]!.text).toBe("Couldn't save your details — couldn't reach Paperless.");
+    expect(trail[1]!.text).toBe("Couldn't save your details — couldn't reach your server.");
     expect(trail[1]!.notable).toBe(true);
   });
 });
