@@ -1,5 +1,5 @@
 import { isRetryable } from './errors';
-import type { DocId, MetadataPatch } from './events';
+import type { DocId, MetadataPatch, RemoteId } from './events';
 import type { DocState, SideTaskState } from './state';
 
 export type NetStatus = 'offline' | 'cellular' | 'wifi';
@@ -28,11 +28,11 @@ export type Command =
   | { readonly type: 'pollTask'; readonly docId: DocId; readonly taskId: string }
   /** Establish ground truth for a document whose fate we do not know. */
   | { readonly type: 'reconcile'; readonly docId: DocId; readonly sha256: string }
-  | { readonly type: 'fetchSuggestions'; readonly docId: DocId; readonly remoteId: number }
+  | { readonly type: 'fetchSuggestions'; readonly docId: DocId; readonly remoteId: RemoteId }
   | {
       readonly type: 'patchMetadata';
       readonly docId: DocId;
-      readonly remoteId: number;
+      readonly remoteId: RemoteId;
       readonly patch: MetadataPatch;
     }
   | { readonly type: 'releaseLocalFiles'; readonly docId: DocId }

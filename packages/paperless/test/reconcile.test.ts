@@ -1,7 +1,7 @@
 import { describe as suite, expect, it } from 'vitest';
 import { PaperlessClient } from '../src/client';
 import { captureFilename, matchesCaptureId, parseCaptureId } from '../src/reconcile';
-import type { FetchLike, HttpResponse } from '../src/http';
+import type { FetchLike, HttpResponse } from '@sheaf/http';
 
 const HASH = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);

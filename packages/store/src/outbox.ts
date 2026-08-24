@@ -1,4 +1,4 @@
-import type { DocState, DocStatus } from '@sheaf/core';
+import type { DocState, DocStatus, RemoteId } from '@sheaf/core';
 import { describe as explainFailure, hasUnsavedDetails } from '@sheaf/core';
 
 /**
@@ -19,7 +19,7 @@ export interface OutboxRow {
   readonly pageCount: number;
   readonly bytes: number;
   readonly attempts: number;
-  readonly remoteId: number | null;
+  readonly remoteId: RemoteId | null;
   readonly nextAttemptAt: number | null;
   /** True when the user can do something useful about this row. */
   readonly actionable: boolean;

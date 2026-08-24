@@ -26,7 +26,7 @@ export default function Settings() {
         </Text>
         {server === null ? (
           <Button
-            label="Connect Paperless"
+            label="Connect your server"
             palette={palette}
             onPress={() => router.push('/connect')}
           />

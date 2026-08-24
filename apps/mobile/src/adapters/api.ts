@@ -1,117 +1,118 @@
-import type { DocState, Suggestions } from '@sheaf/core';
-import type { EngineApi } from '@sheaf/engine';
-import {
-  PaperlessClient,
-  captureFilename,
-  err,
-  ok,
-  resolveSuggestions,
-  type ApiResult,
-  type FetchLike,
-  type NamedResource,
-} from '@sheaf/paperless';
+import { SheafClient, interpretPutStatus } from '@sheaf/client';
+import type { DocState, MetadataPatch, RemoteId, Suggestions } from '@sheaf/core';
+import type { EngineApi, UploadAccepted } from '@sheaf/engine';
+import { authorization, paths } from '@sheaf/protocol';
+import { err, ok, joinUrl, type ApiResult, type FetchLike } from '@sheaf/http';
 import { pdfFile } from './files';
 
-interface Vocabulary {
-  correspondents: readonly NamedResource[];
-  documentTypes: readonly NamedResource[];
-  tags: readonly NamedResource[];
+export interface ServerConfig {
+  readonly baseUrl: string;
+  readonly token: string;
 }
 
-const EMPTY: Vocabulary = { correspondents: [], documentTypes: [], tags: [] };
-const VOCABULARY_TTL_MS = 10 * 60_000;
-
 /**
- * `EngineApi` over the real client.
+ * `EngineApi` over our own server.
  *
- * The vocabulary is cached because suggestions come back as ids and the engine
- * should not pay three round trips to name one document. A stale cache degrades to
- * a dropped suggestion, never to a wrong one.
+ * Markedly thinner than its predecessor, and the reason is the protocol rather
+ * than the code. There is no task to poll, so `pollTask` is simply absent. There is
+ * no duplicate message to parse, because both outcomes of a `PUT` are plain status
+ * codes. And "do you already have this?" is one `HEAD`.
  */
-export class PaperlessAdapter implements EngineApi {
-  private vocabulary: Vocabulary = EMPTY;
-  private fetchedAt = 0;
+export class SheafAdapter implements EngineApi {
+  readonly #client: SheafClient;
+  readonly #config: ServerConfig;
 
-  constructor(
-    private readonly client: PaperlessClient,
-    private readonly now: () => number,
-  ) {}
+  constructor(config: ServerConfig, client: SheafClient) {
+    this.#config = config;
+    this.#client = client;
+  }
 
-  async postDocument(state: DocState): Promise<ApiResult<string>> {
+  /**
+   * Uploads by streaming the file from disk.
+   *
+   * Deliberately not `fetch` with the bytes in hand: a ten-page scan is tens of
+   * megabytes, and reading it into the JavaScript heap to hand to `fetch` is how a
+   * capture app runs out of memory on the document someone most wanted to keep.
+   * `File.upload` streams it natively.
+   */
+  async postDocument(state: DocState): Promise<ApiResult<UploadAccepted>> {
     const file = pdfFile(state.sha256);
     if (!file.exists) {
-      // The bytes are gone, so no amount of retrying will help. Say so plainly
-      // rather than looping forever on a document that cannot be sent.
+      // The bytes are gone, so retrying cannot help. Say so rather than loop.
       return err({
         kind: 'rejected',
         status: 0,
         message: 'the local copy of this document is missing',
       });
     }
-    const filename = captureFilename(state.sha256);
-    return this.client.postDocument({
-      part: { uri: file.uri, name: filename, type: 'application/pdf' },
-      filename,
-    });
+
+    try {
+      const result = await file.upload(
+        joinUrl(this.#config.baseUrl, paths.document(state.sha256)),
+        {
+          httpMethod: 'PUT',
+          headers: {
+            authorization: authorization(this.#config.token),
+            'content-type': 'application/pdf',
+            'x-sheaf-page-count': String(state.pages.length),
+          },
+        },
+      );
+
+      const outcome = interpretPutStatus(result.status);
+      if (!outcome.ok) return err(outcome.reason);
+
+      // The upload is authoritative, so there is nothing to poll. The document's
+      // own hash is what the server knows it by.
+      return ok({
+        kind: 'confirmed',
+        outcome:
+          outcome.value === 'stored'
+            ? { kind: 'stored', remoteId: state.sha256 }
+            : { kind: 'duplicate', remoteId: state.sha256 },
+      });
+    } catch (error) {
+      // A failed upload is expected and retryable; anything unexpected propagates.
+      const message = error instanceof Error ? error.message : String(error);
+      if (/certificate|self.signed|tls|ssl/i.test(message)) {
+        return err({ kind: 'tls', detail: message.slice(0, 500) });
+      }
+      return err({ kind: 'unreachable' });
+    }
   }
 
-  getTask(taskId: string) {
-    return this.client.getTask(taskId);
+  /** One request, one status code. No search, and nothing to distrust. */
+  async findByCaptureId(sha256: string): Promise<ApiResult<RemoteId | null>> {
+    const result = await this.#client.hasDocument(sha256);
+    if (!result.ok) return err(result.reason);
+    return ok(result.value ? sha256 : null);
   }
 
-  findByCaptureId(sha256: string) {
-    return this.client.findByCaptureId(sha256);
+  /**
+   * Our server stores documents; it does not classify them. Answering "nothing to
+   * suggest" is honest, and the engine records that it asked and stops — rather
+   * than retrying an endpoint that will never have an opinion.
+   */
+  getSuggestions(): Promise<ApiResult<Suggestions>> {
+    return Promise.resolve(ok({}));
   }
 
-  async getSuggestions(remoteId: number): Promise<ApiResult<Suggestions>> {
-    const raw = await this.client.getSuggestions(remoteId);
-    if (!raw.ok) return err(raw.reason);
-    await this.refreshVocabulary();
-    return ok(resolveSuggestions(raw.value, this.vocabulary));
-  }
-
-  patchDocument(remoteId: number, patch: Parameters<EngineApi['patchDocument']>[1]) {
-    return this.client.patchDocument(remoteId, {
+  async patchDocument(remoteId: RemoteId, patch: MetadataPatch): Promise<ApiResult<null>> {
+    const result = await this.#client.patchDocument(String(remoteId), {
       ...(patch.title === undefined ? {} : { title: patch.title }),
-      ...(patch.correspondentId === undefined ? {} : { correspondent: patch.correspondentId }),
-      ...(patch.documentTypeId === undefined ? {} : { document_type: patch.documentTypeId }),
-      ...(patch.tagIds === undefined ? {} : { tags: patch.tagIds }),
-      ...(patch.createdDate === undefined ? {} : { created: patch.createdDate }),
     });
-  }
-
-  /** Names for the triage screen, and for turning suggestions into words. */
-  async namesFor(): Promise<Vocabulary> {
-    await this.refreshVocabulary();
-    return this.vocabulary;
-  }
-
-  private async refreshVocabulary(): Promise<void> {
-    if (this.now() - this.fetchedAt < VOCABULARY_TTL_MS && this.vocabulary !== EMPTY) return;
-    const [correspondents, documentTypes, tags] = await Promise.all([
-      this.client.getCorrespondents(),
-      this.client.getDocumentTypes(),
-      this.client.getTags(),
-    ]);
-    if (!correspondents.ok || !documentTypes.ok || !tags.ok) return; // keep what we had
-    this.vocabulary = {
-      correspondents: correspondents.value,
-      documentTypes: documentTypes.value,
-      tags: tags.value,
-    };
-    this.fetchedAt = this.now();
+    return result.ok ? ok(null) : err(result.reason);
   }
 }
 
-export function createClient(config: { baseUrl: string; token: string }): PaperlessClient {
-  // A DOM Response structurally satisfies HttpResponse, so the platform fetch
-  // drops straight in; only the request init needs a cast.
+export function createClient(config: ServerConfig): SheafClient {
+  // A DOM Response structurally satisfies HttpResponse, so the platform fetch drops
+  // straight in; only the request init needs a cast.
   const transport: FetchLike = (url, init) => fetch(url, init as RequestInit);
-  return new PaperlessClient({
+  return new SheafClient({
     baseUrl: config.baseUrl,
     token: config.token,
     fetch: transport,
-    formData: () => new FormData(),
     timeoutMs: 30_000,
   });
 }

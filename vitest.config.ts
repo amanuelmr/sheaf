@@ -9,6 +9,8 @@ export default defineConfig({
     alias: {
       '@sheaf/core': pkg('core'),
       '@sheaf/engine': pkg('engine'),
+      '@sheaf/http': pkg('http'),
+      '@sheaf/client': pkg('client'),
       '@sheaf/paperless': pkg('paperless'),
       '@sheaf/pdf': pkg('pdf'),
       '@sheaf/protocol': pkg('protocol'),
@@ -34,6 +36,8 @@ export default defineConfig({
         'packages/paperless/src/**',
         'packages/pdf/src/**',
         'packages/protocol/src/**',
+        'packages/client/src/**',
+        'packages/http/src/**',
         'services/ingest/src/**',
         'packages/store/src/**',
       ],

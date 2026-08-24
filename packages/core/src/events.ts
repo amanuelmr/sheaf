@@ -14,6 +14,15 @@ export type DocId = string;
 
 export type PageId = string;
 
+/**
+ * How a server names a document it holds.
+ *
+ * A serial number for a server that assigns one; the content hash for a server
+ * where the document already lives at the address of its own bytes. Both are
+ * legitimate, and the engine only ever passes it back.
+ */
+export type RemoteId = string | number;
+
 export interface PageRef {
   readonly id: PageId;
   readonly path: string;
@@ -50,8 +59,8 @@ export type FailureReason =
  * safe, and turns at-least-once delivery into exactly-once semantics.
  */
 export type ServerOutcome =
-  | { readonly kind: 'stored'; readonly remoteId: number }
-  | { readonly kind: 'duplicate'; readonly remoteId: number | null }
+  | { readonly kind: 'stored'; readonly remoteId: RemoteId }
+  | { readonly kind: 'duplicate'; readonly remoteId: RemoteId | null }
   | { readonly kind: 'consumer_failed'; readonly message: string };
 
 export interface Suggestions {

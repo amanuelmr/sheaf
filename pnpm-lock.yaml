@@ -53,18 +53,24 @@ importers:
       '@react-native-community/netinfo':
         specifier: 12.0.1
         version: 12.0.1(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+      '@sheaf/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@sheaf/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@sheaf/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@sheaf/paperless':
+      '@sheaf/http':
         specifier: workspace:*
-        version: link:../../packages/paperless
+        version: link:../../packages/http
       '@sheaf/pdf':
         specifier: workspace:*
         version: link:../../packages/pdf
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@sheaf/store':
         specifier: workspace:*
         version: link:../../packages/store
@@ -130,6 +136,18 @@ importers:
         specifier: ~19.2.2
         version: 19.2.18
 
+  packages/client:
+    dependencies:
+      '@sheaf/core':
+        specifier: workspace:*
+        version: link:../core
+      '@sheaf/http':
+        specifier: workspace:*
+        version: link:../http
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/core: {}
 
   packages/engine:
@@ -137,18 +155,27 @@ importers:
       '@sheaf/core':
         specifier: workspace:*
         version: link:../core
-      '@sheaf/paperless':
+      '@sheaf/http':
         specifier: workspace:*
-        version: link:../paperless
+        version: link:../http
       '@sheaf/store':
         specifier: workspace:*
         version: link:../store
+
+  packages/http:
+    dependencies:
+      '@sheaf/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/paperless:
     dependencies:
       '@sheaf/core':
         specifier: workspace:*
         version: link:../core
+      '@sheaf/http':
+        specifier: workspace:*
+        version: link:../http
 
   packages/pdf: {}
 
@@ -162,6 +189,9 @@ importers:
       '@sheaf/engine':
         specifier: workspace:*
         version: link:../engine
+      '@sheaf/http':
+        specifier: workspace:*
+        version: link:../http
       '@sheaf/paperless':
         specifier: workspace:*
         version: link:../paperless

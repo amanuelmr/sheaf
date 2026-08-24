@@ -1,7 +1,7 @@
 import { describe as suite, expect, it } from 'vitest';
 import { PaperlessClient } from '../src/client';
-import { joinUrl, redact } from '../src/config';
-import type { FetchLike, FormDataLike, HttpRequest, HttpResponse } from '../src/http';
+import { redact } from '@sheaf/http';
+import type { FetchLike, FormDataLike, HttpRequest, HttpResponse } from '@sheaf/http';
 
 const TOKEN = 'a1b2c3d4e5f6g7h8i9j0';
 
@@ -48,24 +48,6 @@ function harness(plan: Canned | Canned[] | ((url: string) => Canned)) {
 
 const clientFor = (h: ReturnType<typeof harness>, baseUrl = 'https://paperless.example.com') =>
   new PaperlessClient({ baseUrl, token: TOKEN, fetch: h.fetch, formData: h.formData });
-
-suite('joinUrl', () => {
-  it('does not care how the user typed their server URL', () => {
-    for (const base of [
-      'https://p.example.com',
-      'https://p.example.com/',
-      'https://p.example.com///',
-    ]) {
-      expect(joinUrl(base, 'api/tasks/')).toBe('https://p.example.com/api/tasks/');
-    }
-  });
-
-  it('preserves a path prefix, for servers behind a reverse proxy subpath', () => {
-    expect(joinUrl('https://home.example.com/paperless/', '/api/tags/')).toBe(
-      'https://home.example.com/paperless/api/tags/',
-    );
-  });
-});
 
 suite('authentication', () => {
   it('sends the token in the Paperless header format', async () => {

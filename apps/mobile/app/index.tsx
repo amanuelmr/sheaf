@@ -65,7 +65,7 @@ export default function Shutter() {
         // for free -- and saying "saved" here would be a lie.
         setNotice(
           outcome.state.status === 'SYNCED'
-            ? 'You’ve scanned this one already — it’s in Paperless.'
+            ? 'You’ve scanned this one already — it’s on your server.'
             : 'You’ve scanned this one already — it’s still on its way.',
         );
         return;
@@ -135,7 +135,7 @@ export default function Shutter() {
           no copy anywhere else.
         </Text>
         <Button
-          label="Connect Paperless"
+          label="Connect your server"
           palette={palette}
           onPress={() => router.push('/connect')}
         />

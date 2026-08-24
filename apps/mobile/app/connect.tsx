@@ -11,7 +11,7 @@ type Phase =
   | { kind: 'editing' }
   | { kind: 'testing' }
   | { kind: 'failed'; title: string; reassurance: string; technical: string }
-  | { kind: 'connected'; version: string | null; host: string };
+  | { kind: 'connected'; protocol: string; documents: number; host: string };
 
 /**
  * The whole of onboarding: two fields and a button.
@@ -34,7 +34,12 @@ export default function Connect() {
     setPhase({ kind: 'testing' });
     const result = await createClient({ baseUrl: url, token: token.trim() }).testConnection();
     if (result.ok) {
-      setPhase({ kind: 'connected', version: result.value.version, host: result.value.host });
+      setPhase({
+        kind: 'connected',
+        protocol: result.value.protocol,
+        documents: result.value.documents,
+        host: url.replace(/^https?:\/\//, ''),
+      });
       await connect({ baseUrl: url, token: token.trim() });
       return;
     }
@@ -53,8 +58,8 @@ export default function Connect() {
       <View style={styles.done}>
         <Text style={[styles.doneTitle, { color: palette.text }]}>You’re ready.</Text>
         <Text style={[styles.doneBody, { color: palette.textMuted }]}>
-          {phase.host}
-          {phase.version === null ? '' : ` · Paperless ${phase.version}`}
+          {phase.host} · {phase.documents} {phase.documents === 1 ? 'document' : 'documents'}{' '}
+          already there
         </Text>
         <Button
           label="Scan your first document"
@@ -72,16 +77,20 @@ export default function Connect() {
         nothing is stored anywhere else.
       </Text>
 
-      <Field label="Server URL" palette={palette} hint="For example, paperless.example.com">
+      <Field
+        label="Server URL"
+        palette={palette}
+        hint="For example, 192.168.1.20:8787, or localhost:8787 in a simulator"
+      >
         <TextInput
           value={baseUrl}
           onChangeText={setBaseUrl}
-          placeholder="https://paperless.example.com"
+          placeholder="http://localhost:8787"
           placeholderTextColor={palette.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
-          accessibilityLabel="Paperless server URL"
+          accessibilityLabel="Server URL"
           style={[
             styles.input,
             { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },
@@ -92,7 +101,7 @@ export default function Connect() {
       <Field
         label="API token"
         palette={palette}
-        hint="In Paperless: your profile, then API token. It is kept in this device’s keystore."
+        hint="The SHEAF_TOKEN your server was started with. It is kept in this device’s keystore."
       >
         <TextInput
           value={token}
@@ -102,7 +111,7 @@ export default function Connect() {
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
-          accessibilityLabel="Paperless API token"
+          accessibilityLabel="Server token"
           style={[
             styles.input,
             { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },

@@ -10,6 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sheaf/core": "workspace:*"
+    "@sheaf/core": "workspace:*",
+    "@sheaf/http": "workspace:*"
   }
 }

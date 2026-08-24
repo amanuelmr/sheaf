@@ -1,6 +1,6 @@
 import { describe as suite, beforeEach, expect, it } from 'vitest';
-import type { DocState, NetStatus, SyncPolicy } from '@sheaf/core';
-import { err, ok, type ApiResult, type PaperlessTask } from '@sheaf/paperless';
+import type { DocState, NetStatus, ServerOutcome, SyncPolicy } from '@sheaf/core';
+import { err, ok, type ApiResult } from '@sheaf/http';
 import { DocumentStore, MemoryEventLog } from '@sheaf/store';
 import { SyncEngine } from '../src/engine';
 import type { EnginePorts } from '../src/ports';
@@ -9,9 +9,9 @@ const DOC = 'a'.repeat(64);
 
 interface Recording {
   calls: string[];
-  postResult: ApiResult<string>;
+  postResult: ApiResult<{ kind: 'task'; taskId: string }>;
   postThrows: Error | null;
-  taskResult: ApiResult<PaperlessTask | null>;
+  taskResult: ApiResult<ServerOutcome | 'pending' | null>;
   findResult: ApiResult<number | null>;
   suggestResult: ApiResult<{ title?: string }>;
   patchResult: ApiResult<null>;
@@ -27,9 +27,9 @@ function harness() {
 
   const r: Recording = {
     calls: [],
-    postResult: ok('task-1'),
+    postResult: ok({ kind: 'task' as const, taskId: 'task-1' }),
     postThrows: null,
-    taskResult: ok({ task_id: 'task-1', status: 'PENDING' }),
+    taskResult: ok('pending' as const),
     findResult: ok(null),
     suggestResult: ok({ title: 'Amazon receipt' }),
     patchResult: ok(null),
@@ -51,7 +51,7 @@ function harness() {
         void state;
         return Promise.resolve(r.postResult);
       },
-      getTask: () => {
+      pollTask: () => {
         r.calls.push('getTask');
         return Promise.resolve(r.taskResult);
       },
@@ -172,11 +172,7 @@ suite('confirmation', () => {
   });
 
   it('reads a duplicate rejection as success', async () => {
-    h.r.taskResult = ok({
-      task_id: 'task-1',
-      status: 'FAILURE',
-      result: 'It is a duplicate of Amazon receipt (#4821)',
-    });
+    h.r.taskResult = ok({ kind: 'duplicate' as const, remoteId: 4821 });
     await h.engine.tick(DOC);
     const state = (await h.store.state(DOC))!;
     expect(state.status).toBe('SYNCED');
@@ -215,11 +211,7 @@ suite('after syncing', () => {
     h = harness();
     await capture(h.engine);
     await h.engine.tick(DOC);
-    h.r.taskResult = ok({
-      task_id: 'task-1',
-      status: 'SUCCESS',
-      related_document: 4821,
-    });
+    h.r.taskResult = ok({ kind: 'stored' as const, remoteId: 4821 });
     await h.engine.tick(DOC);
   });
 
@@ -311,7 +303,7 @@ suite('post-sync work is bounded', () => {
   const reachSynced = async (h: ReturnType<typeof harness>) => {
     await capture(h.engine);
     await h.engine.tick(DOC);
-    h.r.taskResult = ok({ task_id: 'task-1', status: 'SUCCESS', related_document: 4821 });
+    h.r.taskResult = ok({ kind: 'stored' as const, remoteId: 4821 });
     await h.engine.tick(DOC);
   };
 
@@ -385,7 +377,7 @@ suite('scanning the same paper twice', () => {
     const h = harness();
     await capture(h.engine);
     await h.engine.tick(DOC);
-    h.r.taskResult = ok({ task_id: 'task-1', status: 'SUCCESS', related_document: 4821 });
+    h.r.taskResult = ok({ kind: 'stored' as const, remoteId: 4821 });
     await h.engine.tick(DOC);
 
     const eventsBefore = await h.log.count();

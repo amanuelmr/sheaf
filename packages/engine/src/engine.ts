@@ -8,9 +8,9 @@ import {
   type FailureReason,
   type MetadataPatch,
   type PageRef,
+  type RemoteId,
   type SideTask,
 } from '@sheaf/core';
-import { interpretTask } from '@sheaf/paperless';
 import type { DocumentStore } from '@sheaf/store';
 import type { EnginePorts } from './ports';
 
@@ -152,36 +152,49 @@ export class SyncEngine {
     });
 
     const result = await this.ports.api.postDocument(state);
-    if (result.ok) {
-      await this.store.commit({
-        type: 'TaskAccepted',
-        docId: state.docId,
-        at: this.ports.now(),
-        taskId: result.value,
-      });
+    if (!result.ok) {
+      await this.fail(state, attempt, result.reason);
       return;
     }
-    await this.fail(state, attempt, result.reason);
+
+    // Either answer is legitimate. A task means "accepted, ask again later"; a
+    // confirmation means the server already knows the outcome and there is nothing
+    // to wait for.
+    await this.store.commit(
+      result.value.kind === 'task'
+        ? {
+            type: 'TaskAccepted',
+            docId: state.docId,
+            at: this.ports.now(),
+            taskId: result.value.taskId,
+          }
+        : {
+            type: 'ServerConfirmed',
+            docId: state.docId,
+            at: this.ports.now(),
+            outcome: result.value.outcome,
+          },
+    );
   }
 
   private async poll(state: DocState, taskId: string): Promise<void> {
-    const result = await this.ports.api.getTask(taskId);
+    // A server that never issues tasks has nothing to poll; asking it directly is
+    // both cheaper and the only thing that could work.
+    if (this.ports.api.pollTask === undefined) return this.reconcile(state);
+
+    const result = await this.ports.api.pollTask(taskId);
     if (!result.ok) return; // transient; the next tick tries again
 
-    if (result.value === null) {
-      // The server has forgotten the task. That is not evidence either way, so
-      // establish ground truth rather than assume.
-      return this.reconcile(state);
-    }
-
-    const outcome = interpretTask(result.value);
-    if (outcome === 'pending') return;
+    // A forgotten task is not evidence either way, so establish ground truth
+    // rather than assume.
+    if (result.value === null) return this.reconcile(state);
+    if (result.value === 'pending') return;
 
     await this.store.commit({
       type: 'ServerConfirmed',
       docId: state.docId,
       at: this.ports.now(),
-      outcome,
+      outcome: result.value,
     });
   }
 
@@ -204,7 +217,7 @@ export class SyncEngine {
     await this.fail(state, Math.max(1, state.attempts), { kind: 'unreachable' });
   }
 
-  private async fetchSuggestions(state: DocState, remoteId: number): Promise<void> {
+  private async fetchSuggestions(state: DocState, remoteId: RemoteId): Promise<void> {
     const result = await this.ports.api.getSuggestions(remoteId);
     if (!result.ok) return this.sideTaskFailed(state, 'suggestions', result.reason);
     await this.store.commit({
@@ -217,7 +230,7 @@ export class SyncEngine {
 
   private async patchMetadata(
     state: DocState,
-    remoteId: number,
+    remoteId: RemoteId,
     patch: MetadataPatch,
   ): Promise<void> {
     const result = await this.ports.api.patchDocument(remoteId, patch);

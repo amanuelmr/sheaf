@@ -56,7 +56,7 @@ function Shell() {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="connect" options={{ title: 'Connect Paperless' }} />
+        <Stack.Screen name="connect" options={{ title: 'Connect your server' }} />
         <Stack.Screen name="outbox" options={{ title: 'Outbox' }} />
         <Stack.Screen name="inbox" options={{ title: 'Needs filing' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />

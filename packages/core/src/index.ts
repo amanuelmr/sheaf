@@ -6,6 +6,7 @@ export type {
   MetadataPatch,
   PageId,
   PageRef,
+  RemoteId,
   ServerOutcome,
   SideTask,
   Suggestions,

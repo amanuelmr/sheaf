@@ -6,9 +6,10 @@ import {
   type NetStatus,
   type SyncPolicy,
 } from '@sheaf/core';
-import { SyncEngine, type EnginePorts } from '@sheaf/engine';
-import { err, ok } from '@sheaf/paperless';
+import { SyncEngine, type EnginePorts, type UploadAccepted } from '@sheaf/engine';
+import { err, ok, type ApiResult } from '@sheaf/http';
 import { DocumentStore, MemoryEventLog, type EventLog } from '@sheaf/store';
+import { interpretTask } from '@sheaf/paperless';
 import { FakePaperless } from './fake-paperless';
 import { rollAttempt, rollKill, rollOffline, rollSideTask, type FaultProfile } from './faults';
 import { rng, type Rng } from './random';
@@ -195,7 +196,7 @@ class Sim {
       policy: () => this.policy,
       api: {
         postDocument: (state) => Promise.resolve(this.post(state)),
-        getTask: (taskId) => Promise.resolve(ok(this.server.task(taskId))),
+        pollTask: (taskId) => Promise.resolve(ok(interpretTask(this.server.task(taskId)))),
         findByCaptureId: (sha256) => {
           this.reconciles += 1;
           return Promise.resolve(ok(this.server.findByHash(sha256)?.id ?? null));
@@ -208,6 +209,12 @@ class Sim {
           return Promise.resolve(ok({ title: `Document ${remoteId}`, documentType: 'Receipt' }));
         },
         patchDocument: (remoteId, patch) => {
+          // The simulated server assigns serial numbers, so anything else is a bug
+          // in the wiring rather than a case to handle.
+          if (typeof remoteId !== 'number') {
+            this.violations.push(`patch called with a non-numeric id: ${String(remoteId)}`);
+            return Promise.resolve(ok(null));
+          }
           this.sideTaskCalls += 1;
           const fault = rollSideTask(this.options.faults, this.rand);
           if (fault === 'permanent')
@@ -237,9 +244,7 @@ class Sim {
     };
   }
 
-  private post(
-    state: DocState,
-  ): ReturnType<EnginePorts['api']['postDocument']> extends Promise<infer R> ? R : never {
+  private post(state: DocState): ApiResult<UploadAccepted> {
     const now = this.clock.now();
 
     if (state.taskId !== null) {
@@ -272,7 +277,7 @@ class Sim {
         this.server.post(state.sha256, now);
         return err({ kind: 'unreachable' });
       case 'none':
-        return ok(this.server.post(state.sha256, now));
+        return ok({ kind: 'task' as const, taskId: this.server.post(state.sha256, now) });
     }
   }
 

@@ -13,6 +13,7 @@
     "@sheaf/core": "workspace:*",
     "@sheaf/engine": "workspace:*",
     "@sheaf/paperless": "workspace:*",
-    "@sheaf/store": "workspace:*"
+    "@sheaf/store": "workspace:*",
+    "@sheaf/http": "workspace:*"
   }
 }

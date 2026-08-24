@@ -1,4 +1,12 @@
-import type { DocId, FailureReason, MetadataPatch, PageRef, SideTask, Suggestions } from './events';
+import type {
+  DocId,
+  FailureReason,
+  MetadataPatch,
+  PageRef,
+  RemoteId,
+  SideTask,
+  Suggestions,
+} from './events';
 
 /**
  * Status is DERIVED, never stored. That is what makes an invalid state transition
@@ -43,7 +51,7 @@ export interface DocState {
   /** Number of upload attempts made in the current budget. */
   readonly attempts: number;
   readonly taskId: string | null;
-  readonly remoteId: number | null;
+  readonly remoteId: RemoteId | null;
   readonly lastError: FailureReason | null;
   readonly lastFailureAt: number | null;
   readonly nextAttemptAt: number | null;

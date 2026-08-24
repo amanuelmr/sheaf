@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useColorScheme } from 'react-native';
 import type { DocId, MetadataPatch } from '@sheaf/core';
 import { DocumentStore, SqlEventLog, type OutboxRow, type SqlDriver } from '@sheaf/store';
-import { PaperlessAdapter, createClient } from '../adapters/api';
+import { SheafAdapter, createClient } from '../adapters/api';
 import { openDatabase } from '../adapters/database';
 import {
   clearServerConfig,
@@ -32,7 +32,7 @@ interface AppValue {
   offline: boolean;
   store: DocumentStore | null;
   service: SyncService | null;
-  adapter: PaperlessAdapter | null;
+  adapter: SheafAdapter | null;
   refresh: () => Promise<void>;
   connect: (config: ServerConfig) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -56,7 +56,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<SqlDriver | null>(null);
   const [store, setStore] = useState<DocumentStore | null>(null);
   const [service, setService] = useState<SyncService | null>(null);
-  const [adapter, setAdapter] = useState<PaperlessAdapter | null>(null);
+  const [adapter, setAdapter] = useState<SheafAdapter | null>(null);
   const [server, setServer] = useState<ServerConfig | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [outbox, setOutbox] = useState<readonly OutboxRow[]>([]);
@@ -102,10 +102,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // The sync loop only exists once there is somewhere to sync to.
   useEffect(() => {
     if (store === null || server === null) return;
-    const paperless = new PaperlessAdapter(createClient(server), () => Date.now());
+    const api = new SheafAdapter(server, createClient(server));
     const running = new SyncService({
       store,
-      api: paperless,
+      api,
       files: engineFiles,
       policy: () => ({
         wifiOnly: settings.wifiOnly,
@@ -115,7 +115,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         void store.outbox().then(setOutbox);
       },
     });
-    setAdapter(paperless);
+    setAdapter(api);
     setService(running);
     if (settings.autoSync) running.start();
     return () => {

@@ -1,7 +1,8 @@
-import { classifyResponse, classifyThrown } from './errors';
-import { joinUrl, redact, type PaperlessConfig } from './config';
-import { err, ok, type ApiResult } from './result';
-import type { FormDataLike, HttpRequest, UploadFile } from './http';
+import { classifyResponse, classifyThrown } from '@sheaf/http';
+import { joinUrl, redact } from '@sheaf/http';
+import type { PaperlessConfig } from './config';
+import { err, ok, type ApiResult } from '@sheaf/http';
+import type { FormDataLike, HttpRequest, UploadFile } from '@sheaf/http';
 import { captureFilename, matchesCaptureId } from './reconcile';
 import type {
   DocumentPatch,

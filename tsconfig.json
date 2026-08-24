@@ -6,6 +6,8 @@
     "paths": {
       "@sheaf/core": ["./packages/core/src/index.ts"],
       "@sheaf/engine": ["./packages/engine/src/index.ts"],
+      "@sheaf/http": ["./packages/http/src/index.ts"],
+      "@sheaf/client": ["./packages/client/src/index.ts"],
       "@sheaf/paperless": ["./packages/paperless/src/index.ts"],
       "@sheaf/pdf": ["./packages/pdf/src/index.ts"],
       "@sheaf/protocol": ["./packages/protocol/src/index.ts"],
