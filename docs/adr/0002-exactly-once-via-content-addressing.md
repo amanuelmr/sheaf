@@ -43,7 +43,13 @@ Costs:
 
 - PDF assembly must be byte-deterministic — no embedded timestamps or producer
   strings. A change to the assembler changes every hash.
-- Duplicate detection depends on Paperless's wording and response shape, which vary
-  by version. Confined to `interpretTask`, pinned by contract tests.
+- Duplicate detection depends on Paperless's wording and response shape. **Tested
+  against a real server, and two of the assumptions here were wrong.** Its task
+  status is lowercase (`success`, not `SUCCESS`), so every successful upload read as
+  a refusal. And it did _not_ reject a re-sent document: the same bytes produced a
+  second document, which is the opposite of what this ADR assumed. The forwarder now
+  asks whether the target already holds a document rather than relying on it to say
+  no. Note that exactly-once between the phone and _our own_ server never depended on
+  any of this — that comes from the addressing, and held throughout.
 - Exact-hash matching cannot catch the same receipt photographed twice. That needs
   perceptual hashing, which is a separate concern.

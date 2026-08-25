@@ -40,6 +40,8 @@ export interface RouterDeps {
   readonly storage: Storage;
   readonly token: string;
   readonly now: () => number;
+  /** Host of the downstream system, when one is configured. */
+  readonly forwardingTo?: string;
 }
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
@@ -69,6 +71,14 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       name: 'sheaf-ingest',
       protocol: PROTOCOL_VERSION,
       documents: await deps.storage.count(),
+      ...(deps.forwardingTo === undefined
+        ? {}
+        : {
+            forwarding: {
+              target: deps.forwardingTo,
+              counts: await deps.storage.forwardCounts(),
+            },
+          }),
     };
     return { status: 200, json: health };
   }

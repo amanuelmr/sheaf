@@ -1,9 +1,9 @@
 import { classifyResponse, classifyThrown } from '@sheaf/http';
 import { joinUrl, redact } from '@sheaf/http';
-import type { PaperlessConfig } from './config';
+import type { PaperlessConfig } from './config.ts';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import type { FormDataLike, HttpRequest, UploadFile } from '@sheaf/http';
-import { captureFilename, matchesCaptureId } from './reconcile';
+import { captureFilename, matchesCaptureId } from './reconcile.ts';
 import type {
   DocumentPatch,
   DocumentSummary,
@@ -12,7 +12,7 @@ import type {
   RawSuggestions,
   ReconcileProbe,
   ServerInfo,
-} from './types';
+} from './types.ts';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -149,7 +149,7 @@ export class PaperlessClient {
     // Re-check every candidate. If the server ignored the filter, this page is
     // just "some documents", and none of them will carry our filename.
     const confirmed = (result.value.results ?? [])
-      .filter((row) => matchesCaptureId(row.original_filename, sha256))
+      .filter((row) => matchesCaptureId(row.original_file_name ?? row.original_filename, sha256))
       .map((row) => row.id)
       .sort((a, b) => a - b);
 

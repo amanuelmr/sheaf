@@ -207,6 +207,15 @@ importers:
 
   services/ingest:
     dependencies:
+      '@sheaf/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@sheaf/http':
+        specifier: workspace:*
+        version: link:../../packages/http
+      '@sheaf/paperless':
+        specifier: workspace:*
+        version: link:../../packages/paperless
       '@sheaf/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

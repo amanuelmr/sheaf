@@ -37,9 +37,20 @@ export interface DocumentPatch {
   readonly created?: string;
 }
 
-/** The fields of a document list row that reconciliation depends on. */
+/**
+ * The fields of a document list row that reconciliation depends on.
+ *
+ * Both spellings are declared deliberately. Paperless filters on
+ * `original_filename__istartswith` but returns the value as `original_file_name` --
+ * the parameter and the field are spelled differently. Reading only the spelling
+ * that appears in the query meant every candidate failed its re-check, so
+ * reconciliation reported "not found" for documents that were plainly there.
+ */
 export interface DocumentSummary {
   readonly id: number;
+  /** What a current server returns. */
+  readonly original_file_name?: string | null;
+  /** Older spelling, kept so this works across versions. */
   readonly original_filename?: string | null;
   readonly title?: string | null;
 }

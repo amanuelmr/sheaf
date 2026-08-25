@@ -28,8 +28,28 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS documents_by_received ON documents (received_at DESC)`,
 ];
 
+/**
+ * Columns added after the first release. Applied by comparing against
+ * `PRAGMA table_info` rather than by tracking a version number, because a missing
+ * column is the thing we actually care about and it is directly observable.
+ */
+const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ['forward_state', `TEXT NOT NULL DEFAULT 'pending'`],
+  ['forward_attempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['forward_next_at', 'INTEGER'],
+  ['forward_task_id', 'TEXT'],
+  ['forward_error', 'TEXT'],
+  ['remote_id', 'TEXT'],
+];
+
 interface Row {
   sha256: string;
+  forward_state: string;
+  forward_attempts: number;
+  forward_next_at: number | null;
+  forward_task_id: string | null;
+  forward_error: string | null;
+  remote_id: string | null;
   bytes: number;
   page_count: number | null;
   received_at: number;
@@ -57,6 +77,18 @@ export class Storage {
 
   static async open(options: StorageOptions): Promise<Storage> {
     for (const statement of SCHEMA) await options.driver.exec(statement);
+
+    const existing = await options.driver.all<{ name: string }>('PRAGMA table_info(documents)');
+    const present = new Set(existing.map((column) => column.name));
+    for (const [name, definition] of ADDED_COLUMNS) {
+      if (!present.has(name)) {
+        await options.driver.exec(`ALTER TABLE documents ADD COLUMN ${name} ${definition}`);
+      }
+    }
+    await options.driver.exec(
+      `CREATE INDEX IF NOT EXISTS documents_by_forward ON documents (forward_state, forward_next_at)`,
+    );
+
     mkdirSync(options.objectsDir, { recursive: true });
     return new Storage(options.driver, options.objectsDir);
   }
@@ -150,6 +182,64 @@ export class Storage {
     return this.record(sha256);
   }
 
+  /** Documents due to be handed on, oldest first so nothing starves. */
+  async dueForForwarding(now: number, limit = 20): Promise<readonly DocumentRecord[]> {
+    const rows = await this.#driver.all<Row>(
+      `SELECT * FROM documents
+        WHERE forward_state IN ('pending', 'sent')
+          AND (forward_next_at IS NULL OR forward_next_at <= ?)
+        ORDER BY received_at ASC
+        LIMIT ?`,
+      [now, limit],
+    );
+    return rows.map(toRecord);
+  }
+
+  async recordForwardAttempt(
+    sha256: string,
+    update: {
+      state: 'pending' | 'sent' | 'done' | 'failed';
+      attempts: number;
+      nextAt: number | null;
+      taskId?: string | null;
+      remoteId?: string | null;
+      error?: string | null;
+    },
+  ): Promise<void> {
+    await this.#driver.run(
+      `UPDATE documents
+          SET forward_state = ?, forward_attempts = ?, forward_next_at = ?,
+              forward_task_id = COALESCE(?, forward_task_id),
+              remote_id = COALESCE(?, remote_id),
+              forward_error = ?
+        WHERE sha256 = ?`,
+      [
+        update.state,
+        update.attempts,
+        update.nextAt,
+        update.taskId ?? null,
+        update.remoteId ?? null,
+        update.error ?? null,
+        sha256,
+      ],
+    );
+  }
+
+  async forwardTaskId(sha256: string): Promise<string | null> {
+    const rows = await this.#driver.all<{ forward_task_id: string | null }>(
+      'SELECT forward_task_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.forward_task_id ?? null;
+  }
+
+  async forwardCounts(): Promise<Readonly<Record<string, number>>> {
+    const rows = await this.#driver.all<{ forward_state: string; n: number }>(
+      'SELECT forward_state, COUNT(*) AS n FROM documents GROUP BY forward_state',
+    );
+    return Object.fromEntries(rows.map((row) => [row.forward_state, row.n]));
+  }
+
   private pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
@@ -166,5 +256,11 @@ function toRecord(row: Row): DocumentRecord {
     correspondent: row.correspondent,
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
+    forward: {
+      state: row.forward_state as DocumentRecord['forward']['state'],
+      attempts: row.forward_attempts,
+      remoteId: row.remote_id,
+      error: row.forward_error,
+    },
   };
 }

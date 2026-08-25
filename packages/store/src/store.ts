@@ -1,7 +1,7 @@
 import { reduce, type CaptureEvent, type DocId, type DocState } from '@sheaf/core';
-import type { EventLog } from './log';
-import { projectOutbox, type OutboxRow } from './outbox';
-import { paperTrail, type TrailEntry } from './trail';
+import type { EventLog } from './log.ts';
+import { projectOutbox, type OutboxRow } from './outbox.ts';
+import { paperTrail, type TrailEntry } from './trail.ts';
 
 /**
  * Everything the app reads, derived from the log.

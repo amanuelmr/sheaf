@@ -10,12 +10,12 @@ export type {
   ServerOutcome,
   SideTask,
   Suggestions,
-} from './events';
-export type { DocState, DocStatus, SideTaskState } from './state';
-export { hasUnsavedDetails, isSynced, mayBeOnServer, needsUser } from './state';
-export { apply, reduce } from './reduce';
-export type { Command, NetStatus, SyncPolicy, Tick } from './machine';
-export { next, shouldAutoRetryOnReconnect } from './machine';
-export { MAX_AUTO_ATTEMPTS, backoffMs, taskPollDelayMs } from './backoff';
-export type { UserAction, UserFacingError } from './errors';
-export { describe, isBlocking, isRetryable } from './errors';
+} from './events.ts';
+export type { DocState, DocStatus, SideTaskState } from './state.ts';
+export { hasUnsavedDetails, isSynced, mayBeOnServer, needsUser } from './state.ts';
+export { apply, reduce } from './reduce.ts';
+export type { Command, NetStatus, SyncPolicy, Tick } from './machine.ts';
+export { next, shouldAutoRetryOnReconnect } from './machine.ts';
+export { MAX_AUTO_ATTEMPTS, backoffMs, taskPollDelayMs } from './backoff.ts';
+export type { UserAction, UserFacingError } from './errors.ts';
+export { describe, isBlocking, isRetryable } from './errors.ts';

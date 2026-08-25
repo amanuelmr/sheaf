@@ -12,7 +12,7 @@ import {
   type SideTask,
 } from '@sheaf/core';
 import type { DocumentStore } from '@sheaf/store';
-import type { EnginePorts } from './ports';
+import type { EnginePorts } from './ports.ts';
 
 /**
  * What happened when the shutter fired.

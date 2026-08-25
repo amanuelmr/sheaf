@@ -1,5 +1,5 @@
 import type { ServerOutcome } from '@sheaf/core';
-import type { PaperlessTask } from './types';
+import type { PaperlessTask } from './types.ts';
 
 /**
  * Interpret a Paperless consumption task.
@@ -18,7 +18,14 @@ import type { PaperlessTask } from './types';
  * actually support.
  */
 export function interpretTask(task: PaperlessTask): ServerOutcome | 'pending' {
-  if (task.status === 'PENDING' || task.status === 'STARTED') return 'pending';
+  // Case matters, and it varies. A real Paperless-ngx answers with lowercase
+  // ("success", "failure"); the documentation and older versions use uppercase.
+  // Comparing exactly against one of them meant reading every successful upload as
+  // a failure -- documents sat safely in Paperless while we reported they had been
+  // declined. Unit tests could not catch it, because the fixtures were written from
+  // the same wrong belief as the code.
+  const status = task.status.toLowerCase();
+  if (status === 'pending' || status === 'started' || status === 'received') return 'pending';
 
   const remoteId = toRemoteId(task.related_document);
   const result = task.result ?? '';
@@ -27,11 +34,10 @@ export function interpretTask(task: PaperlessTask): ServerOutcome | 'pending' {
     return { kind: 'duplicate', remoteId: remoteId ?? extractTrailingId(result) };
   }
 
-  if (task.status === 'SUCCESS') {
-    if (remoteId !== null) return { kind: 'stored', remoteId };
-    // Consumed, but the server did not tell us which document it became.
-    // Reconciliation by content hash resolves this; treat as duplicate-of-unknown.
-    return { kind: 'duplicate', remoteId: null };
+  if (status === 'success') {
+    // Consumed. Some versions name the document it became; some do not, in which
+    // case the id has to be resolved separately rather than guessed at.
+    return { kind: 'stored', remoteId };
   }
 
   return { kind: 'consumer_failed', message: result || `task ${task.task_id} failed` };

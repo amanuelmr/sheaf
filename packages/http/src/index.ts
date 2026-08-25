@@ -6,8 +6,8 @@ export type {
   HttpRequest,
   HttpResponse,
   UploadFile,
-} from './http';
-export type { ApiResult } from './result';
-export { err, ok } from './result';
-export { joinUrl, redact } from './url';
-export { classifyResponse, classifyThrown } from './errors';
+} from './http.ts';
+export type { ApiResult } from './result.ts';
+export { err, ok } from './result.ts';
+export { joinUrl, redact } from './url.ts';
+export { classifyResponse, classifyThrown } from './errors.ts';

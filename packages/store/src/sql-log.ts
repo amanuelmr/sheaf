@@ -1,6 +1,6 @@
 import type { CaptureEvent, DocId } from '@sheaf/core';
-import type { SqlDriver } from './driver';
-import type { EventLog, EventRecord } from './log';
+import type { SqlDriver } from './driver.ts';
+import type { EventLog, EventRecord } from './log.ts';
 
 interface Row {
   seq: number;

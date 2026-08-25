@@ -48,6 +48,21 @@ export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
  */
 export type PutOutcome = 'stored' | 'already-stored';
 
+/**
+ * How far a document has got on its way to a system that can actually search it.
+ *
+ * `pending` and `sent` are both in-flight; `done` means the downstream system has
+ * it; `failed` means we stopped trying. None of these affect whether *we* hold the
+ * document -- that is settled the moment it is stored.
+ */
+export interface ForwardStatus {
+  readonly state: 'pending' | 'sent' | 'done' | 'failed';
+  readonly attempts: number;
+  /** How the downstream system names it, once it has one. */
+  readonly remoteId: string | null;
+  readonly error: string | null;
+}
+
 export interface DocumentRecord {
   readonly sha256: string;
   readonly bytes: number;
@@ -58,6 +73,7 @@ export interface DocumentRecord {
   readonly correspondent: string | null;
   readonly documentType: string | null;
   readonly tags: readonly string[];
+  readonly forward: ForwardStatus;
 }
 
 /** Everything is optional; omitted fields are left alone, `null` clears them. */
@@ -72,6 +88,14 @@ export interface HealthResponse {
   readonly name: 'sheaf-ingest';
   readonly protocol: typeof PROTOCOL_VERSION;
   readonly documents: number;
+  /**
+   * Absent when no downstream system is configured. Storing is the server's job;
+   * forwarding is optional, and saying so plainly beats a silent no-op.
+   */
+  readonly forwarding?: {
+    readonly target: string;
+    readonly counts: Readonly<Record<string, number>>;
+  };
 }
 
 export interface ListResponse {

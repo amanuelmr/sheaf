@@ -1,7 +1,7 @@
-import { MAX_AUTO_ATTEMPTS, backoffMs } from './backoff';
-import { isBlocking, isRetryable } from './errors';
-import type { CaptureEvent, PageRef, ServerOutcome, SideTask } from './events';
-import type { DocState, SideTaskState } from './state';
+import { MAX_AUTO_ATTEMPTS, backoffMs } from './backoff.ts';
+import { isBlocking, isRetryable } from './errors.ts';
+import type { CaptureEvent, PageRef, ServerOutcome, SideTask } from './events.ts';
+import type { DocState, SideTaskState } from './state.ts';
 
 /** Events that could move a document toward the server. Ignored once SYNCED. */
 const UPLOAD_EVENTS = new Set(['UploadStarted', 'UploadFailed', 'TaskAccepted', 'GaveUp']);

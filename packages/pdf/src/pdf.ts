@@ -1,5 +1,5 @@
-import { readJpegInfo, type JpegInfo } from './jpeg';
-import { sha256Hex } from './sha256';
+import { readJpegInfo, type JpegInfo } from './jpeg.ts';
+import { sha256Hex } from './sha256.ts';
 
 /**
  * A minimal PDF writer, deliberately hand-rolled.

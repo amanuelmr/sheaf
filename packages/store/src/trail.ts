@@ -34,7 +34,13 @@ function describeOutcome(outcome: Extract<CaptureEvent, { type: 'ServerConfirmed
 } {
   switch (outcome.kind) {
     case 'stored':
-      return { text: `Your server confirmed it — ${shortRemote(outcome.remoteId)}`, notable: true };
+      return {
+        text:
+          outcome.remoteId === null
+            ? 'Your server confirmed it'
+            : `Your server confirmed it — ${shortRemote(outcome.remoteId)}`,
+        notable: true,
+      };
     case 'duplicate':
       return {
         text:

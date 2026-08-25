@@ -1,4 +1,4 @@
-import type { SqlDriver } from './driver';
+import type { SqlDriver } from './driver.ts';
 
 /**
  * Schema for the capture log.

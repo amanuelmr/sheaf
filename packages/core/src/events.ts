@@ -59,7 +59,7 @@ export type FailureReason =
  * safe, and turns at-least-once delivery into exactly-once semantics.
  */
 export type ServerOutcome =
-  | { readonly kind: 'stored'; readonly remoteId: RemoteId }
+  | { readonly kind: 'stored'; readonly remoteId: RemoteId | null }
   | { readonly kind: 'duplicate'; readonly remoteId: RemoteId | null }
   | { readonly kind: 'consumer_failed'; readonly message: string };
 

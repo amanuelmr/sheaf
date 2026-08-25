@@ -13,6 +13,9 @@
     "start": "node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
+    "@sheaf/core": "workspace:*",
+    "@sheaf/http": "workspace:*",
+    "@sheaf/paperless": "workspace:*",
     "@sheaf/protocol": "workspace:*",
     "@sheaf/store": "workspace:*"
   }

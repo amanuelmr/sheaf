@@ -8,16 +8,26 @@ WORKDIR /srv
 # node:fs are all of it -- so there is nothing to install. The only resolution it
 # needs is for its two workspace packages, which is exactly what these symlinks are:
 # what pnpm would have linked, without an install step, a lockfile, or a network.
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY packages/protocol/src packages/protocol/src
-COPY packages/store/package.json packages/store/package.json
-COPY packages/store/src packages/store/src
-COPY services/ingest/package.json services/ingest/package.json
-COPY services/ingest/src services/ingest/src
+COPY packages/core/package.json      packages/core/package.json
+COPY packages/core/src               packages/core/src
+COPY packages/http/package.json      packages/http/package.json
+COPY packages/http/src               packages/http/src
+COPY packages/protocol/package.json  packages/protocol/package.json
+COPY packages/protocol/src           packages/protocol/src
+COPY packages/paperless/package.json packages/paperless/package.json
+COPY packages/paperless/src          packages/paperless/src
+COPY packages/store/package.json     packages/store/package.json
+COPY packages/store/src              packages/store/src
+COPY services/ingest/package.json    services/ingest/package.json
+COPY services/ingest/src             services/ingest/src
 
+# One symlink per workspace package the service imports, directly or transitively.
+# Miss one and it fails at startup rather than at build, so they are listed
+# explicitly rather than globbed.
 RUN mkdir -p node_modules/@sheaf \
-  && ln -s /srv/packages/protocol node_modules/@sheaf/protocol \
-  && ln -s /srv/packages/store    node_modules/@sheaf/store
+  && for pkg in core http protocol paperless store; do \
+       ln -s "/srv/packages/$pkg" "node_modules/@sheaf/$pkg"; \
+     done
 
 ENV SHEAF_DATA_DIR=/data
 ENV PORT=8787

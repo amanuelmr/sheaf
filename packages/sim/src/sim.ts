@@ -10,10 +10,10 @@ import { SyncEngine, type EnginePorts, type UploadAccepted } from '@sheaf/engine
 import { err, ok, type ApiResult } from '@sheaf/http';
 import { DocumentStore, MemoryEventLog, type EventLog } from '@sheaf/store';
 import { interpretTask } from '@sheaf/paperless';
-import { FakePaperless } from './fake-paperless';
-import { rollAttempt, rollKill, rollOffline, rollSideTask, type FaultProfile } from './faults';
-import { rng, type Rng } from './random';
-import { virtualClock, type VirtualClock } from './clock';
+import { FakePaperless } from './fake-paperless.ts';
+import { rollAttempt, rollKill, rollOffline, rollSideTask, type FaultProfile } from './faults.ts';
+import { rng, type Rng } from './random.ts';
+import { virtualClock, type VirtualClock } from './clock.ts';
 
 export interface SimOptions {
   readonly seed: number;

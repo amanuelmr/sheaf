@@ -1,6 +1,6 @@
-import { isRetryable } from './errors';
-import type { DocId, MetadataPatch, RemoteId } from './events';
-import type { DocState, SideTaskState } from './state';
+import { isRetryable } from './errors.ts';
+import type { DocId, MetadataPatch, RemoteId } from './events.ts';
+import type { DocState, SideTaskState } from './state.ts';
 
 export type NetStatus = 'offline' | 'cellular' | 'wifi';
 

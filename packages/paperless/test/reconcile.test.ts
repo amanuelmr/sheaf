@@ -182,3 +182,45 @@ suite('probeReconciliation', () => {
     });
   });
 });
+
+suite('filenames a store may have rewritten', () => {
+  /**
+   * Defensive rather than observed: filenames are the one thing a document store
+   * feels free to rewrite. A long prefix stays unambiguous, and the asymmetry is
+   * unchanged — a false negative costs one redundant upload.
+   */
+  it('recognises a filename that has been shortened', () => {
+    expect(matchesCaptureId(`sheaf-${HASH.slice(0, 40)}`, HASH)).toBe(true);
+    expect(matchesCaptureId(`sheaf-${HASH.slice(0, 16)}`, HASH)).toBe(true);
+  });
+
+  it('will not match on a prefix too short to be meaningful', () => {
+    // A false positive is the dangerous direction, so short prefixes are refused
+    // rather than treated as probably-fine.
+    expect(matchesCaptureId(`sheaf-${HASH.slice(0, 15)}`, HASH)).toBe(false);
+    expect(matchesCaptureId('sheaf-ab', HASH)).toBe(false);
+  });
+
+  it('still refuses a prefix of a different document', () => {
+    expect(matchesCaptureId(`sheaf-${OTHER.slice(0, 40)}`, HASH)).toBe(false);
+  });
+});
+
+suite('the response field, as a real server names it', () => {
+  it('reads original_file_name, which is not what the filter is called', async () => {
+    // Paperless filters on `original_filename__istartswith` and returns the value
+    // as `original_file_name`. Reading only the query spelling made every
+    // reconciliation report "not found" for documents that were plainly there.
+    const { client: c } = client(() => ({
+      body: JSON.stringify({ results: [{ id: 3, original_file_name: `sheaf-${HASH}.pdf` }] }),
+    }));
+    expect(await c.findByCaptureId(HASH)).toEqual({ ok: true, value: 3 });
+  });
+
+  it('still reads the older spelling', async () => {
+    const { client: c } = client(() => ({
+      body: JSON.stringify({ results: [{ id: 9, original_filename: `sheaf-${HASH}.pdf` }] }),
+    }));
+    expect(await c.findByCaptureId(HASH)).toEqual({ ok: true, value: 9 });
+  });
+});

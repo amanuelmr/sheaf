@@ -65,5 +65,16 @@ Costs:
   Paperless. A `title` is set separately, so the document itself still reads well.
 - Only the first 25 candidates are examined. Since matches are exact after
   re-checking, more than a couple is already pathological.
-- Still unvalidated against a real Paperless-ngx across versions. The probe exists
-  so that when it does fail, it says so instead of guessing.
+- **Validated against a real Paperless-ngx.** `original_filename__istartswith` does
+  filter correctly: a name that cannot exist returns nothing, while a shared prefix
+  returns exactly the matching documents.
+
+  The re-check earned its keep for a different reason than expected. Paperless
+  _filters_ on `original_filename__istartswith` but _returns_ the value as
+  `original_file_name` — the parameter and the field are spelled differently. Reading
+  only the query spelling made every candidate fail its re-check, so reconciliation
+  reported "not found" for documents that were plainly there.
+
+  That is this ADR's asymmetry working exactly as designed: the bug fell to the
+  harmless side. It cost redundant uploads instead of marking documents as arrived
+  when they had not.

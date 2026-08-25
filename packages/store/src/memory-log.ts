@@ -1,5 +1,5 @@
 import type { CaptureEvent, DocId } from '@sheaf/core';
-import type { EventLog, EventRecord } from './log';
+import type { EventLog, EventRecord } from './log.ts';
 
 /** In-memory log, for tests and for the simulator. Same semantics as the SQL one. */
 export class MemoryEventLog implements EventLog {

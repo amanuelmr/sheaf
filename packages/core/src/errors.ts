@@ -1,4 +1,4 @@
-import type { FailureReason } from './events';
+import type { FailureReason } from './events.ts';
 
 /** A failure whose remedy is time. */
 export function isRetryable(reason: FailureReason): boolean {

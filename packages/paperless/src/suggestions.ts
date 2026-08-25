@@ -1,5 +1,5 @@
 import type { Suggestions } from '@sheaf/core';
-import type { NamedResource, RawSuggestions } from './types';
+import type { NamedResource, RawSuggestions } from './types.ts';
 
 /**
  * Turn Paperless's id-only suggestions into names.

@@ -1,4 +1,4 @@
-import type { Rng } from './random';
+import type { Rng } from './random.ts';
 
 /**
  * What can go wrong, as per-attempt probabilities.

@@ -20,7 +20,7 @@ import {
   type ListResponse,
   type PutOutcome,
 } from '@sheaf/protocol';
-import { interpretPutStatus } from './put';
+import { interpretPutStatus } from './put.ts';
 
 export interface SheafConfig {
   readonly baseUrl: string;

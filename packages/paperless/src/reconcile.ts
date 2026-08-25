@@ -47,5 +47,20 @@ export function parseCaptureId(filename: string | null | undefined): string | nu
  */
 export function matchesCaptureId(filename: string | null | undefined, sha256: string): boolean {
   const parsed = parseCaptureId(filename);
-  return parsed !== null && parsed === sha256.toLowerCase();
+  if (parsed === null) return false;
+
+  // A long prefix is accepted as well as the whole hash, because filenames are the
+  // one thing a document store feels free to rewrite -- truncating, deduplicating
+  // with a suffix, or sanitising.
+  //
+  // (An earlier version of this comment claimed a real server had been observed
+  // truncating ours. It had not: the truncation was in the output I was reading.
+  // The tolerance is worth keeping, but it is defensive rather than a fix for
+  // something seen.)
+  //
+  // 16 hex characters is 64 bits, and the asymmetry from the top of this file is
+  // unchanged: a false negative costs one redundant upload, so the bar only has to
+  // be high enough that an accidental collision is not a real possibility.
+  const full = sha256.toLowerCase();
+  return full === parsed || (parsed.length >= 16 && full.startsWith(parsed));
 }

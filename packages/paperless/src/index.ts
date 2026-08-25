@@ -1,8 +1,8 @@
-export { interpretTask } from './tasks';
-export { resolveSuggestions } from './suggestions';
-export { PaperlessClient } from './client';
-export { captureFilename, matchesCaptureId, parseCaptureId } from './reconcile';
-export type { PaperlessConfig } from './config';
+export { interpretTask } from './tasks.ts';
+export { resolveSuggestions } from './suggestions.ts';
+export { PaperlessClient } from './client.ts';
+export { captureFilename, matchesCaptureId, parseCaptureId } from './reconcile.ts';
+export type { PaperlessConfig } from './config.ts';
 export type {
   DocumentPatch,
   DocumentSummary,
@@ -11,4 +11,4 @@ export type {
   RawSuggestions,
   ReconcileProbe,
   ServerInfo,
-} from './types';
+} from './types.ts';

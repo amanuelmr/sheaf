@@ -1,6 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { PaperlessClient } from '@sheaf/paperless';
+import { Forwarder } from './forwarder.ts';
+import { paperlessTarget } from './paperless-target.ts';
 import { createIngestServer } from './server.ts';
 import { Storage } from './storage.ts';
 
@@ -29,7 +32,56 @@ mkdirSync(dataDir, { recursive: true });
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
 
-const server = createIngestServer({ storage, token, now: () => Date.now() });
+/**
+ * Forwarding is opt-in. Without it this server stores documents and nothing more,
+ * which is honest but not very useful -- a stored PDF you cannot search is worse
+ * than a photo in your camera roll. Point it at a Paperless-ngx and the documents
+ * become searchable text.
+ */
+const paperlessUrl = process.env['PAPERLESS_URL'];
+const paperlessToken = process.env['PAPERLESS_TOKEN'];
+const forwardingTo =
+  paperlessUrl === undefined || paperlessToken === undefined
+    ? undefined
+    : paperlessUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
+const server = createIngestServer({
+  storage,
+  token,
+  now: () => Date.now(),
+  ...(forwardingTo === undefined ? {} : { forwardingTo }),
+});
+
+if (paperlessUrl !== undefined && paperlessToken !== undefined) {
+  const forwarder = new Forwarder(
+    storage,
+    paperlessTarget(
+      new PaperlessClient({
+        baseUrl: paperlessUrl,
+        token: paperlessToken,
+        fetch: (url, init) => fetch(url, init as RequestInit),
+        formData: () => new FormData(),
+      }),
+    ),
+    { now: () => Date.now(), jitter: () => Math.random() },
+  );
+  // Overlapping passes are skipped rather than queued; a slow downstream should
+  // not turn into a pile-up of concurrent uploads.
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    void forwarder
+      .tick()
+      .catch((error: unknown) => console.error('forwarding failed:', String(error)))
+      .finally(() => {
+        running = false;
+      });
+  }, 5_000);
+  console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
+} else {
+  console.log('forwarding disabled (set PAPERLESS_URL and PAPERLESS_TOKEN to enable)');
+}
 server.listen(port, () => {
   console.log(`sheaf-ingest listening on http://localhost:${port}`);
   console.log(`documents: ${dataDir}`);

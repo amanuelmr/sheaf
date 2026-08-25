@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { SqlDriver, SqlValue } from './driver';
+import type { SqlDriver, SqlValue } from './driver.ts';
 
 /**
  * `node:sqlite` behind the driver interface.

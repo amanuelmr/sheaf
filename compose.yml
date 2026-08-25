@@ -16,8 +16,48 @@ services:
     environment:
       # No default. A server holding documents should not come up guessable.
       SHEAF_TOKEN: ${SHEAF_TOKEN:?set SHEAF_TOKEN to a long random string}
+      # Both unset means "store only" -- documents are kept, never forwarded.
+      PAPERLESS_URL: ${PAPERLESS_URL:-}
+      PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
     volumes:
       - documents:/data
 
+  # Optional, and the reason the whole thing is worth using: Paperless-ngx gives a
+  # stored document OCR, full-text search and tagging. Without it this server holds
+  # PDFs you cannot search, which is worse than leaving them in your camera roll.
+  #
+  #   docker compose --profile paperless up -d
+  paperless:
+    profiles: ['paperless']
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - broker
+    ports:
+      - '8000:8000'
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-admin}
+      PAPERLESS_TIME_ZONE: UTC
+      PAPERLESS_OCR_LANGUAGE: eng
+      # Paperless refuses to start without this; the default is self-describing
+      # rather than a real key, because this is a development instance.
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:-insecure-development-key-do-not-use-for-real-documents}
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+
+  broker:
+    profiles: ['paperless']
+    image: docker.io/library/redis:7
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+
 volumes:
   documents:
+  paperless-data:
+  paperless-media:
+  redis:

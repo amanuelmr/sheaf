@@ -6,7 +6,7 @@ import type {
   RemoteId,
   SideTask,
   Suggestions,
-} from './events';
+} from './events.ts';
 
 /**
  * Status is DERIVED, never stored. That is what makes an invalid state transition
