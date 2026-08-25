@@ -208,7 +208,8 @@ Next, in order of how much they would change:
 2. **Automate the contract tests against a real Paperless-ngx.** Running it by hand
    already disproved two documented assumptions (see ADR 0002); the point is to
    catch the next one without a person watching.
-3. Page editing — crop, rotate, perspective correction — as post-capture repair.
+3. Automatic edge detection, so the crop does not have to be drawn by hand. Rotate
+   and crop exist; finding the page in the frame does not.
 4. On-device OCR, scoped to offline search of your own outbox and near-duplicate
    detection. Not to guessing metadata: Paperless's classifier knows your corpus.
 5. Background sync, where the OS allows it.

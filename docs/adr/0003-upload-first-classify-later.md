@@ -23,6 +23,32 @@ On-device OCR is rescoped to the two things the server cannot do for us: searchi
 your own outbox while offline, and catching near-duplicates (the same receipt shot
 twice at slightly different angles).
 
+## Amendment: straightening a page is not reviewing it
+
+Removing the review screen was read, in practice, as removing _all_ post-capture
+steps — so the app shipped with no crop and no rotate, and `expo-image-manipulator`
+sat in `package.json` unused. The result was that a real scan of a cinema receipt
+produced 56 characters of OCR noise. "Photograph a document and it is searchable"
+was not true, which made the speed worthless: the app was fast at producing
+documents nobody could find.
+
+Measured on that receipt, forwarded to a real Paperless-ngx:
+
+|                                       | OCR characters                 |
+| ------------------------------------- | ------------------------------ |
+| raw photo, as shipped                 | 56 (noise)                     |
+| turned upright and trimmed            | **257** (dates, names, totals) |
+| plus a hand-rolled adaptive threshold | 209                            |
+
+So a page editor is back — but only rotate and crop, and nothing that asks a
+question. That distinction is the point: this ADR is about not making someone fill
+in a form before their document is safe, and it stands. Deciding which way up a
+page goes is part of scanning, not filing.
+
+The third row is why there is no enhancement filter. Thresholding a crumpled
+receipt destroyed as many strokes as it sharpened. It reads as an obvious
+improvement and measured as a regression, so it was not built.
+
 ## Consequences
 
 Good:

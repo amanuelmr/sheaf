@@ -11,6 +11,7 @@ import { useApp } from '../src/runtime/app-context';
 import { readPageBytes, writePdf } from '../src/adapters/files';
 import { radius, spacing, TOUCH_TARGET } from '../src/theme';
 import { Button } from '../src/ui/components';
+import { PageEditor, type EditedPage } from '../src/ui/page-editor';
 
 interface PendingPage {
   readonly ref: PageRef;
@@ -39,6 +40,9 @@ export default function Shutter() {
   const router = useRouter();
 
   const [pages, setPages] = useState<readonly PendingPage[]>([]);
+  // A page waiting to be straightened and trimmed. Capture is not finished until
+  // this is resolved, but nothing here asks the user about metadata.
+  const [editing, setEditing] = useState<{ page: EditedPage; keepGoing: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<'off' | 'on'>('off');
   const [notice, setNotice] = useState<string | null>(null);
@@ -97,14 +101,35 @@ export default function Shutter() {
         const photo = await camera.current.takePictureAsync({ quality: 0.85 });
         if (photo === undefined) return;
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        const bytes = await readPageBytes(photo.uri);
+        // Straighten and trim before anything else. A sideways page on a patterned
+        // tablecloth is what turns a legible receipt into unsearchable noise.
+        setEditing({
+          page: { uri: photo.uri, width: photo.width, height: photo.height },
+          keepGoing,
+        });
+      } catch {
+        setNotice('The camera didn’t manage that one. Try again.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, pages, commit],
+  );
+
+  /** The edited page becomes the page we assemble and hash. */
+  const accept = useCallback(
+    async (edited: EditedPage, keepGoing: boolean) => {
+      setEditing(null);
+      setBusy(true);
+      try {
+        const bytes = await readPageBytes(edited.uri);
         const next: PendingPage = {
           bytes,
           ref: {
-            id: `${photo.uri}`,
-            path: photo.uri,
-            width: photo.width,
-            height: photo.height,
+            id: edited.uri,
+            path: edited.uri,
+            width: edited.width,
+            height: edited.height,
             bytes: bytes.length,
           },
         };
@@ -118,12 +143,12 @@ export default function Shutter() {
           await commit(collected);
         }
       } catch {
-        setNotice('The camera didn’t manage that one. Try again.');
+        setNotice('That page couldn’t be read. Try again.');
       } finally {
         setBusy(false);
       }
     },
-    [busy, pages, commit],
+    [pages, commit],
   );
 
   if (server === null) {
@@ -172,6 +197,18 @@ export default function Shutter() {
   }
 
   const collecting = pages.length > 0;
+
+  if (editing !== null) {
+    return (
+      <PageEditor
+        page={editing.page}
+        palette={palette}
+        busy={busy}
+        onCancel={() => setEditing(null)}
+        onDone={(edited) => void accept(edited, editing.keepGoing)}
+      />
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: palette.shutterChrome }]}>
