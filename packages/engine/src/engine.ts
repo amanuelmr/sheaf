@@ -29,6 +29,8 @@ export interface CaptureInput {
   readonly sha256: string;
   readonly bytes: number;
   readonly pages: readonly PageRef[];
+  /** A small image of the first page, so the outbox is not a list of hashes. */
+  readonly thumbnailPath?: string;
 }
 
 /**
@@ -64,6 +66,7 @@ export class SyncEngine {
         pages: input.pages,
         sha256: input.sha256,
         bytes: input.bytes,
+        ...(input.thumbnailPath === undefined ? {} : { thumbnailPath: input.thumbnailPath }),
       },
       { type: 'Enqueued', docId: input.docId, at, sha256: input.sha256 },
     );

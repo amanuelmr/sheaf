@@ -10,10 +10,9 @@ the log. Every decision about what to do next still comes from
 app/
   index.tsx          the shutter — the app opens here, nothing in front of it
   connect.tsx        onboarding: two fields and a button
-  outbox.tsx         every document and an honest account of where it is
-  document/[id].tsx  the paper trail
-  inbox.tsx          filing, after the fact
-  settings.tsx       server, sync, privacy
+  outbox.tsx         every document, with a picture of it and where it has got to
+  document/[id].tsx  one document: preview, details you can edit, full history
+  settings.tsx       server, sync, scanning, storage, privacy
 src/
   adapters/          the impure edges: sqlite, keystore, files, HTTP
   runtime/           the tick loop and the React wiring
@@ -28,9 +27,11 @@ A tap assembles the pages into a deterministic PDF, hashes it, writes the bytes 
 `documents/<sha256>.pdf`, and appends `Captured` + `Enqueued`. The sync loop takes
 it from there.
 
-There is no review step. Details are filed later, from Paperless's own suggestions,
-because capture should never wait for a human — see
-[ADR 0003](../../docs/adr/0003-upload-first-classify-later.md).
+A captured page goes through a short editor first — rotate and crop, nothing that
+asks a question. That is not the review step ADR 0003 removed: on a real receipt,
+being turned upright and trimmed took OCR from 56 characters of noise to 257 of
+readable text. Details are filed afterwards, on the document screen, long after the
+document is safe.
 
 Order matters in one place: the bytes reach disk **before** the event does, so a log
 entry can never describe a document that is not there.

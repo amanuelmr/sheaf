@@ -71,11 +71,20 @@ export interface Suggestions {
   readonly date?: string;
 }
 
+/**
+ * What a user chose to call a document.
+ *
+ * Names, not ids. The id-shaped version of this was inherited from a server that
+ * numbers its correspondents and tags, and it meant the app could only ever set a
+ * title -- everything else needed a vocabulary lookup it had no way to do. Our own
+ * server stores these as text, so the thing the user typed is the thing that is
+ * sent.
+ */
 export interface MetadataPatch {
   readonly title?: string;
-  readonly correspondentId?: number;
-  readonly documentTypeId?: number;
-  readonly tagIds?: readonly number[];
+  readonly correspondent?: string;
+  readonly documentType?: string;
+  readonly tags?: readonly string[];
   readonly createdDate?: string;
 }
 
@@ -98,6 +107,11 @@ export type CaptureEvent =
       readonly pages: readonly PageRef[];
       readonly sha256: string;
       readonly bytes: number;
+      /**
+       * A small image of the first page. Without one an outbox is a list of
+       * hashes, and there is no way to tell which document is which.
+       */
+      readonly thumbnailPath?: string;
     })
   | (EventBase & { readonly type: 'PageAdded'; readonly page: PageRef })
   | (EventBase & { readonly type: 'PageRemoved'; readonly pageId: PageId })

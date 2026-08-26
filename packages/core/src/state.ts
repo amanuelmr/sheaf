@@ -58,6 +58,7 @@ export interface DocState {
   readonly suggestions: Suggestions | null;
   readonly metadata: MetadataPatch | null;
   readonly metadataPatched: boolean;
+  readonly thumbnailPath: string | null;
   readonly localFilesPresent: boolean;
   readonly side: Readonly<Record<SideTask, SideTaskState>>;
   readonly createdAt: number;

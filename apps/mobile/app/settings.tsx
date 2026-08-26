@@ -1,7 +1,8 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '../src/runtime/app-context';
+import { releaseSyncedCopies } from '../src/adapters/files';
 import { spacing } from '../src/theme';
 import { Button, Divider } from '../src/ui/components';
 
@@ -10,9 +11,10 @@ import { Button, Divider } from '../src/ui/components';
  * Everything expert-shaped stays out of the way.
  */
 export default function Settings() {
-  const { palette, settings, server, updateSetting, disconnect, outbox } = useApp();
+  const { palette, settings, server, updateSetting, disconnect, outbox, refresh } = useApp();
   const router = useRouter();
   const unsent = outbox.filter((row) => row.status !== 'SYNCED').length;
+  const synced = outbox.filter((row) => row.status === 'SYNCED').length;
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -69,6 +71,55 @@ export default function Settings() {
           value={settings.keepLocalAfterSync}
           onChange={(next) => void updateSetting('keepLocalAfterSync', next)}
           palette={palette}
+        />
+      </Section>
+
+      <Divider palette={palette} />
+
+      <Section title="Scanning" palette={palette}>
+        <Text style={[styles.value, { color: palette.text }]}>{settings.dpi} dpi</Text>
+        <Text style={[styles.hint, { color: palette.textMuted }]}>
+          How large a page is assumed to be. Changing it changes how documents are identified, so a
+          re-scan of something you already have would look like a new document rather than a
+          duplicate.
+        </Text>
+      </Section>
+
+      <Divider palette={palette} />
+
+      <Section title="Storage" palette={palette}>
+        <Text style={[styles.value, { color: palette.text }]}>
+          {synced} on your server · {unsent} still here
+        </Text>
+        <Text style={[styles.hint, { color: palette.textMuted }]}>
+          Local copies of documents your server has confirmed can be removed. Anything not yet
+          confirmed is never touched.
+        </Text>
+        <Button
+          label="Free up space"
+          variant="secondary"
+          palette={palette}
+          disabled={synced === 0}
+          onPress={() => {
+            Alert.alert(
+              'Remove local copies?',
+              `${synced} ${synced === 1 ? 'document is' : 'documents are'} confirmed on your server and can be removed from this device. Documents still waiting will be kept.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Remove',
+                  style: 'destructive',
+                  onPress: () => {
+                    const freed = releaseSyncedCopies(
+                      outbox.filter((r) => r.status === 'SYNCED').map((r) => r.docId),
+                    );
+                    void refresh();
+                    Alert.alert('Done', `Freed ${freed} local ${freed === 1 ? 'copy' : 'copies'}.`);
+                  },
+                },
+              ],
+            );
+          }}
         />
       </Section>
 

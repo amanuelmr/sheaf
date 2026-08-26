@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { OutboxRow } from '@sheaf/store';
 import { useApp } from '../src/runtime/app-context';
@@ -61,11 +61,21 @@ export default function Outbox() {
           onPress={() => router.push({ pathname: '/document/[id]', params: { id: item.docId } })}
           style={styles.row}
         >
+          {item.thumbnailPath === null ? (
+            <View style={[styles.thumbFallback, { backgroundColor: palette.surfaceRaised }]}>
+              <Text style={[styles.thumbGlyph, { color: palette.textMuted }]}>{item.symbol}</Text>
+            </View>
+          ) : (
+            <Image
+              source={{ uri: item.thumbnailPath }}
+              style={[styles.thumb, { backgroundColor: palette.surfaceRaised }]}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
+            />
+          )}
           <View style={styles.rowMain}>
-            <Text style={[styles.title, { color: palette.text }]}>
-              {item.remoteId === null
-                ? `Scan ${shortId(item.docId)}`
-                : `Document #${item.remoteId}`}
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+              {item.title ?? `Scan ${shortId(item.docId)}`}
             </Text>
             <Text style={[styles.meta, { color: palette.textMuted }]}>
               {pageLabel(item.pageCount)} · {formatBytes(item.bytes)} ·{' '}
@@ -113,6 +123,15 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_TARGET + spacing.lg,
   },
   rowMain: { flex: 1, gap: spacing.xs },
+  thumb: { width: 52, height: 68, borderRadius: 4 },
+  thumbFallback: {
+    width: 52,
+    height: 68,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbGlyph: { fontSize: 20 },
   title: { fontSize: 16, fontWeight: '600' },
   meta: { fontSize: 13 },
   detail: { fontSize: 13, lineHeight: 18 },

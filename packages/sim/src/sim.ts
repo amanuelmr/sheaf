@@ -220,11 +220,11 @@ class Sim {
           if (fault === 'permanent')
             return Promise.resolve(err({ kind: 'rejected', status: 400, message: 'no' }));
           if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
+          // The simulated server still numbers things, so names are looked up the
+          // way any id-based backend would have to.
           const applied = this.server.patch(remoteId, {
             title: patch.title,
-            correspondentId: patch.correspondentId,
-            documentTypeId: patch.documentTypeId,
-            tagIds: patch.tagIds,
+            ...(patch.tags === undefined ? {} : { tagIds: patch.tags.map((_, i) => i + 1) }),
           });
           if (!applied)
             this.violations.push(`patched document ${remoteId}, which the server lacks`);

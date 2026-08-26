@@ -64,9 +64,14 @@ suite('metadata and retention', () => {
       ...synced,
       { type: 'MetadataAccepted', docId: DOC, at: 3_000, patch: { title: 'Receipt' } },
       { type: 'MetadataPatched', docId: DOC, at: 3_100 },
-      { type: 'MetadataAccepted', docId: DOC, at: 3_200, patch: { tagIds: [4, 7] } },
+      {
+        type: 'MetadataAccepted',
+        docId: DOC,
+        at: 3_200,
+        patch: { tags: ['shopping', 'utilities'] },
+      },
     ]);
-    expect(s.metadata).toEqual({ title: 'Receipt', tagIds: [4, 7] });
+    expect(s.metadata).toEqual({ title: 'Receipt', tags: ['shopping', 'utilities'] });
     expect(s.metadataPatched).toBe(false);
   });
 

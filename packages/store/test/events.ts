@@ -49,7 +49,12 @@ export function fullLife(docId = DOC_A): CaptureEvent[] {
       at: 6_000,
       suggestions: { correspondent: 'Amazon', tags: ['shopping'] },
     },
-    { type: 'MetadataAccepted', docId, at: 6_100, patch: { title: 'Amazon receipt', tagIds: [4] } },
+    {
+      type: 'MetadataAccepted',
+      docId,
+      at: 6_100,
+      patch: { title: 'Amazon receipt', tags: ['shopping'] },
+    },
     { type: 'MetadataPatched', docId, at: 6_200 },
     { type: 'LocalFilesReleased', docId, at: 6_300 },
   ];

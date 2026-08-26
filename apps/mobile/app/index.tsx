@@ -1,14 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link, useRouter } from 'expo-router';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { assemble } from '@sheaf/pdf';
 import type { PageRef } from '@sheaf/core';
 import { pendingCount } from '@sheaf/store';
 import { useApp } from '../src/runtime/app-context';
-import { readPageBytes, writePdf } from '../src/adapters/files';
+import { readPageBytes, storeThumbnail, writePdf } from '../src/adapters/files';
 import { radius, spacing, TOUCH_TARGET } from '../src/theme';
 import { Button } from '../src/ui/components';
 import { PageEditor, type EditedPage } from '../src/ui/page-editor';
@@ -16,6 +17,24 @@ import { PageEditor, type EditedPage } from '../src/ui/page-editor';
 interface PendingPage {
   readonly ref: PageRef;
   readonly bytes: Uint8Array;
+}
+
+/**
+ * A small copy of the first page, so a list of documents is recognisable.
+ *
+ * Best effort on purpose: a capture must never fail because a preview could not
+ * be made. Worst case the outbox shows a placeholder.
+ */
+async function makeThumbnail(sha256: string, pageUri: string): Promise<string | null> {
+  try {
+    const context = ImageManipulator.manipulate(pageUri);
+    context.resize({ width: 320 });
+    const rendered = await context.renderAsync();
+    const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.6 });
+    return await storeThumbnail(sha256, saved.uri);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -48,7 +67,6 @@ export default function Shutter() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const waiting = pendingCount(outbox);
-  const needsFiling = outbox.filter((row) => row.status === 'SYNCED' && row.remoteId !== null);
 
   const commit = useCallback(
     async (collected: readonly PendingPage[]) => {
@@ -64,11 +82,13 @@ export default function Shutter() {
       // The bytes land on disk before the event does, so a log entry never
       // describes a document that is not there.
       const file = writePdf(result.sha256, result.bytes);
+      const thumbnailPath = await makeThumbnail(result.sha256, collected[0]!.ref.path);
       const outcome = await service.sync.capture({
         docId: result.sha256,
         sha256: result.sha256,
         bytes: file.size ?? result.bytes.length,
         pages: collected.map((page) => page.ref),
+        ...(thumbnailPath === null ? {} : { thumbnailPath }),
       });
       setPages([]);
 
@@ -222,35 +242,59 @@ export default function Shutter() {
           active={flash === 'on'}
         />
         {offline ? <Text style={styles.offline}>Offline</Text> : <View />}
-        {needsFiling.length > 0 ? (
-          <Link href="/inbox" asChild>
-            <Chrome
-              label={`${needsFiling.length} to file`}
-              accessibilityLabel="Documents to file"
-            />
-          </Link>
-        ) : (
-          <View style={styles.chromeSpacer} />
-        )}
+        <View style={styles.chromeSpacer} />
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + spacing.md }]}>
         {notice === null ? null : <Text style={styles.notice}>{notice}</Text>}
 
         {collecting ? (
-          <View style={styles.pageRow}>
-            <Chrome
-              label={`Add page ${pages.length + 1}`}
-              accessibilityLabel="Scan another page of this document"
-              onPress={() => void shoot(true)}
-            />
-            <Chrome
-              label={`Done · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`}
-              accessibilityLabel={`Finish document with ${pages.length} pages`}
-              onPress={() => void commit(pages)}
-              active
-            />
-          </View>
+          <>
+            {/*
+              The pages collected so far, so a multi-page scan is not done blind.
+              Each can be dropped before the document is assembled -- afterwards the
+              hash is fixed and the pages are the document.
+            */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tray}
+            >
+              {pages.map((page, index) => (
+                <View key={page.ref.id} style={styles.trayItem}>
+                  <Image
+                    source={{ uri: page.ref.path }}
+                    style={styles.trayThumb}
+                    resizeMode="cover"
+                    accessibilityIgnoresInvertColors
+                  />
+                  <Text style={styles.trayIndex}>{index + 1}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove page ${index + 1}`}
+                    onPress={() => setPages(pages.filter((_, i) => i !== index))}
+                    style={styles.trayRemove}
+                  >
+                    <Text style={styles.trayRemoveText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.pageRow}>
+              <Chrome
+                label={`Add page ${pages.length + 1}`}
+                accessibilityLabel="Scan another page of this document"
+                onPress={() => void shoot(true)}
+              />
+              <Chrome
+                label={`Done · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`}
+                accessibilityLabel={`Finish document with ${pages.length} pages`}
+                onPress={() => void commit(pages)}
+                active
+              />
+            </View>
+          </>
         ) : null}
 
         {/*
@@ -370,6 +414,33 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pageRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
+  tray: { gap: spacing.sm, paddingHorizontal: spacing.xs },
+  trayItem: { width: 54, height: 72 },
+  trayThumb: { width: 54, height: 72, borderRadius: 4, backgroundColor: SCRIM },
+  trayIndex: {
+    position: 'absolute',
+    left: 4,
+    bottom: 4,
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 5,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  trayRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trayRemoveText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
 
   bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   barButton: {

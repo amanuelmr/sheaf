@@ -97,9 +97,13 @@ export class SheafAdapter implements EngineApi {
     return Promise.resolve(ok({}));
   }
 
+  /** Names in, names out. No vocabulary to look up, so nothing is dropped. */
   async patchDocument(remoteId: RemoteId, patch: MetadataPatch): Promise<ApiResult<null>> {
     const result = await this.#client.patchDocument(String(remoteId), {
       ...(patch.title === undefined ? {} : { title: patch.title }),
+      ...(patch.correspondent === undefined ? {} : { correspondent: patch.correspondent }),
+      ...(patch.documentType === undefined ? {} : { documentType: patch.documentType }),
+      ...(patch.tags === undefined ? {} : { tags: patch.tags }),
     });
     return result.ok ? ok(null) : err(result.reason);
   }

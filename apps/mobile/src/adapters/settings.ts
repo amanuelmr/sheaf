@@ -2,7 +2,13 @@ import type { SyncPolicy } from '@sheaf/core';
 import type { SqlDriver } from '@sheaf/store';
 
 export interface AppSettings extends SyncPolicy {
-  /** Assumed scan resolution. Identity-affecting: see ADR 0002. */
+  /**
+   * Assumed scan resolution, used to size the page in the PDF.
+   *
+   * Identity-affecting (ADR 0002): the same pages at a different setting hash
+   * differently, so changing it means a re-scan is a new document rather than a
+   * recognised duplicate. That is why it is one number rather than a slider.
+   */
   readonly dpi: number;
   readonly autoSync: boolean;
 }

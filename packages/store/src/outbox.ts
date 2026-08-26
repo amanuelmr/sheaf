@@ -17,9 +17,11 @@ export interface OutboxRow {
   /** The reassurance or next step, when there is one. */
   readonly detail: string | null;
   readonly pageCount: number;
+  readonly thumbnailPath: string | null;
   readonly bytes: number;
   readonly attempts: number;
   readonly remoteId: RemoteId | null;
+  readonly title: string | null;
   readonly nextAttemptAt: number | null;
   /** True when the user can do something useful about this row. */
   readonly actionable: boolean;
@@ -48,9 +50,11 @@ export function toOutboxRow(state: DocState): OutboxRow {
     label,
     detail,
     pageCount: state.pages.length,
+    thumbnailPath: state.thumbnailPath,
     bytes: state.bytes,
     attempts: state.attempts,
     remoteId: state.remoteId,
+    title: state.metadata?.title ?? state.suggestions?.title ?? null,
     nextAttemptAt: state.nextAttemptAt,
     actionable,
     createdAt: state.createdAt,
