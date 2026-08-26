@@ -30,7 +30,13 @@
           "cameraPermission": "Sheaf uses the camera to scan documents and send them to your own server."
         }
       ],
-      "expo-splash-screen"
+      "expo-splash-screen",
+      [
+        "react-native-document-scanner-plugin",
+        {
+          "cameraPermission": "Sheaf uses the camera to scan documents and send them to your own server."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

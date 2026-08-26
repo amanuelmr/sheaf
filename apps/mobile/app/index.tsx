@@ -10,6 +10,7 @@ import type { PageRef } from '@sheaf/core';
 import { pendingCount } from '@sheaf/store';
 import { useApp } from '../src/runtime/app-context';
 import { readPageBytes, storeThumbnail, writePdf } from '../src/adapters/files';
+import { scanDocument } from '../src/adapters/scanner';
 import { radius, spacing, TOUCH_TARGET } from '../src/theme';
 import { Button } from '../src/ui/components';
 import { PageEditor, type EditedPage } from '../src/ui/page-editor';
@@ -64,6 +65,8 @@ export default function Shutter() {
   const [editing, setEditing] = useState<{ page: EditedPage; keepGoing: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<'off' | 'on'>('off');
+  /** Set only when the platform scanner could not run. */
+  const [manual, setManual] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const waiting = pendingCount(outbox);
@@ -111,6 +114,43 @@ export default function Shutter() {
     },
     [service, settings.dpi, offline, refresh],
   );
+
+  /**
+   * The primary path: hand over to the platform scanner, which finds the page,
+   * straightens it and returns pages already cropped. Multiple pages and retakes
+   * happen inside its own UI, so there is nothing to collect here.
+   */
+  const scan = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const outcome = await scanDocument();
+      if (outcome.kind === 'cancelled') return;
+      if (outcome.kind === 'unavailable') {
+        // Fall back to our own camera rather than leaving someone unable to scan.
+        setManual(true);
+        setNotice('Using the basic camera — you’ll need to crop by hand.');
+        return;
+      }
+
+      const collected: PendingPage[] = [];
+      for (const uri of outcome.uris) {
+        const bytes = await readPageBytes(uri);
+        const size = await Image.getSize(uri).catch(() => ({ width: 0, height: 0 }));
+        collected.push({
+          bytes,
+          ref: { id: uri, path: uri, width: size.width, height: size.height, bytes: bytes.length },
+        });
+      }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await commit(collected);
+    } catch {
+      setNotice('That scan didn’t complete. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, commit]);
 
   const shoot = useCallback(
     async (keepGoing: boolean) => {
@@ -195,11 +235,11 @@ export default function Shutter() {
     );
   }
 
-  if (permission === null) {
+  if (manual && permission === null) {
     return <View style={{ flex: 1, backgroundColor: palette.shutterChrome }} />;
   }
 
-  if (!permission.granted) {
+  if (manual && permission !== null && !permission.granted) {
     return (
       <View
         style={[
@@ -216,7 +256,7 @@ export default function Shutter() {
     );
   }
 
-  const collecting = pages.length > 0;
+  const collecting = manual && pages.length > 0;
 
   if (editing !== null) {
     return (
@@ -232,15 +272,29 @@ export default function Shutter() {
 
   return (
     <View style={[styles.root, { backgroundColor: palette.shutterChrome }]}>
-      <CameraView ref={camera} style={styles.camera} facing="back" flash={flash} />
+      {manual ? (
+        <CameraView ref={camera} style={styles.camera} facing="back" flash={flash} />
+      ) : (
+        <View style={[styles.camera, styles.idle]}>
+          <Text style={styles.idleTitle}>Ready to scan</Text>
+          <Text style={styles.idleBody}>
+            Tap the button. The scanner finds the page, straightens it, and lets you add more before
+            you finish.
+          </Text>
+        </View>
+      )}
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
-        <Chrome
-          label={flash === 'on' ? 'Flash on' : 'Flash off'}
-          accessibilityLabel={flash === 'on' ? 'Turn flash off' : 'Turn flash on'}
-          onPress={() => setFlash(flash === 'on' ? 'off' : 'on')}
-          active={flash === 'on'}
-        />
+        {manual ? (
+          <Chrome
+            label={flash === 'on' ? 'Flash on' : 'Flash off'}
+            accessibilityLabel={flash === 'on' ? 'Turn flash off' : 'Turn flash on'}
+            onPress={() => setFlash(flash === 'on' ? 'off' : 'on')}
+            active={flash === 'on'}
+          />
+        ) : (
+          <View style={styles.chromeSpacer} />
+        )}
         {offline ? <Text style={styles.offline}>Offline</Text> : <View />}
         <View style={styles.chromeSpacer} />
       </View>
@@ -320,7 +374,7 @@ export default function Shutter() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={collecting ? 'Scan another page' : 'Scan document'}
-            onPress={() => void shoot(collecting)}
+            onPress={() => void (manual ? shoot(collecting) : scan())}
             disabled={busy}
             style={({ pressed }) => [styles.shutter, { opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
           />
@@ -375,6 +429,14 @@ const SCRIM = 'rgba(0,0,0,0.55)';
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  idle: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  idleTitle: { color: '#ffffff', fontSize: 22, fontWeight: '600', marginBottom: spacing.sm },
+  idleBody: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
   camera: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   gate: { flex: 1, paddingHorizontal: spacing.lg, gap: spacing.md },
   gateTitle: { fontSize: 26, fontWeight: '600' },

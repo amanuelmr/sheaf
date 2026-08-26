@@ -151,6 +151,19 @@ pnpm verify      # format check + lint + typecheck (packages and app) + tests
 pnpm test:watch
 ```
 
+To run the server the app talks to:
+
+```bash
+echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
+docker compose up -d
+```
+
+One command brings up both halves: `ingest` is the door the phone knocks on, and
+Paperless is what makes a stored document findable. The ingest server fetches its
+own Paperless token once that container has booted, so there is no manual step
+between `up` and scanning. `docker compose up ingest` runs the door alone if
+storage without search is all you want.
+
 Node 20+ and pnpm. To run the app:
 
 ```bash

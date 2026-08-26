@@ -39,7 +39,44 @@ const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects'
  * become searchable text.
  */
 const paperlessUrl = process.env['PAPERLESS_URL'];
-const paperlessToken = process.env['PAPERLESS_TOKEN'];
+
+/**
+ * Get a token for the downstream system.
+ *
+ * A token can only be issued once Paperless has finished its first boot, which is
+ * minutes after `docker compose up` returns. Requiring someone to wait, fetch a
+ * token by hand and restart is the sort of setup step that quietly decides whether
+ * a project gets used, so the server does it itself and keeps trying until the
+ * other container is ready.
+ */
+async function resolveToken(baseUrl: string): Promise<string | null> {
+  const explicit = process.env['PAPERLESS_TOKEN'];
+  if (explicit !== undefined && explicit !== '') return explicit;
+
+  const username = process.env['PAPERLESS_USER'];
+  const password = process.env['PAPERLESS_PASSWORD'];
+  if (username === undefined || password === undefined) return null;
+
+  for (let attempt = 1; attempt <= 60; attempt++) {
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/token/`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      if (response.ok) {
+        const body = (await response.json()) as { token?: string };
+        if (typeof body.token === 'string') return body.token;
+      }
+    } catch {
+      // Not up yet. Waiting is the expected case, not an error worth reporting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+  return null;
+}
+
+const paperlessToken = paperlessUrl === undefined ? undefined : await resolveToken(paperlessUrl);
 const forwardingTo =
   paperlessUrl === undefined || paperlessToken === undefined
     ? undefined
@@ -52,7 +89,7 @@ const server = createIngestServer({
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
 });
 
-if (paperlessUrl !== undefined && paperlessToken !== undefined) {
+if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken !== null) {
   const forwarder = new Forwarder(
     storage,
     paperlessTarget(
@@ -80,7 +117,11 @@ if (paperlessUrl !== undefined && paperlessToken !== undefined) {
   }, 5_000);
   console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
 } else {
-  console.log('forwarding disabled (set PAPERLESS_URL and PAPERLESS_TOKEN to enable)');
+  console.log(
+    paperlessUrl === undefined
+      ? 'forwarding disabled (no PAPERLESS_URL) — documents are stored but not searchable'
+      : 'forwarding disabled — could not get a token from ' + paperlessUrl,
+  );
 }
 server.listen(port, () => {
   console.log(`sheaf-ingest listening on http://localhost:${port}`);

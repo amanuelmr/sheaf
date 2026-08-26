@@ -1,12 +1,19 @@
-# The Sheaf server. Yours: it runs on your machine and holds your documents.
+# The Sheaf stack. Yours: it runs on your machine and holds your documents.
 #
-#   export SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+#   echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
 #   docker compose up -d
+#
+# One command, one deployment. `ingest` is the door the phone knocks on;
+# `paperless` is what makes a stored document findable. They are two containers in
+# the same compose file, not two things to look after -- and `docker compose up
+# ingest` runs the door on its own if that is all you want.
 #
 # For local development you do not need this at all -- the server has no runtime
 # dependencies, so `pnpm --filter @sheaf/ingest start` is faster and equivalent.
 services:
   ingest:
+    depends_on:
+      - paperless
     build:
       context: .
       dockerfile: services/ingest/Dockerfile
@@ -16,9 +23,14 @@ services:
     environment:
       # No default. A server holding documents should not come up guessable.
       SHEAF_TOKEN: ${SHEAF_TOKEN:?set SHEAF_TOKEN to a long random string}
-      # Both unset means "store only" -- documents are kept, never forwarded.
-      PAPERLESS_URL: ${PAPERLESS_URL:-}
+      # Where documents are handed on to become searchable. Unset it (or run
+      # `docker compose up ingest`) for a store-only server.
+      PAPERLESS_URL: ${PAPERLESS_URL:-http://paperless:8000}
+      # Optional: with the admin credentials instead, the server mints its own
+      # token on first run, so there is no manual step between `up` and scanning.
       PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
+      PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-admin}
     volumes:
       - documents:/data
 
@@ -28,7 +40,6 @@ services:
   #
   #   docker compose --profile paperless up -d
   paperless:
-    profiles: ['paperless']
     image: ghcr.io/paperless-ngx/paperless-ngx:latest
     restart: unless-stopped
     depends_on:
@@ -50,7 +61,6 @@ services:
       - paperless-media:/usr/src/paperless/media
 
   broker:
-    profiles: ['paperless']
     image: docker.io/library/redis:7
     restart: unless-stopped
     volumes:
