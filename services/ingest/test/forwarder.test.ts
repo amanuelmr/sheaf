@@ -111,8 +111,12 @@ suite('when the target is having a bad day', () => {
     fake.sendResult = err({ kind: 'unreachable' });
     await forwarder.tick();
 
+    // 'sent' rather than 'pending': a send whose reply never arrived is
+    // indistinguishable from one that never left, so the state records what we
+    // actually know -- that the outcome is unresolved -- and the next pass asks the
+    // target rather than assuming it can send again.
     const forward = await forwardOf();
-    expect(forward.state).toBe('pending');
+    expect(forward.state).toBe('sent');
     expect(forward.attempts).toBe(1);
 
     // Not due yet, so it is not even looked at.
@@ -123,15 +127,30 @@ suite('when the target is having a bad day', () => {
     expect((await forwarder.tick()).examined).toBe(1);
   });
 
-  it('gives up after the budget, and says why', async () => {
+  it('keeps trying an unreachable target rather than giving up on it', async () => {
+    // The phone stops after a budget because stopping means asking the user. Here
+    // there is no user in the loop and the document is already safe, so a target
+    // that is down stays worth retrying -- with the reason recorded throughout.
     fake.sendResult = err({ kind: 'unreachable' });
-    for (let i = 0; i < MAX_AUTO_ATTEMPTS; i++) {
+    for (let i = 0; i < MAX_AUTO_ATTEMPTS * 3; i++) {
       clock += 10 * 60_000;
       await forwarder.tick();
     }
     const forward = await forwardOf();
-    expect(forward.state).toBe('failed');
+    expect(forward.state).not.toBe('failed');
     expect(forward.error).toBe('unreachable');
+    expect(forward.attempts).toBeGreaterThan(MAX_AUTO_ATTEMPTS);
+
+    // And it succeeds the moment the target comes back. Three passes, because this
+    // fake cannot be asked what it has in flight: one to establish that the
+    // unresolved attempt is not recoverable, one to send, one to read the outcome.
+    fake.sendResult = ok('task-9');
+    fake.pollResult = ok({ kind: 'stored', remoteId: 77 });
+    clock += 10 * 60_000;
+    await forwarder.tick();
+    await forwarder.tick();
+    await forwarder.tick();
+    expect((await forwardOf()).state).toBe('done');
   });
 
   it('does not retry a refusal that retrying cannot change', async () => {

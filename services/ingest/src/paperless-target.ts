@@ -44,6 +44,18 @@ export function paperlessTarget(client: PaperlessClient): ForwardTarget {
       return ok(found.value === null ? null : String(found.value));
     },
 
+    /**
+     * Ask what is already on its way in.
+     *
+     * The window this covers is small and entirely real: Paperless has the bytes,
+     * consumption has not finished, so `locate` says no. A hand-off that died in
+     * there used to be re-sent, and Paperless -- which does not refuse content it
+     * already holds -- made a second document out of it.
+     */
+    locateTask(sha256: string): Promise<ApiResult<string | null>> {
+      return client.findTaskByCaptureId(sha256);
+    },
+
     async poll(taskId: string): Promise<ApiResult<ServerOutcome | 'pending' | null>> {
       const result = await client.getTask(taskId);
       if (!result.ok) return err(result.reason);

@@ -4,6 +4,8 @@ export interface PaperlessTask {
   readonly status: 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE' | (string & {});
   readonly result?: string | null;
   readonly related_document?: number | string | null;
+  /** The name the file was uploaded under. Present from the moment it is accepted. */
+  readonly task_file_name?: string | null;
 }
 
 export interface ServerInfo {

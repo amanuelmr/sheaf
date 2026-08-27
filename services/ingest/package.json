@@ -18,5 +18,8 @@
     "@sheaf/paperless": "workspace:*",
     "@sheaf/protocol": "workspace:*",
     "@sheaf/store": "workspace:*"
+  },
+  "devDependencies": {
+    "@sheaf/sim": "workspace:*"
   }
 }

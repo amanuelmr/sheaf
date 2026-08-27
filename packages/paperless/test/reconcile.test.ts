@@ -224,3 +224,65 @@ suite('the response field, as a real server names it', () => {
     expect(await c.findByCaptureId(HASH)).toEqual({ ok: true, value: 9 });
   });
 });
+
+/**
+ * Finding a hand-off that has been accepted but not yet consumed.
+ *
+ * The asymmetry here runs the opposite way from finding a document. A miss costs a
+ * redundant upload, and on a target that does not deduplicate that is a second
+ * document -- annoying. A wrong hit means watching a task that belongs to somebody
+ * else and reporting its outcome as ours -- which is how a document quietly never
+ * gets forwarded while the record says it did.
+ */
+suite('finding an in-flight hand-off', () => {
+  const task = (id: string, filename: string | null) => ({
+    task_id: id,
+    status: 'pending',
+    task_file_name: filename,
+  });
+
+  it('finds the task carrying our filename', async () => {
+    const h = client(() => ({
+      body: JSON.stringify({
+        results: [task('t-1', 'someone-elses.pdf'), task('t-2', captureFilename(HASH))],
+      }),
+    }));
+    expect(await h.client.findTaskByCaptureId(HASH)).toEqual({ ok: true, value: 't-2' });
+  });
+
+  it('reads an unpaginated list too', async () => {
+    const h = client(() => ({ body: JSON.stringify([task('t-9', captureFilename(HASH))]) }));
+    expect(await h.client.findTaskByCaptureId(HASH)).toEqual({ ok: true, value: 't-9' });
+  });
+
+  it('never claims a task that belongs to another document', async () => {
+    const h = client(() => ({
+      body: JSON.stringify({
+        results: [
+          task('t-1', captureFilename(OTHER)),
+          task('t-2', 'invoice.pdf'),
+          task('t-3', null),
+          task('t-4', 'sheaf-.pdf'),
+        ],
+      }),
+    }));
+    expect(await h.client.findTaskByCaptureId(HASH)).toEqual({ ok: true, value: null });
+  });
+
+  it('takes the newest when an earlier attempt left one behind', async () => {
+    const h = client(() => ({
+      body: JSON.stringify({
+        results: [task('t-old', captureFilename(HASH)), task('t-new', captureFilename(HASH))],
+      }),
+    }));
+    expect(await h.client.findTaskByCaptureId(HASH)).toEqual({ ok: true, value: 't-new' });
+  });
+
+  it('reports a failure as a failure rather than as an absence', async () => {
+    // The distinction the forwarder depends on: "I could not ask" must not arrive
+    // looking like "there is nothing in flight", or it will send again.
+    const h = client(() => ({ status: 503, body: 'nope' }));
+    const result = await h.client.findTaskByCaptureId(HASH);
+    expect(result.ok).toBe(false);
+  });
+});

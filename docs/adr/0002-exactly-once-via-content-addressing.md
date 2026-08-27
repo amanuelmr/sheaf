@@ -53,3 +53,42 @@ Costs:
   any of this — that comes from the addressing, and held throughout.
 - Exact-hash matching cannot catch the same receipt photographed twice. That needs
   perceptual hashing, which is a separate concern.
+
+## Amendment: the second hop needed more than asking
+
+Asking the target whether it already holds the document was, on its own, not enough
+to make the hand-off exactly-once. Two windows survived it:
+
+- Between the target accepting the bytes and finishing consumption, the document does
+  not exist yet, so the question honestly answers no. A process that died in there
+  came back with nothing written down and sent again.
+- A send whose reply was lost is indistinguishable from one that never left, and was
+  being recorded as the latter.
+
+Both were found by putting the forwarder under the same deterministic simulator the
+phone's hop has always had — and both showed up on a _flaky_ profile, not just a
+hostile one, so this was not an exotic schedule. Three changes fixed it:
+
+1. Record that a hand-off is under way **before** making it, mirroring the phone's
+   log, where the attempt precedes the request.
+2. Keep a failed send in that unresolved state rather than reverting it to pending,
+   because "it failed" is not the same claim as "it never left".
+3. Resolve an unresolved hand-off by asking the target what it has _in flight_
+   (`findTaskByCaptureId`), not just what it has stored. The task row exists from the
+   moment the upload is accepted, which is exactly the window that was open.
+
+There is a general shape here, and it is the same mistake twice: **a question that
+could not be asked is not a question that was answered no.** The pre-flight check
+was also reading an unreachable target as "it does not have this", which turned a
+network blip into a duplicate. Both now wait instead of assuming.
+
+The contrast with the first hop is the argument for the protocol. Between the phone
+and our own server, none of this exists: the address _is_ the content, so re-sending
+is a no-op and there is no window to be caught in. All of the machinery above is the
+price of talking to a system that was not designed for it — paid once, on a server,
+where a retry costs nothing and nobody is waiting.
+
+Related: the forwarder no longer borrows the phone's attempt budget. That budget
+exists because stopping means asking the user; on the server nobody is watching and
+the document is already safe, so a retryable failure retries at the capped backoff
+for as long as it takes. Only a refusal that retrying cannot change stops the loop.

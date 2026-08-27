@@ -198,6 +198,9 @@ importers:
       '@sheaf/paperless':
         specifier: workspace:*
         version: link:../paperless
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@sheaf/store':
         specifier: workspace:*
         version: link:../store
@@ -225,6 +228,10 @@ importers:
       '@sheaf/store':
         specifier: workspace:*
         version: link:../../packages/store
+    devDependencies:
+      '@sheaf/sim':
+        specifier: workspace:*
+        version: link:../../packages/sim
 
 packages:
 

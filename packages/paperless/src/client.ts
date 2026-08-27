@@ -109,6 +109,32 @@ export class PaperlessClient {
   }
 
   /**
+   * Find an accepted-but-unfinished hand-off by the content hash it was named with.
+   *
+   * This answers a question `findByCaptureId` cannot: between Paperless accepting an
+   * upload and finishing consumption, the task exists and the document does not. A
+   * sender that crashed in that window has to be able to tell "you already have
+   * this, wait" from "you never got it, send again", and only the task can say so.
+   *
+   * The asymmetry is the opposite way round from document reconciliation, so the
+   * matching is stricter than it looks. A false negative costs one redundant upload
+   * -- which, on a server that does not deduplicate, means a second document. A
+   * false positive is worse: we would watch somebody else's task and attribute its
+   * outcome to our document. So a candidate has to carry our filename, checked here
+   * rather than trusted from a filter the server may have ignored.
+   */
+  async findTaskByCaptureId(sha256: string): Promise<ApiResult<string | null>> {
+    const result = await this.#json<PaperlessTask[] | { results?: PaperlessTask[] }>('api/tasks/');
+    if (!result.ok) return err(result.reason);
+
+    const rows = Array.isArray(result.value) ? result.value : (result.value.results ?? []);
+    const ours = rows.filter((row) => matchesCaptureId(row.task_file_name, sha256));
+    // Last wins: if an earlier attempt somehow left two, the newest is the one whose
+    // outcome is still ahead of us.
+    return ok(ours[ours.length - 1]?.task_id ?? null);
+  }
+
+  /**
    * Paperless's own classifier, trained on this user's corpus. Returns ids, not
    * names — resolving those is the caller's job, using the cached lists below.
    */
