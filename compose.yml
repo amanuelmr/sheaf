@@ -1,6 +1,9 @@
 # The Sheaf stack. Yours: it runs on your machine and holds your documents.
 #
-#   echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
+#   {
+#     echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+#     echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")"
+#   } > .env
 #   docker compose up -d
 #
 # One command, one deployment. `ingest` is the door the phone knocks on;
@@ -30,7 +33,7 @@ services:
       # token on first run, so there is no manual step between `up` and scanning.
       PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
       PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
-      PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-admin}
+      PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
     volumes:
       - documents:/data
 
@@ -50,7 +53,10 @@ services:
       PAPERLESS_REDIS: redis://broker:6379
       PAPERLESS_URL: http://localhost:8000
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
-      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:-admin}
+      # No default, for the same reason SHEAF_TOKEN has none. This stack started as
+      # a development fixture and is now where someone's documents actually live;
+      # admin/admin was defensible for the first and is not for the second.
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
       PAPERLESS_TIME_ZONE: UTC
       PAPERLESS_OCR_LANGUAGE: eng
       # Paperless refuses to start without this; the default is self-describing

@@ -154,9 +154,15 @@ pnpm test:watch
 To run the server the app talks to:
 
 ```bash
-echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
+{
+  echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+  echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")"
+} > .env
 docker compose up -d
 ```
+
+Neither has a default. A server holding your documents should not come up
+guessable, so it would rather not come up at all.
 
 One command brings up both halves: `ingest` is the door the phone knocks on, and
 Paperless is what makes a stored document findable. The ingest server fetches its
