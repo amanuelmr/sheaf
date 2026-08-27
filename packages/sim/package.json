@@ -12,8 +12,9 @@
   "dependencies": {
     "@sheaf/core": "workspace:*",
     "@sheaf/engine": "workspace:*",
+    "@sheaf/http": "workspace:*",
     "@sheaf/paperless": "workspace:*",
-    "@sheaf/store": "workspace:*",
-    "@sheaf/http": "workspace:*"
+    "@sheaf/protocol": "workspace:*",
+    "@sheaf/store": "workspace:*"
   }
 }

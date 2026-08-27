@@ -7,6 +7,9 @@
  * about shipping code, not about a copy of it.
  *
  * Every seed is reproducible: a failure names the exact schedule that broke it.
+ *
+ * The simulated world is our own ingestion server, which is the point: an engine
+ * proved correct against a protocol it no longer speaks has been proved nothing.
  */
 import { describe as suite, expect, it } from 'vitest';
 import { runSim, seeds, type SimResult } from '../src/sim';
@@ -48,9 +51,10 @@ suite('convergence under faults', () => {
   it('does the obvious thing when nothing goes wrong', async () => {
     const result = await runSim({ seed: 1, documents: 3, faults: CALM });
     assertHealthy(result, 1, 3);
-    // One POST per document, and no recovery machinery needed.
-    expect(result.server.counters.posts).toBe(3);
-    expect(result.server.counters.duplicatesReported).toBe(0);
+    // One PUT per document, and no recovery machinery needed.
+    expect(result.server.counters.puts).toBe(3);
+    expect(result.server.counters.duplicates).toBe(0);
+    expect(result.server.counters.headLookups).toBe(0);
     expect(result.reconciles).toBe(0);
     expect([...result.uploads.values()]).toEqual([1, 1, 1]);
   });
@@ -61,7 +65,9 @@ suite('exactly-once delivery', () => {
     for (const seed of seeds(50, 20_000)) {
       const result = await runSim({ seed, documents: 4, faults: HOSTILE });
       expect(result.server.storedCount, `seed ${seed}`).toBe(4);
-      expect(result.server.counters.posts).toBeGreaterThanOrEqual(4);
+      // Sent more often than stored -- and stored exactly as many times as there
+      // are distinct documents. That gap is retries; that equality is the guarantee.
+      expect(result.server.counters.puts).toBeGreaterThanOrEqual(4);
       expect(result.server.counters.stored).toBe(4);
     }
   });
@@ -78,13 +84,13 @@ suite('exactly-once delivery', () => {
         if (state.side.suggestions.abandoned !== null) abandoned += 1;
         if (state.side.metadata.abandoned !== null) abandoned += 1;
       }
-      duplicates += result.server.counters.duplicatesReported;
+      duplicates += result.server.counters.duplicates;
       reconciles += result.reconciles;
       kills += result.kills;
       patches += result.server.counters.patches;
     }
     // Guards against the suite quietly passing because nothing interesting happened.
-    expect(duplicates, 'no duplicate rejection was ever exercised').toBeGreaterThan(0);
+    expect(duplicates, 're-sending known bytes was never exercised').toBeGreaterThan(0);
     expect(abandoned, 'post-sync work was never given up on').toBeGreaterThan(0);
     expect(reconciles, 'no crash recovery was ever exercised').toBeGreaterThan(0);
     expect(kills, 'no process kill was ever exercised').toBeGreaterThan(0);
@@ -92,8 +98,9 @@ suite('exactly-once delivery', () => {
   });
 
   it('bounds post-sync work instead of asking for ever', async () => {
-    // A server with no suggestions endpoint never grows one. The engine has to
-    // notice and stop -- it did not, and asked 198 times in 200 ticks.
+    // A server with nothing to suggest never grows an opinion, and a patch that is
+    // refused stays refused. The engine has to notice and stop -- it did not, and
+    // asked 198 times in 200 ticks.
     for (const seed of seeds(40, 80_000)) {
       const result = await runSim({ seed, documents: 5, faults: HOSTILE });
       // At most one budget per task per document, plus the successes.
@@ -129,7 +136,7 @@ suite('determinism', () => {
     const shapes = new Set<string>();
     for (const seed of seeds(25, 900)) {
       const r = await runSim({ seed, documents: 4, faults: HOSTILE });
-      shapes.add(`${r.steps}:${r.reconciles}:${r.kills}:${r.server.counters.posts}`);
+      shapes.add(`${r.steps}:${r.reconciles}:${r.kills}:${r.server.counters.puts}`);
     }
     expect(shapes.size).toBeGreaterThan(8);
   });

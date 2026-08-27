@@ -9,8 +9,7 @@ import {
 import { SyncEngine, type EnginePorts, type UploadAccepted } from '@sheaf/engine';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import { DocumentStore, MemoryEventLog, type EventLog } from '@sheaf/store';
-import { interpretTask } from '@sheaf/paperless';
-import { FakePaperless } from './fake-paperless.ts';
+import { FakeSheaf } from './fake-sheaf.ts';
 import { rollAttempt, rollKill, rollOffline, rollSideTask, type FaultProfile } from './faults.ts';
 import { rng, type Rng } from './random.ts';
 import { virtualClock, type VirtualClock } from './clock.ts';
@@ -21,11 +20,10 @@ export interface SimOptions {
   readonly faults: FaultProfile;
   readonly maxSteps?: number;
   readonly policy?: SyncPolicy;
-  readonly consumeDelayMs?: number;
 }
 
 export interface SimResult {
-  readonly server: FakePaperless;
+  readonly server: FakeSheaf;
   readonly states: Map<DocId, DocState>;
   readonly log: EventLog;
   readonly steps: number;
@@ -52,6 +50,12 @@ class ProcessKilled extends Error {
 /**
  * Drives the REAL engine through a hostile world on a virtual clock.
  *
+ * The world it drives it through is our own ingestion server. It used to be a fake
+ * Paperless-ngx, and stayed that way for a while after the phone stopped talking to
+ * one -- so the headline claim (hundreds of hostile schedules, nothing lost) was
+ * being made about a protocol we had already deleted. The engine under test was
+ * always real; the server it was tested against had gone stale.
+ *
  * The faults live in the ports, not in a parallel copy of the executor. That
  * matters: an earlier version of this file re-implemented the upload loop, so the
  * suite could have gone on passing while the shipping engine drifted away from it.
@@ -60,7 +64,7 @@ class ProcessKilled extends Error {
 class Sim {
   private readonly clock: VirtualClock;
   private readonly rand: Rng;
-  private readonly server: FakePaperless;
+  private readonly server: FakeSheaf;
   private readonly log = new MemoryEventLog();
   private readonly store = new DocumentStore(this.log);
   private readonly engine: SyncEngine;
@@ -81,7 +85,7 @@ class Sim {
   constructor(private readonly options: SimOptions) {
     this.clock = virtualClock(0);
     this.rand = rng(options.seed);
-    this.server = new FakePaperless(options.consumeDelayMs ?? 500);
+    this.server = new FakeSheaf();
     this.policy = options.policy ?? { wifiOnly: false, keepLocalAfterSync: true };
     this.engine = new SyncEngine(this.store, this.ports());
 
@@ -121,9 +125,6 @@ class Sim {
         this.resuming = true; // killed while idle: nothing was in flight
         this.kills += 1;
       }
-
-      // Consumption progresses whether or not a client is watching.
-      this.server.advanceTo(this.clock.now());
 
       this.net = rollOffline(this.options.faults, this.rand, this.clock.now())
         ? 'offline'
@@ -195,24 +196,29 @@ class Sim {
       net: () => this.net,
       policy: () => this.policy,
       api: {
-        postDocument: (state) => Promise.resolve(this.post(state)),
-        pollTask: (taskId) => Promise.resolve(ok(interpretTask(this.server.task(taskId)))),
+        postDocument: (state) => Promise.resolve(this.put(state)),
+        // `pollTask` is deliberately absent, exactly as it is absent from the
+        // shipping adapter. That is not a simplification of the simulator: it makes
+        // the engine take its no-task branch, which is the branch the phone takes.
         findByCaptureId: (sha256) => {
           this.reconciles += 1;
-          return Promise.resolve(ok(this.server.findByHash(sha256)?.id ?? null));
+          return Promise.resolve(ok(this.server.head(sha256) ? sha256 : null));
         },
-        getSuggestions: (remoteId) => {
+        // Our server stores documents; it does not classify them. Answering
+        // "nothing to suggest" is what the real adapter does, and the engine has to
+        // record that it asked and stop rather than retry an endpoint that will
+        // never have an opinion.
+        getSuggestions: () => {
           this.sideTaskCalls += 1;
-          const fault = rollSideTask(this.options.faults, this.rand);
-          if (fault === 'permanent') return Promise.resolve(err({ kind: 'not_found' }));
-          if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
-          return Promise.resolve(ok({ title: `Document ${remoteId}`, documentType: 'Receipt' }));
+          return Promise.resolve(ok({}));
         },
         patchDocument: (remoteId, patch) => {
-          // The simulated server assigns serial numbers, so anything else is a bug
-          // in the wiring rather than a case to handle.
-          if (typeof remoteId !== 'number') {
-            this.violations.push(`patch called with a non-numeric id: ${String(remoteId)}`);
+          // A document is named by its own hash. Anything else means the engine
+          // carried an id from somewhere it should not have.
+          if (typeof remoteId !== 'string' || !this.docIds.includes(remoteId)) {
+            this.violations.push(
+              `patch called with an id the server cannot know: ${String(remoteId)}`,
+            );
             return Promise.resolve(ok(null));
           }
           this.sideTaskCalls += 1;
@@ -220,14 +226,11 @@ class Sim {
           if (fault === 'permanent')
             return Promise.resolve(err({ kind: 'rejected', status: 400, message: 'no' }));
           if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
-          // The simulated server still numbers things, so names are looked up the
-          // way any id-based backend would have to.
           const applied = this.server.patch(remoteId, {
-            title: patch.title,
-            ...(patch.tags === undefined ? {} : { tagIds: patch.tags.map((_, i) => i + 1) }),
+            ...(patch.title === undefined ? {} : { title: patch.title }),
+            ...(patch.tags === undefined ? {} : { tags: patch.tags }),
           });
-          if (!applied)
-            this.violations.push(`patched document ${remoteId}, which the server lacks`);
+          if (!applied) this.violations.push(`patched ${remoteId}, which the server lacks`);
           return Promise.resolve(ok(null));
         },
       },
@@ -244,9 +247,11 @@ class Sim {
     };
   }
 
-  private post(state: DocState): ApiResult<UploadAccepted> {
+  private put(state: DocState): ApiResult<UploadAccepted> {
     const now = this.clock.now();
 
+    // Nothing in this protocol is outstanding across requests. If a task id ever
+    // appears here the wiring is wrong, so say so rather than tolerate it.
     if (state.taskId !== null) {
       this.violations.push(`${state.docId}: uploaded while task ${state.taskId} was outstanding`);
     }
@@ -255,7 +260,7 @@ class Sim {
     if (rollKill(this.options.faults, this.rand, now)) {
       // Dies between the attempt being logged and its outcome being logged. Half
       // the time the bytes landed anyway, and reconciliation has to notice.
-      if (this.rand.chance(0.5)) this.server.post(state.sha256, now);
+      if (this.rand.chance(0.5)) this.server.put(state.sha256);
       this.pendingResume = true;
       this.dead = true;
       this.kills += 1;
@@ -272,12 +277,21 @@ class Sim {
       case 'rateLimited':
         return err({ kind: 'rate_limited', retryAfterMs: 3_000 });
       case 'lostResponse':
-        // The server accepts it and the client never hears back. The bytes are
-        // safe; the client has no idea. This is what breaks naive uploaders.
-        this.server.post(state.sha256, now);
+        // The server stores it and the client never hears back. The bytes are safe;
+        // the client has no idea. This is what breaks naive uploaders -- and the
+        // retry that follows lands on the same address, so it cannot double-store.
+        this.server.put(state.sha256);
         return err({ kind: 'unreachable' });
-      case 'none':
-        return ok({ kind: 'task' as const, taskId: this.server.post(state.sha256, now) });
+      case 'none': {
+        const outcome = this.server.put(state.sha256);
+        return ok({
+          kind: 'confirmed' as const,
+          outcome:
+            outcome === 'stored'
+              ? { kind: 'stored' as const, remoteId: state.sha256 }
+              : { kind: 'duplicate' as const, remoteId: state.sha256 },
+        });
+      }
     }
   }
 
