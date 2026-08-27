@@ -31,6 +31,8 @@ export interface CaptureInput {
   readonly pages: readonly PageRef[];
   /** A small image of the first page, so the outbox is not a list of hashes. */
   readonly thumbnailPath?: string;
+  /** What the first page looks like, for recognising a page scanned twice. */
+  readonly pageHash?: string;
 }
 
 /**
@@ -67,6 +69,7 @@ export class SyncEngine {
         sha256: input.sha256,
         bytes: input.bytes,
         ...(input.thumbnailPath === undefined ? {} : { thumbnailPath: input.thumbnailPath }),
+        ...(input.pageHash === undefined ? {} : { pageHash: input.pageHash }),
       },
       { type: 'Enqueued', docId: input.docId, at, sha256: input.sha256 },
     );

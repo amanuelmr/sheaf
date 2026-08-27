@@ -5,12 +5,13 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link, useRouter } from 'expo-router';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { assemble } from '@sheaf/pdf';
+import { assemble, mostSimilarPage, pageHash } from '@sheaf/pdf';
 import type { PageRef } from '@sheaf/core';
 import { pendingCount } from '@sheaf/store';
 import { useApp } from '../src/runtime/app-context';
 import { readPageBytes, storeThumbnail, writePdf } from '../src/adapters/files';
 import { scanDocument } from '../src/adapters/scanner';
+import { timeAgo } from '../src/lib/format';
 import { radius, spacing, TOUCH_TARGET } from '../src/theme';
 import { Button } from '../src/ui/components';
 import { PageEditor, type EditedPage } from '../src/ui/page-editor';
@@ -25,14 +26,25 @@ interface PendingPage {
  *
  * Best effort on purpose: a capture must never fail because a preview could not
  * be made. Worst case the outbox shows a placeholder.
+ *
+ * It also carries the bytes back out, because the same small image answers a second
+ * question. Recognising a page photographed twice needs pixels, and decoding a
+ * twelve-megapixel original to get them costs around a hundred times more work than
+ * decoding this -- for an answer computed on a 16x16 grid, which cannot tell the
+ * difference. The measurements that set the threshold were made at roughly this
+ * size, so this is the size it is best evidenced at as well.
  */
-async function makeThumbnail(sha256: string, pageUri: string): Promise<string | null> {
+async function makeThumbnail(
+  sha256: string,
+  pageUri: string,
+): Promise<{ path: string; bytes: Uint8Array } | null> {
   try {
     const context = ImageManipulator.manipulate(pageUri);
     context.resize({ width: 320 });
     const rendered = await context.renderAsync();
     const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.6 });
-    return await storeThumbnail(sha256, saved.uri);
+    const bytes = await readPageBytes(saved.uri);
+    return { path: await storeThumbnail(sha256, saved.uri), bytes };
   } catch {
     return null;
   }
@@ -67,7 +79,11 @@ export default function Shutter() {
   const [flash, setFlash] = useState<'off' | 'on'>('off');
   /** Set only when the platform scanner could not run. */
   const [manual, setManual] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * A notice may point at an earlier document, when this capture looked like one.
+   * It never blocks: the document is already saved either way.
+   */
+  const [notice, setNotice] = useState<{ text: string; docId?: string } | null>(null);
 
   const waiting = pendingCount(outbox);
 
@@ -79,40 +95,69 @@ export default function Shutter() {
         { dpi: settings.dpi },
       );
       if (!result.ok) {
-        setNotice('That page couldn’t be read. Try again.');
+        setNotice({ text: 'That page couldn’t be read. Try again.' });
         return;
       }
+
       // The bytes land on disk before the event does, so a log entry never
       // describes a document that is not there.
       const file = writePdf(result.sha256, result.bytes);
-      const thumbnailPath = await makeThumbnail(result.sha256, collected[0]!.ref.path);
+      const preview = await makeThumbnail(result.sha256, collected[0]!.ref.path);
+
+      // Does this look like something already captured? Asked before committing, so
+      // the answer cannot be the document we are about to add. A photograph of the
+      // same page never produces the same bytes, so the content hash has nothing to
+      // say about it -- this is the only part of the system that does.
+      const look = preview === null ? null : pageHash(preview.bytes);
+      const familiar =
+        look === null
+          ? null
+          : mostSimilarPage(
+              look,
+              outbox.map((row) => ({ pageHash: row.pageHash, value: row })),
+            );
       const outcome = await service.sync.capture({
         docId: result.sha256,
         sha256: result.sha256,
         bytes: file.size ?? result.bytes.length,
         pages: collected.map((page) => page.ref),
-        ...(thumbnailPath === null ? {} : { thumbnailPath }),
+        ...(preview === null ? {} : { thumbnailPath: preview.path }),
+        ...(look === null ? {} : { pageHash: look }),
       });
       setPages([]);
 
       if (outcome.kind === 'already-captured') {
-        setNotice(
-          outcome.state.status === 'SYNCED'
-            ? 'You’ve scanned this one already — it’s on your server.'
-            : 'You’ve scanned this one already — it’s still on its way.',
-        );
+        setNotice({
+          text:
+            outcome.state.status === 'SYNCED'
+              ? 'You’ve scanned this one already — it’s on your server.'
+              : 'You’ve scanned this one already — it’s still on its way.',
+        });
         return;
       }
 
+      const saved = offline
+        ? 'Saved on this device. It’ll sync when your server is reachable.'
+        : 'Saved. On its way to your server.';
+
+      // Said as an observation, not an accusation, and only after the document is
+      // safely committed. Being wrong here costs a moment's attention; refusing a
+      // capture over it would cost a document.
       setNotice(
-        offline
-          ? 'Saved on this device. It’ll sync when your server is reachable.'
-          : 'Saved. On its way to your server.',
+        familiar === null
+          ? { text: saved }
+          : {
+              text: `${saved} This looks like the one you scanned ${timeAgo(
+                familiar.value.createdAt,
+                Date.now(),
+              )} — tap to compare.`,
+              docId: familiar.value.docId,
+            },
       );
       await service.tick();
       await refresh();
     },
-    [service, settings.dpi, offline, refresh],
+    [service, settings.dpi, offline, outbox, refresh],
   );
 
   /**
@@ -130,7 +175,7 @@ export default function Shutter() {
       if (outcome.kind === 'unavailable') {
         // Fall back to our own camera rather than leaving someone unable to scan.
         setManual(true);
-        setNotice('Using the basic camera — you’ll need to crop by hand.');
+        setNotice({ text: 'Using the basic camera — you’ll need to crop by hand.' });
         return;
       }
 
@@ -146,7 +191,7 @@ export default function Shutter() {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await commit(collected);
     } catch {
-      setNotice('That scan didn’t complete. Try again.');
+      setNotice({ text: 'That scan didn’t complete. Try again.' });
     } finally {
       setBusy(false);
     }
@@ -168,7 +213,7 @@ export default function Shutter() {
           keepGoing,
         });
       } catch {
-        setNotice('The camera didn’t manage that one. Try again.');
+        setNotice({ text: 'The camera didn’t manage that one. Try again.' });
       } finally {
         setBusy(false);
       }
@@ -196,14 +241,14 @@ export default function Shutter() {
         const collected = [...pages, next];
         if (keepGoing) {
           setPages(collected);
-          setNotice(
-            `${collected.length} ${collected.length === 1 ? 'page' : 'pages'} — tap Done when finished.`,
-          );
+          setNotice({
+            text: `${collected.length} ${collected.length === 1 ? 'page' : 'pages'} — tap Done when finished.`,
+          });
         } else {
           await commit(collected);
         }
       } catch {
-        setNotice('That page couldn’t be read. Try again.');
+        setNotice({ text: 'That page couldn’t be read. Try again.' });
       } finally {
         setBusy(false);
       }
@@ -300,7 +345,19 @@ export default function Shutter() {
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + spacing.md }]}>
-        {notice === null ? null : <Text style={styles.notice}>{notice}</Text>}
+        {notice === null ? null : notice.docId === undefined ? (
+          <Text style={styles.notice}>{notice.text}</Text>
+        ) : (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={notice.text}
+            onPress={() => {
+              router.push(`/document/${notice.docId}`);
+            }}
+          >
+            <Text style={[styles.notice, styles.noticeLink]}>{notice.text}</Text>
+          </Pressable>
+        )}
 
         {collecting ? (
           <>
@@ -475,6 +532,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     overflow: 'hidden',
   },
+  noticeLink: { textDecorationLine: 'underline' },
   pageRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   tray: { gap: spacing.sm, paddingHorizontal: spacing.xs },
   trayItem: { width: 54, height: 72 },

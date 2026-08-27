@@ -112,6 +112,16 @@ export type CaptureEvent =
        * hashes, and there is no way to tell which document is which.
        */
       readonly thumbnailPath?: string;
+      /**
+       * What the first page *looks* like, as opposed to what it hashes to.
+       *
+       * `sha256` answers "are these the same bytes" perfectly and says nothing about
+       * the same piece of paper photographed a second time, which is the question
+       * §26 asks. Absent when the image could not be read, and absent from older
+       * logs -- so anything using it must treat missing as "no opinion" rather than
+       * as "different".
+       */
+      readonly pageHash?: string;
     })
   | (EventBase & { readonly type: 'PageAdded'; readonly page: PageRef })
   | (EventBase & { readonly type: 'PageRemoved'; readonly pageId: PageId })

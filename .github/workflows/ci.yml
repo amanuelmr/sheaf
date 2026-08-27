@@ -36,14 +36,17 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      # The PDF writer is hand-rolled, so its output is checked by a parser nobody
-      # here wrote. Not preinstalled on the runner, so install it rather than skip
-      # the only assertion that does not trust our own reading of the format.
-      - name: Install Ghostscript
+      # The PDF writer and the JPEG decoder are both hand-rolled, so each is checked
+      # against an implementation nobody here wrote: Ghostscript parses our PDFs, and
+      # libjpeg decodes the same photographs we do. Neither is preinstalled, so
+      # install them rather than skip the only assertions that do not trust our own
+      # reading of the formats.
+      - name: Install Ghostscript and libjpeg
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ghostscript
+          sudo apt-get install -y --no-install-recommends ghostscript libjpeg-turbo-progs
           gs --version
+          djpeg -version
 
       - name: Test
         run: pnpm run test:coverage

@@ -18,6 +18,8 @@ export interface OutboxRow {
   readonly detail: string | null;
   readonly pageCount: number;
   readonly thumbnailPath: string | null;
+  /** What the first page looks like, for spotting a page scanned twice. */
+  readonly pageHash: string | null;
   readonly bytes: number;
   readonly attempts: number;
   readonly remoteId: RemoteId | null;
@@ -51,6 +53,7 @@ export function toOutboxRow(state: DocState): OutboxRow {
     detail,
     pageCount: state.pages.length,
     thumbnailPath: state.thumbnailPath,
+    pageHash: state.pageHash,
     bytes: state.bytes,
     attempts: state.attempts,
     remoteId: state.remoteId,

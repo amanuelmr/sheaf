@@ -237,6 +237,7 @@ export function reduce(events: readonly CaptureEvent[]): DocState {
     metadata: null,
     metadataPatched: false,
     thumbnailPath: first.thumbnailPath ?? null,
+    pageHash: first.pageHash ?? null,
     localFilesPresent: true,
     side: { suggestions: FRESH, metadata: FRESH },
     createdAt: first.at,

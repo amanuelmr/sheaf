@@ -51,8 +51,8 @@ Costs:
   asks whether the target already holds a document rather than relying on it to say
   no. Note that exactly-once between the phone and _our own_ server never depended on
   any of this — that comes from the addressing, and held throughout.
-- Exact-hash matching cannot catch the same receipt photographed twice. That needs
-  perceptual hashing, which is a separate concern.
+- Exact-hash matching cannot catch the same receipt photographed twice. That is now
+  handled separately, and deliberately kept separate: see the amendment below.
 
 ## Amendment: the second hop needed more than asking
 
@@ -92,3 +92,43 @@ Related: the forwarder no longer borrows the phone's attempt budget. That budget
 exists because stopping means asking the user; on the server nobody is watching and
 the document is already safe, so a retryable failure retries at the capped backoff
 for as long as it takes. Only a refusal that retrying cannot change stops the loop.
+
+## Amendment: recognising a page, as opposed to bytes
+
+Content addressing answers "are these the same bytes" perfectly and says nothing at
+all about the same piece of paper photographed a second time -- which is the case
+§26 actually describes. Every photograph differs in noise, exposure and framing, so
+the document hash was never going to fire for it.
+
+A separate, advisory hash now answers that. The obvious construction is a difference
+hash, and measured on document photographs it does not work: a page is mostly paper,
+neighbouring cells of blank paper differ by almost nothing, and the bit recording
+which is brighter is decided by sensor noise. Re-photographing one page produced
+distances of 17-30%, overlapping completely with distances between unrelated
+documents. So the descriptor measures where the _ink_ is instead -- each block called
+ink or paper against the page's own midpoint, each cell of a 16x16 grid recording
+whether it holds more ink than the page averages. Binarising first is what removes
+the coin toss.
+
+Across 48 renderings of 12 layouts, varying exposure, contrast, noise, JPEG quality,
+sub-pixel rotation, translation, dust specks and highlights: the same page again
+scored 0-7% of bits different, unrelated documents 5.9% at the very closest. The
+threshold is set at 5%, where 85% of re-captures are recognised and none of the 1056
+unrelated pairs raised a false alarm. That direction is chosen, not accidental: §26
+says a missed duplicate costs almost nothing and a wrong accusation costs trust.
+
+Three things keep it honest. It returns _no answer_ rather than a bad one for a
+progressive or truncated image, a page with too little contrast to call anything ink,
+or ink so evenly spread that there is no layout to recognise -- each of which would
+otherwise make unrelated pages match. The capture is committed first and the
+observation offered afterwards, so being wrong costs a moment's attention and can
+never cost a document. And the numbers above come from rendered pages, not
+photographs of real paper: the shape should hold, the exact figures are from a
+simulation.
+
+Getting pixels at all needed a decoder, since `expo-image-manipulator` returns
+encoded bytes whatever you ask it for and Hermes has no canvas. Rather than carry a
+full JPEG decoder, we decode only each block's DC coefficient -- which _is_ that
+block's average brightness -- yielding the 1/8-scale greyscale image the hash wants
+and nothing else. It agrees with libjpeg to within 0.66 of a grey level, which CI
+checks on every run.

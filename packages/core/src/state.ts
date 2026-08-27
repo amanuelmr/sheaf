@@ -59,6 +59,8 @@ export interface DocState {
   readonly metadata: MetadataPatch | null;
   readonly metadataPatched: boolean;
   readonly thumbnailPath: string | null;
+  /** What the first page looks like. Null when unreadable or from an older log. */
+  readonly pageHash: string | null;
   readonly localFilesPresent: boolean;
   readonly side: Readonly<Record<SideTask, SideTaskState>>;
   readonly createdAt: number;
