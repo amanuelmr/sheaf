@@ -7,6 +7,7 @@ const pkg = (name: string) =>
 export default defineConfig({
   resolve: {
     alias: {
+      '@sheaf/archive-cache': pkg('archive-cache'),
       '@sheaf/core': pkg('core'),
       '@sheaf/engine': pkg('engine'),
       '@sheaf/http': pkg('http'),
@@ -40,6 +41,7 @@ export default defineConfig({
         'packages/http/src/**',
         'services/ingest/src/**',
         'packages/store/src/**',
+        'packages/archive-cache/src/**',
       ],
       // Type declarations and re-export barrels carry no logic to cover.
       exclude: ['**/events.ts', '**/types.ts', '**/index.ts'],

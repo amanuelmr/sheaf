@@ -222,21 +222,43 @@ post-sync work is bounded.
 
 Next, in order of how much they would change:
 
-1. **Run the app on a device.** It bundles, but nothing device-side has executed:
-   no camera, no permission flow, no native SQLite write, no layout.
+1. **Run the app on a real device.** It now builds and boots in the iOS
+   Simulator (`expo run:ios`) with no crash, which exercises the native SQLite
+   write and the layout the previous version of this list said were untested.
+   What a simulator cannot exercise: the camera, a permission prompt, or
+   anything requiring a finger. That still needs a real phone.
 2. **Automate the contract tests against a real Paperless-ngx.** Running it by hand
    already disproved two documented assumptions (see ADR 0002); the point is to
-   catch the next one without a person watching.
-3. On-device OCR, scoped to offline search of your own outbox and near-duplicate
-   detection. Not to guessing metadata: Paperless's classifier knows your corpus.
+   catch the next one without a person watching. Now higher-value than when this
+   was written, since the archive proxy below gives Paperless a real read path
+   to get wrong as well as a write one.
+3. On-device OCR of the outbox itself, for offline search and near-duplicate
+   detection of documents this phone captured but has not yet synced. Distinct
+   from the offline archive search that now exists (below): that one searches
+   OCR text Paperless already produced; this would be needed for a document
+   that has not reached Paperless yet.
 4. Background sync, where the OS allows it.
+5. Multi-server profiles -- more than one named Paperless connection on one
+   phone, each with its own local event log.
+6. A small web dashboard for the ingest server's own health -- forwarding,
+   retention, reconciliation, all currently visible only as `/v1/health` JSON.
 
-Done, since this list was last written: automatic edge detection — the platform's
-own scanner (VisionKit / ML Kit) finds the page and corrects perspective, with the
-hand-drawn crop kept only as a fallback when that scanner is unavailable — and an
-optional device-lock screen (Face ID, Touch ID, fingerprint) in front of the
-outbox, since a captured-but-not-yet-uploaded scan is the one window a server
-token cannot protect.
+Done, since this list was last written:
+
+- **Automatic edge detection** — the platform's own scanner (VisionKit / ML Kit)
+  finds the page and corrects perspective, with the hand-drawn crop kept only as
+  a fallback when that scanner is unavailable.
+- **A device-lock screen** (Face ID, Touch ID, fingerprint) in front of the
+  outbox, since a captured-but-not-yet-uploaded scan is the one window a server
+  token cannot protect. Off by default.
+- **Browsing and editing the archive** — not just what this phone captured, but
+  everything already in Paperless: search, filter by correspondent/type/tag,
+  edit metadata, all live against Paperless through the ingest server, which
+  never stores a second copy.
+- **A small offline cache** of exactly what was opened or starred from the
+  archive — title, metadata, thumbnail, and Paperless's own OCR excerpt — so a
+  document looked at once is still there without a connection. Deliberately not
+  a mirror of the whole archive; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Privacy
 

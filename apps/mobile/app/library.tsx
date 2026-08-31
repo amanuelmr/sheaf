@@ -1,21 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import type { ArchiveDocument, ArchiveVocabulary } from '@sheaf/protocol';
+import type { ArchiveVocabulary } from '@sheaf/protocol';
+import { searchCache } from '../src/adapters/archive-cache';
 import { useApp } from '../src/runtime/app-context';
 import { Chips, EmptyState } from '../src/ui/components';
 import { spacing, radius, TOUCH_TARGET } from '../src/theme';
 
 const DEBOUNCE_MS = 300;
 
+/** What one row needs, whichever of the two sources below it came from. */
+interface Row {
+  readonly id: number;
+  readonly title: string;
+  readonly correspondent: string | null;
+  readonly documentType: string | null;
+  readonly created: string;
+  readonly contentSnippet: string | null;
+  readonly thumbnail: { readonly uri: string; readonly headers?: Record<string, string> } | null;
+}
+
 /**
  * Everything your server already holds, not just what this phone captured —
- * fetched live from Paperless every time, never cached here. See
- * `ArchiveDocument` in `@sheaf/protocol` for why: a second, possibly-stale copy
- * of your archive is exactly the duplication the rest of this protocol avoids.
+ * fetched live from Paperless every time it can be, never cached beyond what was
+ * actually opened. See `ArchiveDocument` in `@sheaf/protocol` for why: a second,
+ * possibly-stale copy of your whole archive is exactly the duplication the rest
+ * of this protocol avoids. Offline, this falls back to exactly that smaller,
+ * deliberate cache -- see `@sheaf/archive-cache`.
  */
 export default function Library() {
-  const { palette, client } = useApp();
+  const { palette, client, driver, offline } = useApp();
   const router = useRouter();
 
   const [text, setText] = useState('');
@@ -23,7 +37,7 @@ export default function Library() {
   const [correspondentId, setCorrespondentId] = useState<number | null>(null);
   const [tagId, setTagId] = useState<number | null>(null);
   const [vocabulary, setVocabulary] = useState<ArchiveVocabulary | null>(null);
-  const [documents, setDocuments] = useState<readonly ArchiveDocument[]>([]);
+  const [documents, setDocuments] = useState<readonly Row[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,11 +49,11 @@ export default function Library() {
   }, [text]);
 
   useEffect(() => {
-    if (client === null) return;
+    if (client === null || offline) return;
     void client.archiveVocabulary().then((result) => {
       if (result.ok) setVocabulary(result.value);
     });
-  }, [client]);
+  }, [client, offline]);
 
   const query = useMemo(
     () => ({
@@ -53,6 +67,30 @@ export default function Library() {
   // Every change to what is being asked for starts over at page one, rather than
   // appending results from a different search onto what is already on screen.
   useEffect(() => {
+    if (offline) {
+      if (driver === null) return;
+      let cancelled = false;
+      void searchCache(driver, debounced).then((cached) => {
+        if (cancelled) return;
+        setStatus('ok');
+        setDocuments(
+          cached.map((item) => ({
+            id: item.id,
+            title: item.title,
+            correspondent: item.correspondent,
+            documentType: item.documentType,
+            created: item.created,
+            contentSnippet: item.contentSnippet,
+            thumbnail: item.thumbnailPath === null ? null : { uri: item.thumbnailPath },
+          })),
+        );
+        setHasMore(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (client === null) return;
     let cancelled = false;
     setLoading(true);
@@ -70,26 +108,47 @@ export default function Library() {
         return;
       }
       setStatus('ok');
-      setDocuments(result.value.documents);
+      setDocuments(
+        result.value.documents.map((item) => ({
+          id: item.id,
+          title: item.title,
+          correspondent: item.correspondent,
+          documentType: item.documentType,
+          created: item.created,
+          contentSnippet: item.contentSnippet,
+          thumbnail: client.archiveThumbnailSource(item.id),
+        })),
+      );
       setPage(result.value.page);
       setHasMore(result.value.hasMore);
     });
     return () => {
       cancelled = true;
     };
-  }, [client, query]);
+  }, [client, driver, offline, query, debounced]);
 
   const loadMore = useCallback(() => {
-    if (client === null || loading || !hasMore) return;
+    if (offline || client === null || loading || !hasMore) return;
     setLoading(true);
     void client.searchArchive({ ...query, page: page + 1 }).then((result) => {
       setLoading(false);
       if (!result.ok) return;
-      setDocuments((prev) => [...prev, ...result.value.documents]);
+      setDocuments((prev) => [
+        ...prev,
+        ...result.value.documents.map((item) => ({
+          id: item.id,
+          title: item.title,
+          correspondent: item.correspondent,
+          documentType: item.documentType,
+          created: item.created,
+          contentSnippet: item.contentSnippet,
+          thumbnail: client.archiveThumbnailSource(item.id),
+        })),
+      ]);
       setPage(result.value.page);
       setHasMore(result.value.hasMore);
     });
-  }, [client, loading, hasMore, page, query]);
+  }, [offline, client, loading, hasMore, page, query]);
 
   if (status === 'disabled') {
     return (
@@ -105,6 +164,12 @@ export default function Library() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
+      {offline ? (
+        <Text style={[styles.offlineNotice, { color: palette.waiting }]}>
+          Offline — showing what you have opened or starred before.
+        </Text>
+      ) : null}
+
       <TextInput
         value={text}
         onChangeText={setText}
@@ -154,9 +219,11 @@ export default function Library() {
               palette={palette}
               title={debounced === '' ? 'Nothing here yet.' : 'No matches.'}
               body={
-                debounced === ''
-                  ? 'Documents your server has already indexed will show up here.'
-                  : 'Try a different search or clear the filters above.'
+                offline
+                  ? "You haven't opened or starred anything offline yet."
+                  : debounced === ''
+                    ? 'Documents your server has already indexed will show up here.'
+                    : 'Try a different search or clear the filters above.'
               }
             />
           ) : null
@@ -170,9 +237,9 @@ export default function Library() {
             }
             style={styles.row}
           >
-            {client === null ? null : (
+            {item.thumbnail === null ? null : (
               <Image
-                source={client.archiveThumbnailSource(item.id)}
+                source={item.thumbnail}
                 style={[styles.thumb, { backgroundColor: palette.surfaceRaised }]}
                 resizeMode="cover"
                 accessibilityIgnoresInvertColors
@@ -202,6 +269,7 @@ export default function Library() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+  offlineNotice: { fontSize: 13, paddingHorizontal: spacing.md, paddingTop: spacing.md },
   search: {
     margin: spacing.md,
     marginBottom: spacing.sm,

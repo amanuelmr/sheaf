@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { migrateArchiveCache } from '@sheaf/archive-cache';
 import { migrate, type SqlDriver, type SqlValue } from '@sheaf/store';
 
 export interface Database extends SqlDriver {
@@ -38,5 +39,8 @@ export async function openDatabase(name = 'sheaf.db'): Promise<Database> {
   };
 
   await migrate(driver);
+  // A separate table with nothing in common with the capture log except the file
+  // it lives in -- see ARCHITECTURE.md on why the archive cache stays apart from it.
+  await migrateArchiveCache(driver);
   return driver;
 }

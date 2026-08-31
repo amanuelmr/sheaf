@@ -99,13 +99,13 @@ code.
 
 ## What is verified, and what is not
 
-|               |                                                                                                                      |
-| ------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `core`, `pdf` | Pure. Unit tested, ~100% of statements. `pdf` also cross-checked against `node:crypto`.                              |
-| `store`       | Real SQL against `node:sqlite`, and both log implementations held to one parametrised suite.                         |
-| `paperless`   | Every branch, against an injected transport. Not yet against a real Paperless-ngx.                                   |
-| `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                |
-| `apps/mobile` | Typechecked and linted. **Never run.** No camera, permission flow, native SQLite write, or layout has been executed. |
+|               |                                                                                                                                                                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `core`, `pdf` | Pure. Unit tested, ~100% of statements. `pdf` also cross-checked against `node:crypto`.                                                                                                                                                                |
+| `store`       | Real SQL against `node:sqlite`, and both log implementations held to one parametrised suite.                                                                                                                                                           |
+| `paperless`   | Every branch, against an injected transport. Not yet against a real Paperless-ngx.                                                                                                                                                                     |
+| `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                  |
+| `apps/mobile` | Typechecked and linted, and now built and booted in the iOS Simulator with no crash -- the native SQLite write and the layout execute. **Never tapped**: no camera, no permission prompt, nothing requiring a finger, which a simulator cannot supply. |
 
 The `pdf` row is worth expanding: assembled documents are parsed _and rendered_ by
 Ghostscript from real JPEG fixtures, and the rendered page is checked for the right
@@ -119,22 +119,36 @@ wording matches what `interpretTask` looks for
 ([0002](docs/adr/0002-exactly-once-via-content-addressing.md)). Contract tests
 against Paperless in Docker are the next thing that would settle both.
 
-## Browsing the archive is a proxy, not a second copy
+## Browsing the archive: a live proxy on the server, a small deliberate cache on the phone
 
 The app can search and edit documents already in Paperless -- `GET /v1/archive`,
 served by `services/ingest/src/paperless-browse.ts` -- which sits deliberately
 apart from everything above it. Capture is a write the engine must get exactly
 right no matter what the network does to it; browsing is a read with nothing to
-get wrong that a retry does not already fix. So it gets none of the event log,
-the state machine, or the simulator: `paperless-browse.ts` is a stateless
-pass-through that asks Paperless live and forgets the answer, the same choice
-`retention.ts` makes for the opposite reason -- both exist to stop this server
-from holding a second, staleable copy of something Paperless already stores.
+get wrong that a retry does not already fix. So the server side gets none of the
+event log, the state machine, or the simulator: `paperless-browse.ts` is a
+stateless pass-through that asks Paperless live and forgets the answer, the same
+choice `retention.ts` makes for the opposite reason -- both exist to stop the
+_server_ from holding a second, staleable copy of something Paperless already
+stores.
+
+The phone is a different question, answered differently: `packages/archive-cache`
+keeps a small, explicit, on-device copy of exactly what someone has opened or
+starred -- nothing else, and nothing fetched ahead of being asked for. Its
+schema lives beside the capture log's in the same SQLite file but is migrated
+and owned separately (`schema.ts` in that package), because it has nothing in
+common with the log except the file: one is an append-only record of what this
+phone did, the other a bounded, evictable cache of what Paperless already holds.
+Search offline is plain `LIKE` over that cache, not FTS5 -- `expo-sqlite`'s FTS5
+support has a documented history of regressing silently between SDK releases,
+including an Android-only failure, and a cache measured in hundreds of rows has
+no need of a ranked index to answer well under a frame.
 
 ## Deliberate non-goals
 
-No local mirror of the archive, no offline browsing, no bulk document management
--- Paperless's own web UI already does that well, and duplicating it is not the
-differentiator here. No dashboard, no cloud account. Capture and reliable
-delivery are still the product's centre of gravity; browsing is what makes that
-delivery worth checking on from the device that did the capturing.
+No full mirror of the archive -- only what was actually opened or starred, ever.
+No bulk document management -- Paperless's own web UI already does that well,
+and duplicating it is not the differentiator here. No dashboard, no cloud
+account. Capture and reliable delivery are still the product's centre of
+gravity; browsing, on- or offline, is what makes that delivery worth checking on
+from the device that did the capturing.

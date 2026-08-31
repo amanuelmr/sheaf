@@ -37,6 +37,8 @@ interface AppValue {
   adapter: SheafAdapter | null;
   /** The protocol client directly, for reads that are not part of the sync engine. */
   client: SheafClient | null;
+  /** The raw SQL connection, for the archive cache -- it is not part of the log. */
+  driver: SqlDriver | null;
   /** Whether this device even has a lock screen to borrow. */
   lockAvailable: boolean;
   /** True until the device's own unlock succeeds, whenever the setting is on. */
@@ -185,6 +187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       service,
       adapter,
       client,
+      driver,
       lockAvailable,
       locked,
       unlock: async () => {

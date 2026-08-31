@@ -15,6 +15,7 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": ["./src/*"],
+      "@sheaf/archive-cache": ["../../packages/archive-cache/src/index.ts"],
       "@sheaf/core": ["../../packages/core/src/index.ts"],
       "@sheaf/engine": ["../../packages/engine/src/index.ts"],
       "@sheaf/paperless": ["../../packages/paperless/src/index.ts"],
