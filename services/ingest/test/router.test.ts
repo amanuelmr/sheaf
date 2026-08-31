@@ -344,6 +344,33 @@ suite('the reconciliation probe on /v1/health', () => {
   });
 });
 
+suite('retention on /v1/health', () => {
+  it('says nothing about it when retention is off', async () => {
+    const withForwarding = { ...deps, forwardingTo: 'paperless.example' };
+    const response = await handle(req('GET', paths.health()), withForwarding);
+    const forwarding = (response.json as { forwarding: Record<string, unknown> }).forwarding;
+    expect(forwarding).not.toHaveProperty('retention');
+  });
+
+  it('reports the configured days and how many documents have actually been released', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await deps.storage.recordForwardAttempt(hashA, {
+      state: 'done',
+      attempts: 1,
+      nextAt: null,
+      remoteId: '4821',
+      error: null,
+      doneAt: clock,
+    });
+    await deps.storage.release(hashA);
+
+    const withRetention = { ...deps, forwardingTo: 'paperless.example', retentionDays: 30 };
+    const response = await handle(req('GET', paths.health()), withRetention);
+    const forwarding = (response.json as { forwarding: Record<string, unknown> }).forwarding;
+    expect(forwarding['retention']).toEqual({ days: 30, released: 1 });
+  });
+});
+
 const RESOLVED = {
   id: 4821,
   title: 'Amazon receipt',

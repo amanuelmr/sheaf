@@ -207,6 +207,12 @@ export interface HealthResponse {
     readonly counts: Readonly<Record<string, number>>;
     /** Absent until the one-time probe against the downstream system completes. */
     readonly reconciliation?: ReconciliationProbe;
+    /** Absent when retention is off -- see SHEAF_RETENTION_DAYS. */
+    readonly retention?: {
+      readonly days: number;
+      /** How many documents have actually had their bytes freed so far. */
+      readonly released: number;
+    };
   };
 }
 

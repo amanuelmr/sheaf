@@ -60,6 +60,8 @@ export interface RouterDeps {
   readonly reconciliation?: () => ReconciliationProbe | null;
   /** Absent exactly when forwarding is not configured -- there is nothing to browse. */
   readonly archive?: ArchiveSource;
+  /** Static once the process starts -- see SHEAF_RETENTION_DAYS. Absent means off. */
+  readonly retentionDays?: number;
 }
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
@@ -86,6 +88,10 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.health()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const reconciliation = deps.reconciliation?.() ?? null;
+    const retention =
+      deps.retentionDays === undefined
+        ? null
+        : { days: deps.retentionDays, released: await deps.storage.releasedCount() };
     const health: HealthResponse = {
       name: 'sheaf-ingest',
       protocol: PROTOCOL_VERSION,
@@ -97,6 +103,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
               target: deps.forwardingTo,
               counts: await deps.storage.forwardCounts(),
               ...(reconciliation === null ? {} : { reconciliation }),
+              ...(retention === null ? {} : { retention }),
             },
           }),
     };

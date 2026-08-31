@@ -321,6 +321,14 @@ export class Storage {
     return Object.fromEntries(rows.map((row) => [row.forward_state, row.n]));
   }
 
+  /** How many documents retention has actually freed the bytes for, so far. */
+  async releasedCount(): Promise<number> {
+    const rows = await this.#driver.all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM documents WHERE bytes_released = 1',
+    );
+    return rows[0]?.n ?? 0;
+  }
+
   /**
    * Documents the downstream system has, but has not yet been asked what its
    * classifier makes of. Only ever a document with a `remote_id`: asking before

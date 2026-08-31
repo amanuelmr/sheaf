@@ -135,6 +135,8 @@ const archiveSource =
     ? null
     : paperlessArchiveSource(paperlessClient, vocabulary);
 
+const retentionMs = retentionMsFromEnv();
+
 const server = createIngestServer({
   storage,
   token,
@@ -142,6 +144,7 @@ const server = createIngestServer({
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
   ...(archiveSource === null ? {} : { archive: archiveSource }),
+  ...(retentionMs === null ? {} : { retentionDays: retentionMs / 86_400_000 }),
 });
 
 if (paperlessClient !== null && vocabulary !== null) {
@@ -181,7 +184,6 @@ if (paperlessClient !== null && vocabulary !== null) {
       });
   }, 5_000);
 
-  const retentionMs = retentionMsFromEnv();
   if (retentionMs !== null) {
     const retention = new Retention(storage, retentionMs, { now: () => Date.now() });
     let releasing = false;

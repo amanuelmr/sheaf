@@ -85,9 +85,12 @@ once it lands:
 "forwarding": {
   "target": "paperless.example.com",
   "counts": { "done": 41 },
-  "reconciliation": { "filterSupported": true, "conclusive": true, "detail": "..." }
+  "reconciliation": { "filterSupported": true, "conclusive": true, "detail": "..." },
+  "retention": { "days": 30, "released": 12 }
 }
 ```
+
+`retention` is absent the same way `reconciliation` can be -- here, whenever `SHEAF_RETENTION_DAYS` is unset. `released` is a live count, not a setting: how many documents have actually had their bytes freed so far, which is the number worth watching if disk usage is the reason retention was turned on at all.
 
 Absent from the response until the probe answers, and diagnostic only --
 correctness never depends on what it finds.
