@@ -16,6 +16,7 @@ suite('addressing', () => {
     // retry cannot create a second document.
     expect(paths.document(HASH)).toBe(`/v1/documents/${HASH}`);
     expect(paths.document(HASH)).toBe(paths.document(HASH));
+    expect(paths.suggestions(HASH)).toBe(`/v1/documents/${HASH}/suggestions`);
   });
 
   it('accepts only a real hash as an identifier', () => {

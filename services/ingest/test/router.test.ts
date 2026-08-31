@@ -126,6 +126,7 @@ suite('authentication', () => {
       ['GET', paths.document(hashA)],
       ['HEAD', paths.document(hashA)],
       ['PATCH', paths.document(hashA)],
+      ['GET', paths.suggestions(hashA)],
     ];
     for (const [method, path] of routes) {
       for (const header of [undefined, 'Bearer wrong', 'Bearer ', 'Token ' + TOKEN]) {
@@ -258,5 +259,57 @@ suite('reading documents back', () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
     const response = await handle(req('GET', paths.health()), deps);
     expect(response.json).toEqual({ name: 'sheaf-ingest', protocol: 'v1', documents: 1 });
+  });
+});
+
+suite('suggestions', () => {
+  it('answers null before anything has come back, distinct from an empty answer', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const response = await handle(req('GET', paths.suggestions(hashA)), deps);
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual({ suggestions: null });
+  });
+
+  it('serves whatever the fetcher cached, once there is something', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await deps.storage.recordForwardAttempt(hashA, {
+      state: 'done',
+      attempts: 1,
+      nextAt: null,
+      remoteId: '4821',
+      error: null,
+      doneAt: clock,
+    });
+    await deps.storage.recordSuggestionAttempt(hashA, {
+      state: 'done',
+      attempts: 1,
+      nextAt: null,
+      suggestions: { correspondent: 'Amazon', tags: ['shopping'] },
+    });
+
+    const response = await handle(req('GET', paths.suggestions(hashA)), deps);
+    expect(response.json).toEqual({ suggestions: { correspondent: 'Amazon', tags: ['shopping'] } });
+
+    // And it survives retention freeing the bytes -- suggestions are metadata too.
+    await deps.storage.release(hashA);
+    expect((await handle(req('GET', paths.suggestions(hashA)), deps)).json).toEqual({
+      suggestions: { correspondent: 'Amazon', tags: ['shopping'] },
+    });
+  });
+
+  it('404s for a document it has never heard of', async () => {
+    const response = await handle(req('GET', paths.suggestions(hashB)), deps);
+    expect(response.status).toBe(404);
+  });
+
+  it('rejects a malformed id the same way the document route does', async () => {
+    const response = await handle(req('GET', `${paths.documents()}/not-a-hash/suggestions`), deps);
+    expect(response.status).toBe(400);
+  });
+
+  it('is read-only', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const response = await handle(req('PUT', paths.suggestions(hashA), A), deps);
+    expect(response.status).toBe(400);
   });
 });

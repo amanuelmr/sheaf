@@ -19,6 +19,7 @@ import {
   type HealthResponse,
   type ListResponse,
   type PutOutcome,
+  type SuggestionsResponse,
 } from '@sheaf/protocol';
 import { interpretPutStatus } from './put.ts';
 
@@ -101,6 +102,16 @@ export class SheafClient {
   async listDocuments(): Promise<ApiResult<readonly DocumentRecord[]>> {
     const result = await this.#json<ListResponse>('GET', paths.documents());
     return result.ok ? ok(result.value.documents) : err(result.reason);
+  }
+
+  /**
+   * What the server has learned from the downstream system's classifier, if
+   * anything yet. `null` in the response means "not yet answered", distinct from
+   * `{}` meaning "answered, nothing to suggest" -- the caller decides what to do
+   * with the difference, this just carries it through.
+   */
+  async getSuggestions(sha256: string): Promise<ApiResult<SuggestionsResponse>> {
+    return this.#json<SuggestionsResponse>('GET', paths.suggestions(sha256));
   }
 
   async #json<T>(method: string, path: string, body?: string): Promise<ApiResult<T>> {

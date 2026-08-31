@@ -11,6 +11,7 @@ import {
   type ErrorCode,
   type HealthResponse,
   type ListResponse,
+  type SuggestionsResponse,
 } from '@sheaf/protocol';
 import type { Storage } from './storage.ts';
 import { sha256Hex } from './storage.ts';
@@ -91,8 +92,20 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
 
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
+  const rest = path.slice(prefix.length);
 
-  const id = path.slice(prefix.length);
+  const suggestionsSuffix = '/suggestions';
+  if (rest.endsWith(suggestionsSuffix)) {
+    const id = rest.slice(0, -suggestionsSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const record = await deps.storage.record(id);
+    if (record === null) return fail('not_found');
+    const response: SuggestionsResponse = { suggestions: record.suggestions };
+    return { status: 200, json: response };
+  }
+
+  const id = rest;
   // An identifier that is not a hash never reaches storage, so traversal is
   // impossible by construction rather than by sanitising a string.
   if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');

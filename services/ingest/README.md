@@ -51,15 +51,31 @@ are deleted and `GET` on it answers `410` instead of `200` — the row, and ever
 Paperless already made searchable, are untouched. `404` still means "never
 existed"; `410` means "existed, and Paperless has it."
 
+## Suggestions
+
+Storing a document and forwarding it are decisions this server makes on its own.
+Whether Paperless has anything to say about it is not: once forwarding lands a
+document and names it, the server asks Paperless's classifier what it thinks --
+correspondent, type, tags, date -- and caches the answer, so the phone that
+captured it can show a suggestion without ever talking to Paperless itself.
+
+`GET .../suggestions` answers `{ "suggestions": null }` until that first answer
+lands, and `{ "suggestions": {...} }` -- possibly `{}` -- once it has. The
+difference matters to a client that only asks once and stops: `null` means ask
+again later, an object means stop asking, and there is no way to tell "nothing to
+suggest yet" from "nothing to suggest, ever" in what Paperless returns, so this
+does not pretend to.
+
 ## The protocol
 
 ```
-PUT    /v1/documents/{sha256}    the bytes, raw
-HEAD   /v1/documents/{sha256}    do you have this?
-GET    /v1/documents/{sha256}    give it back, or 410 if retention already freed it
-PATCH  /v1/documents/{sha256}    title, correspondent, type, tags
-GET    /v1/documents             what do you have
-GET    /v1/health                and are you well
+PUT    /v1/documents/{sha256}                the bytes, raw
+HEAD   /v1/documents/{sha256}                do you have this?
+GET    /v1/documents/{sha256}                give it back, or 410 if retention already freed it
+PATCH  /v1/documents/{sha256}                title, correspondent, type, tags
+GET    /v1/documents/{sha256}/suggestions    what the classifier makes of it, once it has answered
+GET    /v1/documents                         what do you have
+GET    /v1/health                            and are you well
 ```
 
 A document lives at the address of its own content. Three consequences, and they

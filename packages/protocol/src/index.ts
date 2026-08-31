@@ -27,6 +27,7 @@ export const paths = {
   health: () => `/${PROTOCOL_VERSION}/health`,
   documents: () => `/${PROTOCOL_VERSION}/documents`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
+  suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
 } as const;
 
 /** Documents are identified by the lowercase hex SHA-256 of their bytes. */
@@ -63,6 +64,20 @@ export interface ForwardStatus {
   readonly error: string | null;
 }
 
+/**
+ * What the downstream system's own classifier makes of a document, once it has had
+ * a chance to look. Shaped like `@sheaf/core`'s `Suggestions` rather than importing
+ * it: the wire contract evolves on its own schedule, the same reason `DocumentPatch`
+ * below mirrors `MetadataPatch` instead of sharing it.
+ */
+export interface Suggestions {
+  readonly correspondent?: string;
+  readonly documentType?: string;
+  readonly tags?: readonly string[];
+  readonly title?: string;
+  readonly date?: string;
+}
+
 export interface DocumentRecord {
   readonly sha256: string;
   readonly bytes: number;
@@ -81,6 +96,17 @@ export interface DocumentRecord {
    * keep, and are the only record that this document ever existed.
    */
   readonly bytesReleased: boolean;
+  /**
+   * `null` until the downstream system has actually answered -- which is distinct
+   * from "answered and had nothing to say", `{}`. A client that treats an answer as
+   * final (there is nothing left to poll for) needs that difference: asking again
+   * makes sense for the first, and not for the second.
+   */
+  readonly suggestions: Suggestions | null;
+}
+
+export interface SuggestionsResponse {
+  readonly suggestions: Suggestions | null;
 }
 
 /** Everything is optional; omitted fields are left alone, `null` clears them. */

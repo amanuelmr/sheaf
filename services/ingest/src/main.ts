@@ -4,9 +4,11 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
 import { Forwarder } from './forwarder.ts';
 import { paperlessTarget } from './paperless-target.ts';
+import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { Retention } from './retention.ts';
 import { createIngestServer } from './server.ts';
 import { Storage } from './storage.ts';
+import { SuggestionFetcher } from './suggestion-fetcher.ts';
 
 /**
  * Free disk space held by documents Paperless has confirmed it already has.
@@ -111,18 +113,19 @@ const server = createIngestServer({
 });
 
 if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken !== null) {
-  const forwarder = new Forwarder(
-    storage,
-    paperlessTarget(
-      new PaperlessClient({
-        baseUrl: paperlessUrl,
-        token: paperlessToken,
-        fetch: (url, init) => fetch(url, init as RequestInit),
-        formData: () => new FormData(),
-      }),
-    ),
-    { now: () => Date.now(), jitter: () => Math.random() },
-  );
+  // Shared: forwarding and suggestion-fetching are two different questions asked
+  // of the same server, not two servers.
+  const paperlessClient = new PaperlessClient({
+    baseUrl: paperlessUrl,
+    token: paperlessToken,
+    fetch: (url, init) => fetch(url, init as RequestInit),
+    formData: () => new FormData(),
+  });
+
+  const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {
+    now: () => Date.now(),
+    jitter: () => Math.random(),
+  });
   // Overlapping passes are skipped rather than queued; a slow downstream should
   // not turn into a pile-up of concurrent uploads.
   let running = false;
@@ -137,6 +140,23 @@ if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken
       });
   }, 5_000);
   console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
+
+  const suggestions = new SuggestionFetcher(
+    storage,
+    paperlessSuggestionSource(paperlessClient, () => Date.now()),
+    { now: () => Date.now(), jitter: () => Math.random() },
+  );
+  let fetchingSuggestions = false;
+  setInterval(() => {
+    if (fetchingSuggestions) return;
+    fetchingSuggestions = true;
+    void suggestions
+      .tick()
+      .catch((error: unknown) => console.error('fetching suggestions failed:', String(error)))
+      .finally(() => {
+        fetchingSuggestions = false;
+      });
+  }, 5_000);
 
   const retentionMs = retentionMsFromEnv();
   if (retentionMs !== null) {

@@ -8,7 +8,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { DocumentPatch, DocumentRecord, PutOutcome } from '@sheaf/protocol';
+import type { DocumentPatch, DocumentRecord, PutOutcome, Suggestions } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 
 /**
@@ -19,6 +19,12 @@ import type { SqlDriver } from '@sheaf/store';
 export interface StorageOptions {
   readonly driver: SqlDriver;
   readonly objectsDir: string;
+}
+
+export interface SuggestionCandidate {
+  readonly sha256: string;
+  readonly remoteId: string;
+  readonly attempts: number;
 }
 
 const SCHEMA = [
@@ -52,6 +58,14 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   // having the document, not about how long we have known about it.
   ['forward_done_at', 'INTEGER'],
   ['bytes_released', 'INTEGER NOT NULL DEFAULT 0'],
+  // A document only becomes eligible once remote_id is known, so this tracks
+  // separately from forwarding rather than reusing its columns: a document can be
+  // forwarded and never classified, or classified long after, and neither state
+  // machine should have to know about the other's retry budget.
+  ['suggestions_state', `TEXT NOT NULL DEFAULT 'pending'`],
+  ['suggestions_attempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['suggestions_next_at', 'INTEGER'],
+  ['suggestions_json', 'TEXT'],
 ];
 
 interface Row {
@@ -64,6 +78,10 @@ interface Row {
   remote_id: string | null;
   forward_done_at: number | null;
   bytes_released: number;
+  suggestions_state: string;
+  suggestions_attempts: number;
+  suggestions_next_at: number | null;
+  suggestions_json: string | null;
   bytes: number;
   page_count: number | null;
   received_at: number;
@@ -104,6 +122,9 @@ export class Storage {
     );
     await options.driver.exec(
       `CREATE INDEX IF NOT EXISTS documents_by_release ON documents (forward_state, bytes_released, forward_done_at)`,
+    );
+    await options.driver.exec(
+      `CREATE INDEX IF NOT EXISTS documents_by_suggestions ON documents (suggestions_state, suggestions_next_at)`,
     );
 
     mkdirSync(options.objectsDir, { recursive: true });
@@ -300,6 +321,62 @@ export class Storage {
     return Object.fromEntries(rows.map((row) => [row.forward_state, row.n]));
   }
 
+  /**
+   * Documents the downstream system has, but has not yet been asked what its
+   * classifier makes of. Only ever a document with a `remote_id`: asking before
+   * that would be asking about a document the target may not have finished
+   * consuming yet.
+   *
+   * A purpose-built shape rather than `DocumentRecord`: `suggestions_attempts` is
+   * retry bookkeeping for the fetcher, not something the wire contract needs to
+   * carry.
+   */
+  async dueForSuggestions(now: number, limit = 20): Promise<readonly SuggestionCandidate[]> {
+    const rows = await this.#driver.all<{
+      sha256: string;
+      remote_id: string;
+      suggestions_attempts: number;
+    }>(
+      `SELECT sha256, remote_id, suggestions_attempts FROM documents
+        WHERE forward_state = 'done' AND remote_id IS NOT NULL
+          AND suggestions_state = 'pending'
+          AND (suggestions_next_at IS NULL OR suggestions_next_at <= ?)
+        ORDER BY received_at ASC
+        LIMIT ?`,
+      [now, limit],
+    );
+    return rows.map((row) => ({
+      sha256: row.sha256,
+      remoteId: row.remote_id,
+      attempts: row.suggestions_attempts,
+    }));
+  }
+
+  async recordSuggestionAttempt(
+    sha256: string,
+    update: {
+      state: 'pending' | 'done' | 'abandoned';
+      attempts: number;
+      nextAt: number | null;
+      /** Only meaningful, and only ever passed, alongside `state: 'done'`. */
+      suggestions?: Suggestions;
+    },
+  ): Promise<void> {
+    await this.#driver.run(
+      `UPDATE documents
+          SET suggestions_state = ?, suggestions_attempts = ?, suggestions_next_at = ?,
+              suggestions_json = COALESCE(?, suggestions_json)
+        WHERE sha256 = ?`,
+      [
+        update.state,
+        update.attempts,
+        update.nextAt,
+        update.suggestions === undefined ? null : JSON.stringify(update.suggestions),
+        sha256,
+      ],
+    );
+  }
+
   private pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
@@ -323,5 +400,7 @@ function toRecord(row: Row): DocumentRecord {
       error: row.forward_error,
     },
     bytesReleased: row.bytes_released === 1,
+    suggestions:
+      row.suggestions_json === null ? null : (JSON.parse(row.suggestions_json) as Suggestions),
   };
 }

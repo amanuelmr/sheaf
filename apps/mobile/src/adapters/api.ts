@@ -89,12 +89,18 @@ export class SheafAdapter implements EngineApi {
   }
 
   /**
-   * Our server stores documents; it does not classify them. Answering "nothing to
-   * suggest" is honest, and the engine records that it asked and stops — rather
-   * than retrying an endpoint that will never have an opinion.
+   * Our server stores documents; the downstream system it forwards to is the one
+   * that classifies them. The server does that asking on our behalf and caches the
+   * answer, so `suggestions: null` here means "not yet", not "nothing" — and the
+   * engine's own contract is that a successful answer is final, so `null` has to
+   * come back as a retryable failure rather than an empty suggestion, or the first
+   * poll to land before classification finishes would be the last one that ever ran.
    */
-  getSuggestions(): Promise<ApiResult<Suggestions>> {
-    return Promise.resolve(ok({}));
+  async getSuggestions(remoteId: RemoteId): Promise<ApiResult<Suggestions>> {
+    const result = await this.#client.getSuggestions(String(remoteId));
+    if (!result.ok) return err(result.reason);
+    if (result.value.suggestions === null) return err({ kind: 'unreachable' });
+    return ok(result.value.suggestions);
   }
 
   /** Names in, names out. No vocabulary to look up, so nothing is dropped. */
