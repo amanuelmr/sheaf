@@ -26,6 +26,7 @@
     "expo-haptics": "~57.0.1",
     "expo-image-manipulator": "~57.0.13",
     "expo-linking": "~57.0.7",
+    "expo-local-authentication": "~57.0.2",
     "expo-router": "~57.0.16",
     "expo-secure-store": "~57.0.1",
     "expo-splash-screen": "~57.0.8",

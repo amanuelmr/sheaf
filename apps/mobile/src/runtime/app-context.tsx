@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { AppState, useColorScheme, type AppStateStatus } from 'react-native';
 import type { DocId, MetadataPatch } from '@sheaf/core';
 import { DocumentStore, SqlEventLog, type OutboxRow, type SqlDriver } from '@sheaf/store';
 import { SheafAdapter, createClient } from '../adapters/api';
+import { deviceLockAvailable, unlockDevice } from '../adapters/auth';
 import { openDatabase } from '../adapters/database';
 import {
   clearServerConfig,
@@ -33,6 +34,11 @@ interface AppValue {
   store: DocumentStore | null;
   service: SyncService | null;
   adapter: SheafAdapter | null;
+  /** Whether this device even has a lock screen to borrow. */
+  lockAvailable: boolean;
+  /** True until the device's own unlock succeeds, whenever the setting is on. */
+  locked: boolean;
+  unlock: () => Promise<boolean>;
   refresh: () => Promise<void>;
   connect: (config: ServerConfig) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -61,6 +67,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [outbox, setOutbox] = useState<readonly OutboxRow[]>([]);
   const [offline, setOffline] = useState(false);
+  const [lockAvailable, setLockAvailable] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   const palette = scheme === 'dark' ? palettes.dark : palettes.light;
 
@@ -98,6 +106,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // Check once whether this device even has a lock screen to borrow, and arm the
+  // lock for this launch if the setting wants one. Hardware and enrollment do not
+  // change while the app is running, so this never needs to run again on its own.
+  useEffect(() => {
+    if (boot !== 'ready' && boot !== 'needs-server') return;
+    let cancelled = false;
+    void deviceLockAvailable().then((available) => {
+      if (cancelled) return;
+      setLockAvailable(available);
+      if (available && settings.appLockEnabled) setLocked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed on `boot` alone, not on `settings.appLockEnabled`: this
+    // arms the lock once, for this launch. Turning the toggle on mid-session should
+    // not lock the screen out from under whoever just turned it on -- it takes
+    // effect the next time the app is opened or backgrounded, same as the effect
+    // below.
+  }, [boot]);
+
+  // Stepping away re-arms the lock. Coming back to the foreground does not bypass
+  // it -- only a successful unlock does.
+  useEffect(() => {
+    if (!lockAvailable) return;
+    const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
+      if (status !== 'active' && settings.appLockEnabled) setLocked(true);
+    });
+    return () => subscription.remove();
+  }, [lockAvailable, settings.appLockEnabled]);
 
   // The sync loop only exists once there is somewhere to sync to.
   useEffect(() => {
@@ -139,6 +178,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       store,
       service,
       adapter,
+      lockAvailable,
+      locked,
+      unlock: async () => {
+        const ok = await unlockDevice();
+        if (ok) setLocked(false);
+        return ok;
+      },
       refresh,
       connect: async (config) => {
         await saveServerConfig(config);
@@ -179,6 +225,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       store,
       service,
       adapter,
+      lockAvailable,
+      locked,
       driver,
       refresh,
     ],

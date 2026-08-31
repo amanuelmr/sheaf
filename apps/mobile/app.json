@@ -14,7 +14,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Sheaf connects to the document server running on your own network."
+        "NSLocalNetworkUsageDescription": "Sheaf connects to the document server running on your own network.",
+        "NSFaceIDUsageDescription": "Sheaf can require Face ID to open, if you turn that on in Settings."
       }
     },
     "android": {
@@ -24,6 +25,12 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Sheaf can require Face ID to open, if you turn that on in Settings."
+        }
+      ],
       [
         "expo-camera",
         {

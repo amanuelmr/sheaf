@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '../src/runtime/app-context';
+import { Button, EmptyState } from '../src/ui/components';
 import { spacing } from '../src/theme';
 
 export default function RootLayout() {
@@ -16,7 +18,7 @@ export default function RootLayout() {
 }
 
 function Shell() {
-  const { boot, bootError, palette } = useApp();
+  const { boot, bootError, palette, locked } = useApp();
 
   if (boot === 'starting') {
     // Deliberately quiet: opening a database is fast, and a splash screen with a
@@ -43,6 +45,8 @@ function Shell() {
     );
   }
 
+  if (locked) return <LockScreen />;
+
   return (
     <>
       <StatusBar style="auto" />
@@ -62,6 +66,35 @@ function Shell() {
         <Stack.Screen name="document/[id]" options={{ title: 'Document' }} />
       </Stack>
     </>
+  );
+}
+
+/**
+ * The one screen that stands between opening the app and seeing what has been
+ * scanned. Prompts immediately rather than waiting for a tap -- the device's own
+ * unlock is already a familiar interruption -- and stays here on cancel or
+ * failure, with a button to try again rather than a way around it.
+ */
+function LockScreen() {
+  const { palette, unlock } = useApp();
+
+  useEffect(() => {
+    // Deliberately an empty dependency array: `unlock`'s identity changes on every
+    // context update, and depending on it would re-prompt on every one of them
+    // rather than once per mount. This screen only (re)mounts when `locked`
+    // becomes true, which is exactly when a fresh prompt is wanted.
+    void unlock();
+  }, []);
+
+  return (
+    <View style={[styles.centre, { backgroundColor: palette.background }]}>
+      <EmptyState
+        title="Sheaf is locked"
+        body="Unlock this device to see what has been scanned."
+        palette={palette}
+        action={<Button label="Unlock" palette={palette} onPress={() => void unlock()} />}
+      />
+    </View>
   );
 }
 

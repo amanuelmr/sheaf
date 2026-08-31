@@ -11,7 +11,8 @@ import { Button, Divider } from '../src/ui/components';
  * Everything expert-shaped stays out of the way.
  */
 export default function Settings() {
-  const { palette, settings, server, updateSetting, disconnect, outbox, refresh } = useApp();
+  const { palette, settings, server, updateSetting, disconnect, outbox, refresh, lockAvailable } =
+    useApp();
   const router = useRouter();
   const unsent = outbox.filter((row) => row.status !== 'SYNCED').length;
   const synced = outbox.filter((row) => row.status === 'SYNCED').length;
@@ -125,6 +126,23 @@ export default function Settings() {
 
       <Divider palette={palette} />
 
+      <Section title="Security" palette={palette}>
+        <Toggle
+          label="Require Face ID or fingerprint"
+          hint={
+            lockAvailable
+              ? 'Sheaf will ask before showing anything you have scanned.'
+              : 'Set up Face ID, Touch ID or a fingerprint on this device to use this.'
+          }
+          value={settings.appLockEnabled && lockAvailable}
+          disabled={!lockAvailable}
+          onChange={(next) => void updateSetting('appLockEnabled', next)}
+          palette={palette}
+        />
+      </Section>
+
+      <Divider palette={palette} />
+
       <Section title="Privacy" palette={palette}>
         <Text style={[styles.hint, { color: palette.textMuted }]}>
           Sheaf has no account and no backend. Nothing is collected, and no analytics are sent.
@@ -158,15 +176,17 @@ function Toggle({
   value,
   onChange,
   palette,
+  disabled = false,
 }: {
   label: string;
   hint: string;
   value: boolean;
   onChange: (next: boolean) => void;
   palette: { text: string; textMuted: string; accent: string };
+  disabled?: boolean;
 }) {
   return (
-    <View style={styles.toggleRow}>
+    <View style={[styles.toggleRow, disabled ? styles.toggleRowDisabled : null]}>
       <View style={styles.toggleMain}>
         <Text style={[styles.value, { color: palette.text }]}>{label}</Text>
         <Text style={[styles.hint, { color: palette.textMuted }]}>{hint}</Text>
@@ -174,6 +194,7 @@ function Toggle({
       <Switch
         value={value}
         onValueChange={onChange}
+        disabled={disabled}
         trackColor={{ true: palette.accent }}
         accessibilityLabel={label}
       />
@@ -193,5 +214,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.xs,
   },
+  toggleRowDisabled: { opacity: 0.5 },
   toggleMain: { flex: 1, gap: 2 },
 });

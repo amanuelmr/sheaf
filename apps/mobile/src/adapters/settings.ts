@@ -11,6 +11,13 @@ export interface AppSettings extends SyncPolicy {
    */
   readonly dpi: number;
   readonly autoSync: boolean;
+  /**
+   * Gate the outbox behind the device's own lock screen. Off by default: turning
+   * it on is a statement someone makes about their own device, not something to
+   * assume, and a stray flag flip is not the way anyone should discover they are
+   * locked out of documents they just scanned.
+   */
+  readonly appLockEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -19,6 +26,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepLocalAfterSync: true,
   dpi: 150,
   autoSync: true,
+  appLockEnabled: false,
 };
 
 /**
@@ -43,6 +51,7 @@ export async function loadSettings(driver: SqlDriver): Promise<AppSettings> {
     keepLocalAfterSync: bool('keepLocalAfterSync', DEFAULT_SETTINGS.keepLocalAfterSync),
     autoSync: bool('autoSync', DEFAULT_SETTINGS.autoSync),
     dpi: int('dpi', DEFAULT_SETTINGS.dpi),
+    appLockEnabled: bool('appLockEnabled', DEFAULT_SETTINGS.appLockEnabled),
   };
 }
 

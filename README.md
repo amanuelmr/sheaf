@@ -227,11 +227,16 @@ Next, in order of how much they would change:
 2. **Automate the contract tests against a real Paperless-ngx.** Running it by hand
    already disproved two documented assumptions (see ADR 0002); the point is to
    catch the next one without a person watching.
-3. Automatic edge detection, so the crop does not have to be drawn by hand. Rotate
-   and crop exist; finding the page in the frame does not.
-4. On-device OCR, scoped to offline search of your own outbox and near-duplicate
+3. On-device OCR, scoped to offline search of your own outbox and near-duplicate
    detection. Not to guessing metadata: Paperless's classifier knows your corpus.
-5. Background sync, where the OS allows it.
+4. Background sync, where the OS allows it.
+
+Done, since this list was last written: automatic edge detection — the platform's
+own scanner (VisionKit / ML Kit) finds the page and corrects perspective, with the
+hand-drawn crop kept only as a fallback when that scanner is unavailable — and an
+optional device-lock screen (Face ID, Touch ID, fingerprint) in front of the
+outbox, since a captured-but-not-yet-uploaded scan is the one window a server
+token cannot protect.
 
 ## Privacy
 
@@ -239,6 +244,9 @@ Documents go directly from the device to your Paperless server. There is no Shea
 account, no Sheaf backend, and no third party in the path. The API token is held in
 the platform keystore (Keychain / Android Keystore), never in plain storage, and
 never written to a log.
+
+Optionally, Sheaf can require the device's own unlock — Face ID, Touch ID or a
+fingerprint — before showing anything captured. Off by default; see Settings.
 
 ## Licence
 
