@@ -313,3 +313,25 @@ suite('suggestions', () => {
     expect(response.status).toBe(400);
   });
 });
+
+suite('the reconciliation probe on /v1/health', () => {
+  it('says nothing about it when forwarding is not configured', async () => {
+    const response = await handle(req('GET', paths.health()), deps);
+    expect(response.json).not.toHaveProperty('forwarding');
+  });
+
+  it('omits it while the probe has not answered yet', async () => {
+    const withForwarding = { ...deps, forwardingTo: 'paperless.example' };
+    const response = await handle(req('GET', paths.health()), withForwarding);
+    const forwarding = (response.json as { forwarding: Record<string, unknown> }).forwarding;
+    expect(forwarding).not.toHaveProperty('reconciliation');
+  });
+
+  it('reports what the live getter says, once there is an answer', async () => {
+    const probe = { filterSupported: false, conclusive: true, detail: 'the filter was ignored' };
+    const withProbe = { ...deps, forwardingTo: 'paperless.example', reconciliation: () => probe };
+    const response = await handle(req('GET', paths.health()), withProbe);
+    const forwarding = (response.json as { forwarding: Record<string, unknown> }).forwarding;
+    expect(forwarding['reconciliation']).toEqual(probe);
+  });
+});

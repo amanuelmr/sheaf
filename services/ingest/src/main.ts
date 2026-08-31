@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
+import type { ReconciliationProbe } from '@sheaf/protocol';
 import { Forwarder } from './forwarder.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
@@ -105,23 +106,31 @@ const forwardingTo =
     ? undefined
     : paperlessUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
+// Shared: forwarding, suggestion-fetching and the reconciliation probe are three
+// different questions asked of the same server, not three servers.
+const paperlessClient =
+  paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken !== null
+    ? new PaperlessClient({
+        baseUrl: paperlessUrl,
+        token: paperlessToken,
+        fetch: (url, init) => fetch(url, init as RequestInit),
+        formData: () => new FormData(),
+      })
+    : null;
+
+// Diagnostic only -- read live by the health route, and correctness never depends
+// on it. `null` until the one-time probe below resolves.
+let reconciliationProbe: ReconciliationProbe | null = null;
+
 const server = createIngestServer({
   storage,
   token,
   now: () => Date.now(),
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
+  ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
 });
 
-if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken !== null) {
-  // Shared: forwarding and suggestion-fetching are two different questions asked
-  // of the same server, not two servers.
-  const paperlessClient = new PaperlessClient({
-    baseUrl: paperlessUrl,
-    token: paperlessToken,
-    fetch: (url, init) => fetch(url, init as RequestInit),
-    formData: () => new FormData(),
-  });
-
+if (paperlessClient !== null) {
   const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {
     now: () => Date.now(),
     jitter: () => Math.random(),
@@ -176,6 +185,16 @@ if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken
       `retention: freeing bytes ${String(retentionMs / 86_400_000)} day(s) after forwarding`,
     );
   }
+
+  // One-shot, in the background: this never blocks startup on a request to a
+  // server that might not even be up yet, and correctness never depends on the
+  // answer -- crash recovery works either way, just at the cost of a redundant
+  // upload if the filter turns out not to be supported. See ADR 0004. A failed
+  // probe leaves reconciliationProbe null, which the health route already treats
+  // as "no answer yet".
+  void paperlessClient.probeReconciliation().then((result) => {
+    if (result.ok) reconciliationProbe = result.value;
+  });
 } else {
   console.log(
     paperlessUrl === undefined

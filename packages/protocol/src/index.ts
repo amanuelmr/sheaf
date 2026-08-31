@@ -117,6 +117,21 @@ export interface DocumentPatch {
   readonly tags?: readonly string[];
 }
 
+/**
+ * Whether the downstream system actually filters
+ * `original_filename__istartswith`, which crash-recovery depends on to find a
+ * document it lost track of without re-uploading it. `filterSupported: false`
+ * does not put a document at risk -- recovery degrades to a redundant upload the
+ * server refuses as a duplicate -- but it is worth an operator knowing about
+ * rather than discovering by way of unexplained re-uploads.
+ */
+export interface ReconciliationProbe {
+  readonly filterSupported: boolean;
+  /** False when there were no documents on the downstream system yet to test with. */
+  readonly conclusive: boolean;
+  readonly detail: string;
+}
+
 export interface HealthResponse {
   readonly name: 'sheaf-ingest';
   readonly protocol: typeof PROTOCOL_VERSION;
@@ -128,6 +143,8 @@ export interface HealthResponse {
   readonly forwarding?: {
     readonly target: string;
     readonly counts: Readonly<Record<string, number>>;
+    /** Absent until the one-time probe against the downstream system completes. */
+    readonly reconciliation?: ReconciliationProbe;
   };
 }
 

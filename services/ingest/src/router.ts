@@ -11,6 +11,7 @@ import {
   type ErrorCode,
   type HealthResponse,
   type ListResponse,
+  type ReconciliationProbe,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import type { Storage } from './storage.ts';
@@ -43,6 +44,12 @@ export interface RouterDeps {
   readonly now: () => number;
   /** Host of the downstream system, when one is configured. */
   readonly forwardingTo?: string;
+  /**
+   * The one-time filter probe, read live rather than passed as a value: it resolves
+   * asynchronously after the server is already accepting requests, so `/v1/health`
+   * has to see whatever the latest call left behind, including "not yet".
+   */
+  readonly reconciliation?: () => ReconciliationProbe | null;
 }
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
@@ -68,6 +75,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
 
   if (path === paths.health()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const reconciliation = deps.reconciliation?.() ?? null;
     const health: HealthResponse = {
       name: 'sheaf-ingest',
       protocol: PROTOCOL_VERSION,
@@ -78,6 +86,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
             forwarding: {
               target: deps.forwardingTo,
               counts: await deps.storage.forwardCounts(),
+              ...(reconciliation === null ? {} : { reconciliation }),
             },
           }),
     };

@@ -66,6 +66,32 @@ again later, an object means stop asking, and there is no way to tell "nothing t
 suggest yet" from "nothing to suggest, ever" in what Paperless returns, so this
 does not pretend to.
 
+## Reconciliation health
+
+Crash recovery finds a document it lost track of by asking Paperless to filter on
+`original_filename__istartswith` -- see [ADR 0004](../../docs/adr/0004-reconcile-by-filename.md).
+DRF ignores a filter parameter it does not recognise rather than rejecting it, so a
+server where that filter has stopped working answers every query as if it were
+unfiltered, and reconciliation degrades to silently re-uploading duplicates that
+Paperless then refuses. Nothing breaks, but it is not free, and not something
+anyone would otherwise notice.
+
+Once at startup, the server probes for this the same way `probeReconciliation()`
+always could: search for a filename that cannot exist, and see whether Paperless
+comes back empty. The result rides along in `/v1/health`'s `forwarding` object
+once it lands:
+
+```json
+"forwarding": {
+  "target": "paperless.example.com",
+  "counts": { "done": 41 },
+  "reconciliation": { "filterSupported": true, "conclusive": true, "detail": "..." }
+}
+```
+
+Absent from the response until the probe answers, and diagnostic only --
+correctness never depends on what it finds.
+
 ## The protocol
 
 ```
