@@ -28,21 +28,35 @@ iOS will not talk to a plain-HTTP address on a local network without two things 
 `NSLocalNetworkUsageDescription` so the permission prompt can explain itself. A
 missing prompt fails silently, and looks exactly like a server that is down.
 
-| Variable         | Default         |                                                                           |
-| ---------------- | --------------- | ------------------------------------------------------------------------- |
-| `SHEAF_TOKEN`    | —               | Required. At least 16 characters; the server refuses to start without it. |
-| `SHEAF_DATA_DIR` | `./.sheaf-data` | Documents and the metadata database.                                      |
-| `PORT`           | `8787`          |                                                                           |
+| Variable               | Default         |                                                                                                     |
+| ---------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
+| `SHEAF_TOKEN`          | —               | Required. At least 16 characters; the server refuses to start without it.                           |
+| `SHEAF_DATA_DIR`       | `./.sheaf-data` | Documents and the metadata database.                                                                |
+| `PORT`                 | `8787`          |                                                                                                     |
+| `SHEAF_RETENTION_DAYS` | unset           | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever. |
 
 There is no default token on purpose. A server holding someone's documents should
 not come up guessable, so it would rather not come up at all.
+
+## Retention
+
+Storing is unconditional; forwarding is opt-in; freeing the bytes afterwards is a
+third, separate decision, off unless `SHEAF_RETENTION_DAYS` is set. This server has
+no owner watching an outbox the way a phone's owner watches theirs, so the default
+everywhere else in this project — keep the extra copy — holds here too until
+someone explicitly decides Paperless is trustworthy enough to be the only one.
+
+Once a document has been in `forward.state: 'done'` for that many days, its bytes
+are deleted and `GET` on it answers `410` instead of `200` — the row, and everything
+Paperless already made searchable, are untouched. `404` still means "never
+existed"; `410` means "existed, and Paperless has it."
 
 ## The protocol
 
 ```
 PUT    /v1/documents/{sha256}    the bytes, raw
 HEAD   /v1/documents/{sha256}    do you have this?
-GET    /v1/documents/{sha256}    give it back
+GET    /v1/documents/{sha256}    give it back, or 410 if retention already freed it
 PATCH  /v1/documents/{sha256}    title, correspondent, type, tags
 GET    /v1/documents             what do you have
 GET    /v1/health                and are you well

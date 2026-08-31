@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+  existsSync,
+  unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { DocumentPatch, DocumentRecord, PutOutcome } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
@@ -40,6 +47,11 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['forward_task_id', 'TEXT'],
   ['forward_error', 'TEXT'],
   ['remote_id', 'TEXT'],
+  // Set once, the moment forward_state becomes 'done'. Retention counts from here,
+  // not from received_at, because it is a promise about the downstream system
+  // having the document, not about how long we have known about it.
+  ['forward_done_at', 'INTEGER'],
+  ['bytes_released', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 interface Row {
@@ -50,6 +62,8 @@ interface Row {
   forward_task_id: string | null;
   forward_error: string | null;
   remote_id: string | null;
+  forward_done_at: number | null;
+  bytes_released: number;
   bytes: number;
   page_count: number | null;
   received_at: number;
@@ -87,6 +101,9 @@ export class Storage {
     }
     await options.driver.exec(
       `CREATE INDEX IF NOT EXISTS documents_by_forward ON documents (forward_state, forward_next_at)`,
+    );
+    await options.driver.exec(
+      `CREATE INDEX IF NOT EXISTS documents_by_release ON documents (forward_state, bytes_released, forward_done_at)`,
     );
 
     mkdirSync(options.objectsDir, { recursive: true });
@@ -204,6 +221,8 @@ export class Storage {
       taskId?: string | null;
       remoteId?: string | null;
       error?: string | null;
+      /** Only meaningful (and only ever passed) alongside `state: 'done'`. */
+      doneAt?: number;
     },
   ): Promise<void> {
     await this.#driver.run(
@@ -211,7 +230,8 @@ export class Storage {
           SET forward_state = ?, forward_attempts = ?, forward_next_at = ?,
               forward_task_id = COALESCE(?, forward_task_id),
               remote_id = COALESCE(?, remote_id),
-              forward_error = ?
+              forward_error = ?,
+              forward_done_at = COALESCE(forward_done_at, ?)
         WHERE sha256 = ?`,
       [
         update.state,
@@ -220,9 +240,49 @@ export class Storage {
         update.taskId ?? null,
         update.remoteId ?? null,
         update.error ?? null,
+        update.doneAt ?? null,
         sha256,
       ],
     );
+  }
+
+  /**
+   * Documents Paperless has held for at least `retentionMs`, and whose bytes are
+   * still here to free. Oldest completion first, so a backlog drains in the order
+   * it built up rather than leaving early arrivals waiting behind later ones.
+   */
+  async dueForRelease(
+    now: number,
+    retentionMs: number,
+    limit = 50,
+  ): Promise<readonly DocumentRecord[]> {
+    const rows = await this.#driver.all<Row>(
+      `SELECT * FROM documents
+        WHERE forward_state = 'done' AND bytes_released = 0
+          AND forward_done_at IS NOT NULL AND forward_done_at <= ?
+        ORDER BY forward_done_at ASC
+        LIMIT ?`,
+      [now - retentionMs, limit],
+    );
+    return rows.map(toRecord);
+  }
+
+  /**
+   * Free the bytes for a document Paperless already has. The row survives: metadata,
+   * forwarding history and the fact that this document existed are all worth
+   * keeping, and none of them are the reason storage grows without bound.
+   *
+   * Idempotent, and safe to call on a file that is already gone -- retention that
+   * crashes between unlinking and recording it must not fail the next time it finds
+   * the same document due.
+   */
+  async release(sha256: string): Promise<void> {
+    try {
+      unlinkSync(this.pathFor(sha256));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    await this.#driver.run('UPDATE documents SET bytes_released = 1 WHERE sha256 = ?', [sha256]);
   }
 
   async forwardTaskId(sha256: string): Promise<string | null> {
@@ -262,5 +322,6 @@ function toRecord(row: Row): DocumentRecord {
       remoteId: row.remote_id,
       error: row.forward_error,
     },
+    bytesReleased: row.bytes_released === 1,
   };
 }

@@ -104,12 +104,20 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       return (await deps.storage.has(id)) ? { status: 200 } : { status: ERROR_STATUS.not_found };
     case 'GET': {
       const bytes = deps.storage.bytes(id);
-      if (bytes === null) return fail('not_found');
-      return {
-        status: 200,
-        headers: { 'content-type': DOCUMENT_CONTENT_TYPE },
-        bytes,
-      };
+      if (bytes !== null) {
+        return { status: 200, headers: { 'content-type': DOCUMENT_CONTENT_TYPE }, bytes };
+      }
+      // The bytes can be missing for two different reasons, and only one of them is
+      // "never happened": a document retention has released still has a row, and
+      // deserves 410, not the 404 that would send someone looking for a typo.
+      const record = await deps.storage.record(id);
+      if (record?.bytesReleased === true) {
+        return fail(
+          'released',
+          'retention freed these bytes once Paperless confirmed it has this document',
+        );
+      }
+      return fail('not_found');
     }
     case 'PATCH': {
       const patch = parseJson<DocumentPatch>(request.body);

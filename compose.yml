@@ -34,6 +34,9 @@ services:
       PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
       PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
       PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
+      # Optional: free a document's bytes this many days after Paperless confirms
+      # it. Unset keeps every copy forever, which is the conservative default.
+      SHEAF_RETENTION_DAYS: ${SHEAF_RETENTION_DAYS:-}
     volumes:
       - documents:/data
 

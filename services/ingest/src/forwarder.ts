@@ -112,6 +112,7 @@ export class Forwarder {
           nextAt: null,
           remoteId: already.value,
           error: null,
+          doneAt: this.#ports.now(),
         });
         return 'completed';
       }
@@ -183,6 +184,7 @@ export class Forwarder {
           nextAt: null,
           remoteId: named,
           error: null,
+          doneAt: this.#ports.now(),
         });
         return 'completed';
       }

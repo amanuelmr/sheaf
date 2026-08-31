@@ -226,6 +226,26 @@ suite('reading documents back', () => {
     expect(response.headers?.['content-type']).toBe('application/pdf');
   });
 
+  it('tells apart a document it never had from one retention already freed', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await deps.storage.recordForwardAttempt(hashA, {
+      state: 'done',
+      attempts: 1,
+      nextAt: null,
+      error: null,
+      doneAt: clock,
+    });
+    await deps.storage.release(hashA);
+
+    const released = await handle(req('GET', paths.document(hashA)), deps);
+    expect(released.status).toBe(410);
+    expect((released.json as { error: string }).error).toBe('released');
+
+    const neverHad = await handle(req('GET', paths.document(hashB)), deps);
+    expect(neverHad.status).toBe(404);
+    expect((neverHad.json as { error: string }).error).toBe('not_found');
+  });
+
   it('lists newest first', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
     await handle(req('PUT', paths.document(hashB), B), deps);

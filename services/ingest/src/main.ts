@@ -4,8 +4,29 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
 import { Forwarder } from './forwarder.ts';
 import { paperlessTarget } from './paperless-target.ts';
+import { Retention } from './retention.ts';
 import { createIngestServer } from './server.ts';
 import { Storage } from './storage.ts';
+
+/**
+ * Free disk space held by documents Paperless has confirmed it already has.
+ *
+ * Unset by default -- see retention.ts for why keeping every copy is the right
+ * starting point. A number here is an explicit statement that Paperless is trusted
+ * enough to be the only copy of documents older than this.
+ */
+function retentionMsFromEnv(): number | null {
+  const raw = process.env['SHEAF_RETENTION_DAYS'];
+  if (raw === undefined || raw === '') return null;
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error(
+      `SHEAF_RETENTION_DAYS must be a positive number of days, got "${raw}" — ignoring it.`,
+    );
+    return null;
+  }
+  return days * 24 * 60 * 60 * 1000;
+}
 
 /**
  * Entry point. Configuration is environment only — nothing about where documents
@@ -116,6 +137,25 @@ if (paperlessUrl !== undefined && paperlessToken !== undefined && paperlessToken
       });
   }, 5_000);
   console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
+
+  const retentionMs = retentionMsFromEnv();
+  if (retentionMs !== null) {
+    const retention = new Retention(storage, retentionMs, { now: () => Date.now() });
+    let releasing = false;
+    setInterval(() => {
+      if (releasing) return;
+      releasing = true;
+      void retention
+        .tick()
+        .catch((error: unknown) => console.error('retention sweep failed:', String(error)))
+        .finally(() => {
+          releasing = false;
+        });
+    }, 60_000);
+    console.log(
+      `retention: freeing bytes ${String(retentionMs / 86_400_000)} day(s) after forwarding`,
+    );
+  }
 } else {
   console.log(
     paperlessUrl === undefined
