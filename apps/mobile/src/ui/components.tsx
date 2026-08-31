@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -117,6 +118,60 @@ export function Divider({ palette }: { palette: Palette }) {
   return <View style={[styles.divider, { backgroundColor: palette.border }]} />;
 }
 
+/**
+ * A scrolling row of toggleable chips, doing for a foreign-key field (a
+ * correspondent, a document type, a tag) what `Switch` does for a boolean: single
+ * or multi-select is the caller's choice, made by how `selectedIds` and
+ * `onToggle` are wired, not by a mode flag here.
+ */
+export function Chips({
+  entries,
+  selectedIds,
+  onToggle,
+  palette,
+  label,
+}: {
+  entries: readonly { id: number; name: string }[];
+  selectedIds: readonly number[];
+  onToggle: (id: number) => void;
+  palette: Palette;
+  label: string;
+}) {
+  if (entries.length === 0) return null;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipRow}
+      accessibilityLabel={label}
+    >
+      {entries.map((entry) => {
+        const active = selectedIds.includes(entry.id);
+        return (
+          <Pressable
+            key={entry.id}
+            accessibilityRole="button"
+            accessibilityLabel={entry.name}
+            accessibilityState={{ selected: active }}
+            onPress={() => onToggle(entry.id)}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: active ? palette.accent : 'transparent',
+                borderColor: active ? palette.accent : palette.border,
+              },
+            ]}
+          >
+            <Text style={[styles.chipLabel, { color: active ? palette.accentText : palette.text }]}>
+              {entry.name}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 export function EmptyState({
   title,
   body,
@@ -159,4 +214,14 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center' },
   emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 300 },
+  chipRow: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, gap: spacing.sm },
+  chip: {
+    minHeight: TOUCH_TARGET - 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipLabel: { fontSize: 13 },
 });

@@ -64,3 +64,70 @@ export interface ReconcileProbe {
   readonly conclusive: boolean;
   readonly detail: string;
 }
+
+/**
+ * A row from `GET /api/documents/` or `GET /api/documents/{id}/` -- the browsing
+ * shape, distinct from `DocumentSummary`, which only carries what reconciliation
+ * needs. Correspondent, type and tags are ids here for the same reason
+ * `RawSuggestions` are: resolving them to names is the caller's job, once, using
+ * the cached vocabulary rather than a request per field per document.
+ */
+export interface RawDocument {
+  readonly id: number;
+  readonly title: string;
+  readonly correspondent: number | null;
+  readonly document_type: number | null;
+  readonly tags: readonly number[];
+  readonly created: string;
+  /** Full OCR text. Present on both the list and detail shapes. */
+  readonly content?: string;
+}
+
+export interface RawDocumentList {
+  readonly count: number;
+  readonly results: readonly RawDocument[];
+}
+
+/** What browsing the archive resolves ids and content down to for a client. */
+export interface ResolvedDocument {
+  readonly id: number;
+  readonly title: string;
+  readonly correspondent: string | null;
+  readonly documentType: string | null;
+  readonly tags: readonly string[];
+  readonly created: string;
+  /** A short excerpt of the OCR text, or null when there is none yet. */
+  readonly contentSnippet: string | null;
+}
+
+/** What `GET /api/documents/` is asked to narrow down. */
+export interface DocumentQuery {
+  /** Full-text search, over title and OCR content. */
+  readonly text?: string;
+  /** 1-based. */
+  readonly page?: number;
+  /** Left unset, Paperless's own default applies -- set explicitly to know it. */
+  readonly pageSize?: number;
+  readonly correspondentId?: number;
+  readonly documentTypeId?: number;
+  readonly tagId?: number;
+}
+
+/** A document to change: only the fields present are touched. */
+export interface ArchivePatch {
+  readonly title?: string;
+  readonly correspondentId?: number | null;
+  readonly documentTypeId?: number | null;
+  readonly tagIds?: readonly number[];
+}
+
+/**
+ * Bytes with the content type the server actually sent -- carried along rather
+ * than assumed, because Paperless's thumbnail format is a server-side setting
+ * (WebP by default, PNG on an older or reconfigured instance) and guessing wrong
+ * would mislabel the image rather than fail loudly.
+ */
+export interface BinaryFile {
+  readonly bytes: Uint8Array;
+  readonly contentType: string;
+}

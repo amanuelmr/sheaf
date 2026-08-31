@@ -11,7 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
+import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import type { ArchiveSource } from '../src/paperless-browse';
 import { handle, type IngestRequest } from '../src/router';
 import { Storage, sha256Hex } from '../src/storage';
 
@@ -41,15 +43,19 @@ beforeEach(async () => {
 
 const req = (
   method: string,
-  path: string,
+  pathAndQuery: string,
   body: Uint8Array = new Uint8Array(),
   headers: Record<string, string | undefined> = {},
-): IngestRequest => ({
-  method,
-  path,
-  headers: { authorization: authorization(TOKEN), ...headers },
-  body,
-});
+): IngestRequest => {
+  const [path, query] = pathAndQuery.split('?');
+  return {
+    method,
+    path: path ?? pathAndQuery,
+    query: query ?? '',
+    headers: { authorization: authorization(TOKEN), ...headers },
+    body,
+  };
+};
 
 suite('idempotency is a property of the address', () => {
   it('stores once, then reports it already had it', async () => {
@@ -127,11 +133,12 @@ suite('authentication', () => {
       ['HEAD', paths.document(hashA)],
       ['PATCH', paths.document(hashA)],
       ['GET', paths.suggestions(hashA)],
+      ['GET', paths.archive()],
     ];
     for (const [method, path] of routes) {
       for (const header of [undefined, 'Bearer wrong', 'Bearer ', 'Token ' + TOKEN]) {
         const response = await handle(
-          { method, path, headers: { authorization: header }, body: A },
+          { method, path, query: '', headers: { authorization: header }, body: A },
           deps,
         );
         expect(response.status, `${method} ${path} with ${String(header)}`).toBe(401);
@@ -145,6 +152,7 @@ suite('authentication', () => {
       {
         method: 'GET',
         path: paths.health(),
+        query: '',
         headers: { authorization: 'Bearer wrong' },
         body: new Uint8Array(),
       },
@@ -333,5 +341,168 @@ suite('the reconciliation probe on /v1/health', () => {
     const response = await handle(req('GET', paths.health()), withProbe);
     const forwarding = (response.json as { forwarding: Record<string, unknown> }).forwarding;
     expect(forwarding['reconciliation']).toEqual(probe);
+  });
+});
+
+const RESOLVED = {
+  id: 4821,
+  title: 'Amazon receipt',
+  correspondent: 'Amazon',
+  documentType: 'Receipt',
+  tags: ['shopping'],
+  created: '2026-08-22',
+  contentSnippet: null,
+};
+
+function fakeArchive(): { source: ArchiveSource; calls: string[] } {
+  const calls: string[] = [];
+  const source: ArchiveSource = {
+    search: (query) => {
+      calls.push(`search:${JSON.stringify(query)}`);
+      return Promise.resolve(
+        ok({ documents: [RESOLVED], count: 1, page: query.page ?? 1, hasMore: false }),
+      );
+    },
+    get: (id) => {
+      calls.push(`get:${id}`);
+      return Promise.resolve(id === RESOLVED.id ? ok(RESOLVED) : err({ kind: 'not_found' }));
+    },
+    thumbnail: (id) => {
+      calls.push(`thumbnail:${id}`);
+      return Promise.resolve(ok({ bytes: new Uint8Array([1, 2, 3]), contentType: 'image/webp' }));
+    },
+    patch: (id, patch) => {
+      calls.push(`patch:${id}:${JSON.stringify(patch)}`);
+      return Promise.resolve(ok({ ...RESOLVED, title: patch.title ?? RESOLVED.title }));
+    },
+    vocabulary: () => {
+      calls.push('vocabulary');
+      return Promise.resolve({
+        correspondents: [{ id: 3, name: 'Amazon' }],
+        documentTypes: [{ id: 7, name: 'Receipt' }],
+        tags: [{ id: 1, name: 'shopping' }],
+      });
+    },
+  };
+  return { source, calls };
+}
+
+suite('the archive', () => {
+  it('refuses to browse when forwarding is not configured', async () => {
+    const response = await handle(req('GET', paths.archive()), deps);
+    expect(response.status).toBe(503);
+    expect((response.json as { error: string }).error).toBe('archive_disabled');
+  });
+
+  it('every archive route is disabled the same way, not just the search', async () => {
+    for (const [method, path] of [
+      ['GET', paths.archive()],
+      ['GET', paths.archiveVocabulary()],
+      ['GET', paths.archiveDocument(4821)],
+      ['GET', paths.archiveThumbnail(4821)],
+      ['PATCH', paths.archiveDocument(4821)],
+    ] as const) {
+      const response = await handle(req(method, path), deps);
+      expect(response.status, `${method} ${path}`).toBe(503);
+    }
+  });
+
+  it('searches, passing the query string through as a structured query', async () => {
+    const fake = fakeArchive();
+    const withArchive = { ...deps, archive: fake.source };
+    const response = await handle(
+      req('GET', `${paths.archive()}?query=amazon&page=2&correspondent=3&documentType=7&tag=1`),
+      withArchive,
+    );
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual({ documents: [RESOLVED], count: 1, page: 2, hasMore: false });
+    expect(fake.calls[0]).toBe(
+      'search:{"text":"amazon","page":2,"correspondentId":3,"documentTypeId":7,"tagId":1}',
+    );
+  });
+
+  it('searches with no filters at all', async () => {
+    const fake = fakeArchive();
+    const response = await handle(req('GET', paths.archive()), { ...deps, archive: fake.source });
+    expect(response.status).toBe(200);
+    expect(fake.calls[0]).toBe('search:{}');
+  });
+
+  it('serves the vocabulary', async () => {
+    const fake = fakeArchive();
+    const response = await handle(req('GET', paths.archiveVocabulary()), {
+      ...deps,
+      archive: fake.source,
+    });
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual({
+      correspondents: [{ id: 3, name: 'Amazon' }],
+      documentTypes: [{ id: 7, name: 'Receipt' }],
+      tags: [{ id: 1, name: 'shopping' }],
+    });
+  });
+
+  it('fetches one document by its downstream id', async () => {
+    const fake = fakeArchive();
+    const response = await handle(req('GET', paths.archiveDocument(4821)), {
+      ...deps,
+      archive: fake.source,
+    });
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual(RESOLVED);
+  });
+
+  it('answers not_found for a document the downstream system does not have', async () => {
+    const fake = fakeArchive();
+    const response = await handle(req('GET', paths.archiveDocument(1)), {
+      ...deps,
+      archive: fake.source,
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it('rejects an id that is not a positive integer, before ever asking downstream', async () => {
+    const fake = fakeArchive();
+    for (const bad of ['0', '-1', 'abc', '4821.5']) {
+      const response = await handle(req('GET', `${paths.archive()}/${bad}`), {
+        ...deps,
+        archive: fake.source,
+      });
+      expect(response.status, bad).toBe(400);
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
+  it('serves a thumbnail with whatever content type the downstream system sent', async () => {
+    const fake = fakeArchive();
+    const response = await handle(req('GET', paths.archiveThumbnail(4821)), {
+      ...deps,
+      archive: fake.source,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers?.['content-type']).toBe('image/webp');
+    expect(response.bytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('patches a document by its downstream id, with ids rather than free text', async () => {
+    const fake = fakeArchive();
+    const body = new Uint8Array(Buffer.from(JSON.stringify({ title: 'New title' })));
+    const response = await handle(req('PATCH', paths.archiveDocument(4821), body), {
+      ...deps,
+      archive: fake.source,
+    });
+    expect(response.status).toBe(200);
+    expect((response.json as { title: string }).title).toBe('New title');
+    expect(fake.calls[0]).toBe('patch:4821:{"title":"New title"}');
+  });
+
+  it('refuses a patch body that is not a JSON object', async () => {
+    const fake = fakeArchive();
+    const response = await handle(
+      req('PATCH', paths.archiveDocument(4821), new Uint8Array(Buffer.from('not json'))),
+      { ...deps, archive: fake.source },
+    );
+    expect(response.status).toBe(400);
+    expect(fake.calls).toEqual([]);
   });
 });

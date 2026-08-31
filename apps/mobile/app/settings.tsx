@@ -49,6 +49,24 @@ export default function Settings() {
         ) : null}
       </Section>
 
+      {server === null ? null : (
+        <>
+          <Divider palette={palette} />
+          <Section title="Library" palette={palette}>
+            <Text style={[styles.hint, { color: palette.textMuted }]}>
+              Search and edit everything your server already holds -- not just what this phone
+              scanned.
+            </Text>
+            <Button
+              label="Browse your documents"
+              variant="secondary"
+              palette={palette}
+              onPress={() => router.push('/library')}
+            />
+          </Section>
+        </>
+      )}
+
       <Divider palette={palette} />
 
       <Section title="Sync" palette={palette}>

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { AppState, useColorScheme, type AppStateStatus } from 'react-native';
 import type { DocId, MetadataPatch } from '@sheaf/core';
 import { DocumentStore, SqlEventLog, type OutboxRow, type SqlDriver } from '@sheaf/store';
+import type { SheafClient } from '@sheaf/client';
 import { SheafAdapter, createClient } from '../adapters/api';
 import { deviceLockAvailable, unlockDevice } from '../adapters/auth';
 import { openDatabase } from '../adapters/database';
@@ -34,6 +35,8 @@ interface AppValue {
   store: DocumentStore | null;
   service: SyncService | null;
   adapter: SheafAdapter | null;
+  /** The protocol client directly, for reads that are not part of the sync engine. */
+  client: SheafClient | null;
   /** Whether this device even has a lock screen to borrow. */
   lockAvailable: boolean;
   /** True until the device's own unlock succeeds, whenever the setting is on. */
@@ -63,6 +66,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [store, setStore] = useState<DocumentStore | null>(null);
   const [service, setService] = useState<SyncService | null>(null);
   const [adapter, setAdapter] = useState<SheafAdapter | null>(null);
+  const [client, setClient] = useState<SheafClient | null>(null);
   const [server, setServer] = useState<ServerConfig | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [outbox, setOutbox] = useState<readonly OutboxRow[]>([]);
@@ -141,7 +145,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // The sync loop only exists once there is somewhere to sync to.
   useEffect(() => {
     if (store === null || server === null) return;
-    const api = new SheafAdapter(server, createClient(server));
+    const rawClient = createClient(server);
+    const api = new SheafAdapter(server, rawClient);
     const running = new SyncService({
       store,
       api,
@@ -155,6 +160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
     });
     setAdapter(api);
+    setClient(rawClient);
     setService(running);
     if (settings.autoSync) running.start();
     return () => {
@@ -178,6 +184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       store,
       service,
       adapter,
+      client,
       lockAvailable,
       locked,
       unlock: async () => {
@@ -196,6 +203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await clearServerConfig();
         setServer(null);
         setService(null);
+        setClient(null);
         setBoot('needs-server');
       },
       updateSetting: async (key, next) => {
@@ -225,6 +233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       store,
       service,
       adapter,
+      client,
       lockAvailable,
       locked,
       driver,

@@ -8,6 +8,7 @@ const TOKEN = 'a1b2c3d4e5f6g7h8i9j0';
 interface Canned {
   status?: number;
   body?: string;
+  bytes?: Uint8Array;
   headers?: Record<string, string>;
   throws?: Error;
 }
@@ -33,6 +34,7 @@ function harness(plan: Canned | Canned[] | ((url: string) => Canned)) {
       ok: status >= 200 && status < 300,
       headers: { get: (name) => headers[name.toLowerCase()] ?? null },
       text: () => Promise.resolve(canned.body ?? ''),
+      arrayBuffer: () => Promise.resolve((canned.bytes ?? new Uint8Array()).buffer as ArrayBuffer),
     };
     return Promise.resolve(response);
   };
@@ -240,6 +242,93 @@ suite('metadata', () => {
       value: { correspondents: [3], tags: [1, 2], document_types: [9] },
     });
     expect(h.calls[0]!.url).toContain('/api/documents/4821/suggestions/');
+  });
+});
+
+suite('browsing', () => {
+  it('builds a search query from only the fields that were set', async () => {
+    const h = harness({ body: '{"count":0,"results":[]}' });
+    await clientFor(h).listDocuments({ text: 'amazon', page: 2, pageSize: 25, correspondentId: 3 });
+    const url = new URL(h.calls[0]!.url);
+    expect(url.pathname).toBe('/api/documents/');
+    expect(url.searchParams.get('query')).toBe('amazon');
+    expect(url.searchParams.get('page')).toBe('2');
+    expect(url.searchParams.get('page_size')).toBe('25');
+    expect(url.searchParams.get('correspondent__id')).toBe('3');
+    expect(url.searchParams.has('document_type__id')).toBe(false);
+  });
+
+  it('lists everything when no query is set at all', async () => {
+    const h = harness({ body: '{"count":0,"results":[]}' });
+    await clientFor(h).listDocuments({});
+    expect(new URL(h.calls[0]!.url).search).toBe('');
+  });
+
+  it('returns the count and rows a search found', async () => {
+    const h = harness({
+      body: JSON.stringify({
+        count: 1,
+        results: [
+          {
+            id: 4821,
+            title: 'Amazon receipt',
+            correspondent: 3,
+            document_type: null,
+            tags: [1],
+            created: '2026-08-22',
+          },
+        ],
+      }),
+    });
+    const result = await clientFor(h).listDocuments({ text: 'amazon' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.count).toBe(1);
+  });
+
+  it('fetches a single document by id', async () => {
+    const h = harness({
+      body: JSON.stringify({
+        id: 4821,
+        title: 'Amazon receipt',
+        correspondent: null,
+        document_type: null,
+        tags: [],
+        created: '2026-08-22',
+      }),
+    });
+    const result = await clientFor(h).getDocument(4821);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        id: 4821,
+        title: 'Amazon receipt',
+        correspondent: null,
+        document_type: null,
+        tags: [],
+        created: '2026-08-22',
+      },
+    });
+    expect(h.calls[0]!.url).toContain('/api/documents/4821/');
+  });
+
+  it('propagates not-found for a document that does not exist', async () => {
+    const h = harness({ status: 404 });
+    const result = await clientFor(h).getDocument(999);
+    expect(result).toEqual({ ok: false, reason: { kind: 'not_found' } });
+  });
+
+  it('fetches a thumbnail as raw bytes, with the content type Paperless actually sent', async () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff]);
+    const h = harness({ bytes, headers: { 'content-type': 'image/webp' } });
+    const result = await clientFor(h).getDocumentThumbnail(4821);
+    expect(result).toEqual({ ok: true, value: { bytes, contentType: 'image/webp' } });
+    expect(h.calls[0]!.url).toContain('/api/documents/4821/thumb/');
+  });
+
+  it('falls back to a generic content type when Paperless does not send one', async () => {
+    const h = harness({ bytes: new Uint8Array([1]) });
+    const result = await clientFor(h).getDocumentThumbnail(4821);
+    expect(result.ok && result.value.contentType).toBe('application/octet-stream');
   });
 });
 

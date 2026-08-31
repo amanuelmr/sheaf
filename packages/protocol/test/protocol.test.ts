@@ -4,6 +4,7 @@ import {
   MAX_DOCUMENT_BYTES,
   authorization,
   bearerToken,
+  isPaperlessId,
   isSha256,
   paths,
 } from '../src/index';
@@ -17,6 +18,17 @@ suite('addressing', () => {
     expect(paths.document(HASH)).toBe(`/v1/documents/${HASH}`);
     expect(paths.document(HASH)).toBe(paths.document(HASH));
     expect(paths.suggestions(HASH)).toBe(`/v1/documents/${HASH}/suggestions`);
+    expect(paths.archive()).toBe('/v1/archive');
+    expect(paths.archiveVocabulary()).toBe('/v1/archive/vocabulary');
+    expect(paths.archiveDocument(4821)).toBe('/v1/archive/4821');
+    expect(paths.archiveThumbnail(4821)).toBe('/v1/archive/4821/thumbnail');
+  });
+
+  it('accepts only a positive integer as a downstream-system id', () => {
+    expect(isPaperlessId('4821')).toBe(true);
+    for (const bad of ['0', '-1', '4821.5', '4821a', '', '01', ' 4821']) {
+      expect(isPaperlessId(bad), bad).toBe(false);
+    }
   });
 
   it('accepts only a real hash as an identifier', () => {

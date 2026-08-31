@@ -14,6 +14,10 @@ import {
   DOCUMENT_CONTENT_TYPE,
   authorization,
   paths,
+  type ArchiveDocument,
+  type ArchivePatch,
+  type ArchiveSearchResponse,
+  type ArchiveVocabulary,
   type DocumentPatch,
   type DocumentRecord,
   type HealthResponse,
@@ -112,6 +116,62 @@ export class SheafClient {
    */
   async getSuggestions(sha256: string): Promise<ApiResult<SuggestionsResponse>> {
     return this.#json<SuggestionsResponse>('GET', paths.suggestions(sha256));
+  }
+
+  /**
+   * Search or browse the downstream system's own archive -- documents this
+   * server never captured, fetched live rather than from any local copy. `text`
+   * with no other fields is a plain search; every field omitted lists everything.
+   */
+  async searchArchive(query: {
+    readonly text?: string;
+    readonly page?: number;
+    readonly correspondentId?: number;
+    readonly documentTypeId?: number;
+    readonly tagId?: number;
+  }): Promise<ApiResult<ArchiveSearchResponse>> {
+    const params = new URLSearchParams();
+    if (query.text !== undefined) params.set('query', query.text);
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.correspondentId !== undefined) {
+      params.set('correspondent', String(query.correspondentId));
+    }
+    if (query.documentTypeId !== undefined) {
+      params.set('documentType', String(query.documentTypeId));
+    }
+    if (query.tagId !== undefined) params.set('tag', String(query.tagId));
+    const search = params.toString();
+    return this.#json<ArchiveSearchResponse>(
+      'GET',
+      search === '' ? paths.archive() : `${paths.archive()}?${search}`,
+    );
+  }
+
+  archiveVocabulary(): Promise<ApiResult<ArchiveVocabulary>> {
+    return this.#json<ArchiveVocabulary>('GET', paths.archiveVocabulary());
+  }
+
+  getArchiveDocument(id: number): Promise<ApiResult<ArchiveDocument>> {
+    return this.#json<ArchiveDocument>('GET', paths.archiveDocument(id));
+  }
+
+  patchArchiveDocument(id: number, patch: ArchivePatch): Promise<ApiResult<ArchiveDocument>> {
+    return this.#json<ArchiveDocument>('PATCH', paths.archiveDocument(id), JSON.stringify(patch));
+  }
+
+  /**
+   * Not a fetch: `<Image>` can load an authenticated URL itself given the right
+   * headers, and reading the bytes into JavaScript first would only be slower and
+   * use more memory for no benefit anyone would notice.
+   */
+  archiveThumbnailSource(id: number): {
+    readonly uri: string;
+    readonly headers: Record<string, string>;
+  } {
+    return {
+      uri: joinUrl(this.#baseUrl, paths.archiveThumbnail(id)),
+      headers: { authorization: authorization(this.#token) },
+    };
   }
 
   async #json<T>(method: string, path: string, body?: string): Promise<ApiResult<T>> {

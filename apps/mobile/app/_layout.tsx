@@ -64,6 +64,8 @@ function Shell() {
         <Stack.Screen name="outbox" options={{ title: 'Outbox' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="document/[id]" options={{ title: 'Document' }} />
+        <Stack.Screen name="library" options={{ title: 'Library' }} />
+        <Stack.Screen name="archive/[id]" options={{ title: 'Document' }} />
       </Stack>
     </>
   );

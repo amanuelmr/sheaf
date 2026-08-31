@@ -3,9 +3,11 @@ import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
 import type { ReconciliationProbe } from '@sheaf/protocol';
+import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
+import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { createIngestServer } from './server.ts';
 import { Storage } from './storage.ts';
@@ -122,15 +124,27 @@ const paperlessClient =
 // on it. `null` until the one-time probe below resolves.
 let reconciliationProbe: ReconciliationProbe | null = null;
 
+// The vocabulary cache is shared between everything that resolves an id to a
+// name -- suggestions and the archive both need it, and neither should pay for a
+// fetch the other already made. `archiveSource` follows the same "absent means
+// not configured" shape as `forwardingTo`: browsing needs somewhere to browse.
+const vocabulary =
+  paperlessClient === null ? null : paperlessVocabulary(paperlessClient, () => Date.now());
+const archiveSource =
+  paperlessClient === null || vocabulary === null
+    ? null
+    : paperlessArchiveSource(paperlessClient, vocabulary);
+
 const server = createIngestServer({
   storage,
   token,
   now: () => Date.now(),
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
+  ...(archiveSource === null ? {} : { archive: archiveSource }),
 });
 
-if (paperlessClient !== null) {
+if (paperlessClient !== null && vocabulary !== null) {
   const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {
     now: () => Date.now(),
     jitter: () => Math.random(),
@@ -152,7 +166,7 @@ if (paperlessClient !== null) {
 
   const suggestions = new SuggestionFetcher(
     storage,
-    paperlessSuggestionSource(paperlessClient, () => Date.now()),
+    paperlessSuggestionSource(paperlessClient, vocabulary),
     { now: () => Date.now(), jitter: () => Math.random() },
   );
   let fetchingSuggestions = false;
@@ -195,6 +209,8 @@ if (paperlessClient !== null) {
   void paperlessClient.probeReconciliation().then((result) => {
     if (result.ok) reconciliationProbe = result.value;
   });
+
+  console.log('archive: browsing and searching the downstream system is available at /v1/archive');
 } else {
   console.log(
     paperlessUrl === undefined

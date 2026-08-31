@@ -5,10 +5,14 @@ import { err, ok, type ApiResult } from '@sheaf/http';
 import type { FormDataLike, HttpRequest, UploadFile } from '@sheaf/http';
 import { captureFilename, matchesCaptureId } from './reconcile.ts';
 import type {
+  BinaryFile,
   DocumentPatch,
+  DocumentQuery,
   DocumentSummary,
   NamedResource,
   PaperlessTask,
+  RawDocument,
+  RawDocumentList,
   RawSuggestions,
   ReconcileProbe,
   ServerInfo,
@@ -158,6 +162,31 @@ export class PaperlessClient {
     return result.ok ? ok(null) : err(result.reason);
   }
 
+  /** Search or browse. Empty `query` is a valid request -- it lists everything. */
+  async listDocuments(query: DocumentQuery): Promise<ApiResult<RawDocumentList>> {
+    const params = new URLSearchParams();
+    if (query.text !== undefined) params.set('query', query.text);
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.pageSize !== undefined) params.set('page_size', String(query.pageSize));
+    if (query.correspondentId !== undefined) {
+      params.set('correspondent__id', String(query.correspondentId));
+    }
+    if (query.documentTypeId !== undefined) {
+      params.set('document_type__id', String(query.documentTypeId));
+    }
+    if (query.tagId !== undefined) params.set('tags__id__in', String(query.tagId));
+    return this.#json<RawDocumentList>(`api/documents/?${params.toString()}`);
+  }
+
+  async getDocument(documentId: number): Promise<ApiResult<RawDocument>> {
+    return this.#json<RawDocument>(`api/documents/${documentId}/`);
+  }
+
+  /** The generated thumbnail image, raw. Absent until Paperless has processed it. */
+  async getDocumentThumbnail(documentId: number): Promise<ApiResult<BinaryFile>> {
+    return this.#bytes(`api/documents/${documentId}/thumb/`);
+  }
+
   /**
    * Find a document by the content hash we named it with.
    *
@@ -271,6 +300,21 @@ export class PaperlessClient {
   async #readText(response: { text(): Promise<string> }): Promise<ApiResult<string>> {
     try {
       return ok(await response.text());
+    } catch (error) {
+      return err(this.#classify(error));
+    }
+  }
+
+  async #bytes(path: string): Promise<ApiResult<BinaryFile>> {
+    const result = await this.#request(path, { method: 'GET' });
+    if (!result.ok) return err(result.reason);
+    if (result.value.arrayBuffer === undefined) {
+      return err({ kind: 'rejected', status: result.value.status, message: 'no binary transport' });
+    }
+    try {
+      const bytes = new Uint8Array(await result.value.arrayBuffer());
+      const contentType = result.value.headers.get('content-type') ?? 'application/octet-stream';
+      return ok({ bytes, contentType });
     } catch (error) {
       return err(this.#classify(error));
     }

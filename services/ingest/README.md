@@ -92,6 +92,25 @@ once it lands:
 Absent from the response until the probe answers, and diagnostic only --
 correctness never depends on what it finds.
 
+## Browsing the archive
+
+Storing and forwarding are decisions this server makes and remembers; browsing is
+not. `GET /v1/archive` searches everything Paperless holds -- not just what this
+server captured -- by asking Paperless live and forgetting the answer
+immediately. There is no local mirror to keep fresh, so there is nothing that can
+go stale: this route is only ever as current as Paperless itself is, right now.
+
+Requires `PAPERLESS_URL` to be set, for the obvious reason that there is nothing
+to browse otherwise -- every route under `/v1/archive` answers `503
+archive_disabled` rather than `404` when it is not, so a client can tell "this
+server has no archive to browse" from "you mistyped the URL".
+
+Ids here are Paperless's own, not the sha256 this server uses for what it stores
+itself: a document already in your archive before Sheaf existed has no sha256 to
+be found by. `PATCH` takes correspondent, document type and tags as ids too, for
+the same reason -- they are foreign keys in Paperless, not free text this server
+would otherwise have to reconcile.
+
 ## The protocol
 
 ```
@@ -101,6 +120,11 @@ GET    /v1/documents/{sha256}                give it back, or 410 if retention a
 PATCH  /v1/documents/{sha256}                title, correspondent, type, tags
 GET    /v1/documents/{sha256}/suggestions    what the classifier makes of it, once it has answered
 GET    /v1/documents                         what do you have
+GET    /v1/archive?query=&page=&...          search everything Paperless holds, live
+GET    /v1/archive/vocabulary                correspondents, document types, tags -- with names
+GET    /v1/archive/{id}                      one archive document, by Paperless's own id
+GET    /v1/archive/{id}/thumbnail            its thumbnail, whatever format Paperless made it in
+PATCH  /v1/archive/{id}                      title, correspondent, type, tags -- by id, not text
 GET    /v1/health                            and are you well
 ```
 

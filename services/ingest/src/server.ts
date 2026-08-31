@@ -21,6 +21,7 @@ export function createIngestServer(deps: RouterDeps): Server {
           {
             method: req.method ?? 'GET',
             path: (req.url ?? '/').split('?')[0] ?? '/',
+            query: (req.url ?? '').split('?')[1] ?? '',
             headers: req.headers as Record<string, string | undefined>,
             body,
           },

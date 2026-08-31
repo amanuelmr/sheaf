@@ -1,12 +1,17 @@
 import { timingSafeEqual } from 'node:crypto';
+import type { FailureReason } from '@sheaf/core';
+import type { ArchivePatch, DocumentQuery } from '@sheaf/paperless';
 import {
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
   PROTOCOL_VERSION,
   bearerToken,
+  isPaperlessId,
   isSha256,
   paths,
+  type ArchiveSearchResponse,
+  type ArchiveVocabulary,
   type DocumentPatch,
   type ErrorCode,
   type HealthResponse,
@@ -14,6 +19,7 @@ import {
   type ReconciliationProbe,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
+import type { ArchiveSource } from './paperless-browse.ts';
 import type { Storage } from './storage.ts';
 import { sha256Hex } from './storage.ts';
 
@@ -27,6 +33,8 @@ import { sha256Hex } from './storage.ts';
 export interface IngestRequest {
   readonly method: string;
   readonly path: string;
+  /** Raw query string, without the leading `?`. Empty when there was none. */
+  readonly query: string;
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: Uint8Array;
 }
@@ -50,6 +58,8 @@ export interface RouterDeps {
    * has to see whatever the latest call left behind, including "not yet".
    */
   readonly reconciliation?: () => ReconciliationProbe | null;
+  /** Absent exactly when forwarding is not configured -- there is nothing to browse. */
+  readonly archive?: ArchiveSource;
 }
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
@@ -97,6 +107,10 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const list: ListResponse = { documents: await deps.storage.list() };
     return { status: 200, json: list };
+  }
+
+  if (path === paths.archive() || path.startsWith(`${paths.archive()}/`)) {
+    return archive(path, request, deps);
   }
 
   const prefix = `${paths.documents()}/`;
@@ -171,6 +185,95 @@ async function put(id: string, request: IngestRequest, deps: RouterDeps): Promis
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+/**
+ * Everything under `/v1/archive`. One entry point rather than folding this into
+ * the switch above: the identifiers here are Paperless's own ids, not the sha256
+ * the rest of this router is built around, and mixing the two validators in one
+ * place invites checking a document id against the wrong pattern.
+ */
+async function archive(
+  path: string,
+  request: IngestRequest,
+  deps: RouterDeps,
+): Promise<IngestResponse> {
+  if (deps.archive === undefined) {
+    return fail('archive_disabled', 'set PAPERLESS_URL to browse the archive from this server');
+  }
+  const source = deps.archive;
+  const { method } = request;
+
+  if (path === paths.archive()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const params = new URLSearchParams(request.query);
+    const query: DocumentQuery = {
+      ...(params.get('query') === null ? {} : { text: params.get('query')! }),
+      ...(params.get('page') === null ? {} : { page: Number(params.get('page')) }),
+      ...(params.get('correspondent') === null
+        ? {}
+        : { correspondentId: Number(params.get('correspondent')) }),
+      ...(params.get('documentType') === null
+        ? {}
+        : { documentTypeId: Number(params.get('documentType')) }),
+      ...(params.get('tag') === null ? {} : { tagId: Number(params.get('tag')) }),
+    };
+    const result = await source.search(query);
+    if (!result.ok) return mapArchiveFailure(result.reason);
+    const response: ArchiveSearchResponse = { ...result.value };
+    return { status: 200, json: response };
+  }
+
+  if (path === paths.archiveVocabulary()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const vocabulary: ArchiveVocabulary = await source.vocabulary();
+    return { status: 200, json: vocabulary };
+  }
+
+  const thumbnailSuffix = '/thumbnail';
+  const isThumbnail = path.endsWith(thumbnailSuffix);
+  const idPart = isThumbnail
+    ? path.slice(paths.archive().length + 1, -thumbnailSuffix.length)
+    : path.slice(paths.archive().length + 1);
+  if (!isPaperlessId(idPart)) return fail('malformed_id', 'archive ids are positive integers');
+  const id = Number(idPart);
+
+  if (isThumbnail) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const result = await source.thumbnail(id);
+    if (!result.ok) return mapArchiveFailure(result.reason);
+    return {
+      status: 200,
+      headers: { 'content-type': result.value.contentType },
+      bytes: result.value.bytes,
+    };
+  }
+
+  switch (method) {
+    case 'GET': {
+      const result = await source.get(id);
+      return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
+    }
+    case 'PATCH': {
+      const patch = parseJson<ArchivePatch>(request.body);
+      if (patch === null) return fail('bad_request', 'body must be a JSON object');
+      const result = await source.patch(id, patch);
+      return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
+    }
+    default:
+      return fail('bad_request', `${method} not allowed here`);
+  }
+}
+
+/**
+ * Paperless's own refusal, translated. `not_found` is worth telling apart --
+ * a stale or mistyped id is the ordinary case -- everything else collapses to
+ * `server_error` rather than inventing a taxonomy for failures this server did
+ * not cause and cannot fix on the caller's behalf.
+ */
+function mapArchiveFailure(reason: FailureReason): IngestResponse {
+  if (reason.kind === 'not_found') return fail('not_found');
+  return fail('server_error', `the downstream system could not complete this: ${reason.kind}`);
 }
 
 function parseJson<T>(body: Uint8Array): T | null {

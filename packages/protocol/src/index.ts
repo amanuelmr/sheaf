@@ -28,6 +28,15 @@ export const paths = {
   documents: () => `/${PROTOCOL_VERSION}/documents`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
+  /**
+   * The archive: everything the downstream system already holds, not just what
+   * this server captured. A read/write proxy, not a mirror -- see
+   * `ArchiveDocument` below for why nothing here is cached.
+   */
+  archive: () => `/${PROTOCOL_VERSION}/archive`,
+  archiveVocabulary: () => `/${PROTOCOL_VERSION}/archive/vocabulary`,
+  archiveDocument: (id: number | string) => `/${PROTOCOL_VERSION}/archive/${id}`,
+  archiveThumbnail: (id: number | string) => `/${PROTOCOL_VERSION}/archive/${id}/thumbnail`,
 } as const;
 
 /** Documents are identified by the lowercase hex SHA-256 of their bytes. */
@@ -35,6 +44,13 @@ export const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 export function isSha256(value: string): boolean {
   return SHA256_PATTERN.test(value);
+}
+
+/** The downstream system's own ids: positive integers, nothing else. */
+export const PAPERLESS_ID_PATTERN = /^[1-9][0-9]*$/;
+
+export function isPaperlessId(value: string): boolean {
+  return PAPERLESS_ID_PATTERN.test(value);
 }
 
 export const AUTH_SCHEME = 'Bearer';
@@ -118,6 +134,52 @@ export interface DocumentPatch {
 }
 
 /**
+ * A document from the downstream system's own archive -- not necessarily
+ * something this server ever stored. Fetched live and never cached here: the
+ * archive is what the downstream system says it is *right now*, and this server
+ * holding a second, possibly-stale copy of every document's metadata is exactly
+ * the kind of duplication the rest of this protocol works to avoid.
+ */
+export interface ArchiveDocument {
+  readonly id: number;
+  readonly title: string;
+  readonly correspondent: string | null;
+  readonly documentType: string | null;
+  readonly tags: readonly string[];
+  readonly created: string;
+  /** A short excerpt of the OCR text, or null when there is none yet. */
+  readonly contentSnippet: string | null;
+}
+
+export interface ArchiveSearchResponse {
+  readonly documents: readonly ArchiveDocument[];
+  readonly count: number;
+  readonly page: number;
+  readonly hasMore: boolean;
+}
+
+/** An id and the name a person actually recognises it by. */
+export interface VocabularyEntry {
+  readonly id: number;
+  readonly name: string;
+}
+
+export interface ArchiveVocabulary {
+  readonly correspondents: readonly VocabularyEntry[];
+  readonly documentTypes: readonly VocabularyEntry[];
+  readonly tags: readonly VocabularyEntry[];
+}
+
+/** Unlike `DocumentPatch`, ids rather than free text: the archive's fields are
+ * foreign keys in the downstream system, not strings this server stores itself. */
+export interface ArchivePatch {
+  readonly title?: string;
+  readonly correspondentId?: number | null;
+  readonly documentTypeId?: number | null;
+  readonly tagIds?: readonly number[];
+}
+
+/**
  * Whether the downstream system actually filters
  * `original_filename__istartswith`, which crash-recovery depends on to find a
  * document it lost track of without re-uploading it. `filterSupported: false`
@@ -165,7 +227,8 @@ export type ErrorCode =
   | 'too_large'
   | 'bad_request'
   | 'server_error'
-  | 'released';
+  | 'released'
+  | 'archive_disabled';
 
 /**
  * The status code each error maps to. Shared so the server cannot answer with one
@@ -183,6 +246,10 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // any more. That is not "not found" -- 410 says so, and distinctly enough from 404
   // that a client can tell "never happened" from "already handled".
   released: 410,
+  // The route exists; browsing does not, because forwarding is not configured on
+  // this server. Distinct from 404 for the same reason `released` is: a client
+  // should be able to tell "no such thing" from "this feature is off".
+  archive_disabled: 503,
 };
 
 export function authorization(token: string): string {

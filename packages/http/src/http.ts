@@ -15,6 +15,8 @@ export interface HttpResponse {
   readonly ok: boolean;
   readonly headers: HttpHeaders;
   text(): Promise<string>;
+  /** Optional: only the binary reads (a thumbnail image) ever call this. */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export interface HttpRequest {

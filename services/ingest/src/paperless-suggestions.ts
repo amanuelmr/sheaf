@@ -1,48 +1,19 @@
-import { resolveSuggestions, type NamedResource, type PaperlessClient } from '@sheaf/paperless';
+import { resolveSuggestions, type PaperlessClient } from '@sheaf/paperless';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import type { Suggestions } from '@sheaf/protocol';
+import type { VocabularySource } from './paperless-vocabulary.ts';
 import type { SuggestionSource } from './suggestion-fetcher.ts';
-
-interface Vocabulary {
-  readonly correspondents: readonly NamedResource[];
-  readonly documentTypes: readonly NamedResource[];
-  readonly tags: readonly NamedResource[];
-}
-
-const EMPTY: Vocabulary = { correspondents: [], documentTypes: [], tags: [] };
-const VOCABULARY_TTL_MS = 10 * 60_000;
 
 /**
  * Paperless-ngx as a suggestion source. Suggestions come back as ids -- the
- * classifier assumes the caller already holds the vocabulary -- so this fetches
- * and caches correspondents, document types and tags to turn them into the names
- * the phone actually shows. The same cache this project already had on the phone,
- * before it stopped needing one there: a stale cache degrades to a dropped
- * suggestion, never to a wrong one, and a document is safe either way.
+ * classifier assumes the caller already holds the vocabulary -- so this resolves
+ * them to the names the phone actually shows, using the shared cache in
+ * `paperless-vocabulary.ts`.
  */
 export function paperlessSuggestionSource(
   client: PaperlessClient,
-  now: () => number,
+  vocabulary: VocabularySource,
 ): SuggestionSource {
-  let vocabulary = EMPTY;
-  let fetchedAt = 0;
-
-  async function refresh(): Promise<void> {
-    if (now() - fetchedAt < VOCABULARY_TTL_MS && vocabulary !== EMPTY) return;
-    const [correspondents, documentTypes, tags] = await Promise.all([
-      client.getCorrespondents(),
-      client.getDocumentTypes(),
-      client.getTags(),
-    ]);
-    if (!correspondents.ok || !documentTypes.ok || !tags.ok) return; // keep what we had
-    vocabulary = {
-      correspondents: correspondents.value,
-      documentTypes: documentTypes.value,
-      tags: tags.value,
-    };
-    fetchedAt = now();
-  }
-
   return {
     async get(remoteId: string): Promise<ApiResult<Suggestions>> {
       const documentId = Number(remoteId);
@@ -58,8 +29,7 @@ export function paperlessSuggestionSource(
       const raw = await client.getSuggestions(documentId);
       if (!raw.ok) return err(raw.reason);
 
-      await refresh();
-      return ok(resolveSuggestions(raw.value, vocabulary));
+      return ok(resolveSuggestions(raw.value, await vocabulary.get()));
     },
   };
 }

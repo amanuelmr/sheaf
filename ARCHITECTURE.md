@@ -119,8 +119,22 @@ wording matches what `interpretTask` looks for
 ([0002](docs/adr/0002-exactly-once-via-content-addressing.md)). Contract tests
 against Paperless in Docker are the next thing that would settle both.
 
+## Browsing the archive is a proxy, not a second copy
+
+The app can search and edit documents already in Paperless -- `GET /v1/archive`,
+served by `services/ingest/src/paperless-browse.ts` -- which sits deliberately
+apart from everything above it. Capture is a write the engine must get exactly
+right no matter what the network does to it; browsing is a read with nothing to
+get wrong that a retry does not already fix. So it gets none of the event log,
+the state machine, or the simulator: `paperless-browse.ts` is a stateless
+pass-through that asks Paperless live and forgets the answer, the same choice
+`retention.ts` makes for the opposite reason -- both exist to stop this server
+from holding a second, staleable copy of something Paperless already stores.
+
 ## Deliberate non-goals
 
-Sheaf does not browse, search, or manage documents, and has no dashboard, no backend,
-and no cloud account. Paperless-ngx already does all of that, better. The entire
-product surface is capture and reliable delivery.
+No local mirror of the archive, no offline browsing, no bulk document management
+-- Paperless's own web UI already does that well, and duplicating it is not the
+differentiator here. No dashboard, no cloud account. Capture and reliable
+delivery are still the product's centre of gravity; browsing is what makes that
+delivery worth checking on from the device that did the capturing.
