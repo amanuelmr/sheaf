@@ -21,7 +21,11 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.mjs'],
+          // Not part of tsconfig.node.json's own project as far as projectService's
+          // auto-discovery is concerned -- no project references wire the two
+          // together -- so it falls back to the default project rather than going
+          // unlinted, the same as the root's own *.mjs config files.
+          allowDefaultProject: ['*.mjs', 'apps/admin/vite.config.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -71,6 +75,12 @@ export default tseslint.config(
     files: ['apps/mobile/**/*.ts', 'apps/mobile/**/*.tsx'],
     rules: {
       // React components legitimately return unions the compiler cannot narrow.
+      '@typescript-eslint/no-unnecessary-condition': 'off',
+    },
+  },
+  {
+    files: ['apps/admin/**/*.ts', 'apps/admin/**/*.tsx'],
+    rules: {
       '@typescript-eslint/no-unnecessary-condition': 'off',
     },
   },

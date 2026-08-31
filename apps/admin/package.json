@@ -1,0 +1,23 @@
+{
+  "name": "@sheaf/admin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A window onto what the ingest server is doing -- forwarding, retention, reconciliation -- in place of reading /v1/health as raw JSON.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
+  },
+  "dependencies": {
+    "@sheaf/protocol": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.2.2"
+  }
+}

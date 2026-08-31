@@ -56,3 +56,8 @@ jobs:
       # alone -- and it is how the missing @expo/metro-runtime peer was found.
       - name: Bundle the app
         run: pnpm run bundle
+
+      # Same reasoning as the mobile bundle above: a Vite production build resolves
+      # every import for real, which typecheck alone does not.
+      - name: Build the admin dashboard
+        run: pnpm run bundle:admin

@@ -144,11 +144,30 @@ support has a documented history of regressing silently between SDK releases,
 including an Android-only failure, and a cache measured in hundreds of rows has
 no need of a ranked index to answer well under a frame.
 
+## `apps/admin`: a second client, reading the same server
+
+The first browser client this project has had, and deliberately the smallest
+kind of thing it could be: it polls `GET /v1/health` and draws what comes back
+-- forwarding, reconciliation, retention -- rather than leaving that JSON to be
+read by hand. No write path, on purpose: managing documents is `/v1/archive`,
+which the mobile app already does, and a second client reimplementing that
+would be duplicated surface for no new capability.
+
+Getting a browser talking to the ingest server at all needed one real change:
+`services/ingest/src/server.ts` now answers every response, and every `OPTIONS`
+preflight, with `Access-Control-Allow-Origin: *`. Deliberately wide open --
+the bearer token is what actually gates access, there are no cookies here for a
+stray origin to ride along on, and restricting the origin would protect
+nothing while breaking this dashboard. Found by actually running the thing:
+typecheck and a production `vite build` both passed with the server still
+CORS-blind, and only pointing a real browser at a real (disposable, separately
+ported) instance of the server surfaced `Failed to fetch`.
+
 ## Deliberate non-goals
 
 No full mirror of the archive -- only what was actually opened or starred, ever.
 No bulk document management -- Paperless's own web UI already does that well,
-and duplicating it is not the differentiator here. No dashboard, no cloud
-account. Capture and reliable delivery are still the product's centre of
-gravity; browsing, on- or offline, is what makes that delivery worth checking on
-from the device that did the capturing.
+and duplicating it is not the differentiator here. No cloud account, no second
+way to edit a document beyond what `/v1/archive` already offers. Capture and
+reliable delivery are still the product's centre of gravity; browsing and a
+dashboard, on- or offline, are what make that delivery worth checking on.

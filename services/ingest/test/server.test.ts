@@ -94,3 +94,27 @@ suite('over a real connection', () => {
     expect(res.status).toBe(200);
   });
 });
+
+suite('CORS', () => {
+  it('answers a preflight without ever reaching the router, so no auth is required', async () => {
+    const res = await fetch(base + paths.health(), {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization',
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('access-control-allow-headers')).toContain('authorization');
+  });
+
+  it('carries the same headers on a real response, success or failure', async () => {
+    const ok = await fetch(base + paths.health(), { headers: auth });
+    expect(ok.headers.get('access-control-allow-origin')).toBe('*');
+
+    const unauthenticated = await fetch(base + paths.health());
+    expect(unauthenticated.headers.get('access-control-allow-origin')).toBe('*');
+  });
+});

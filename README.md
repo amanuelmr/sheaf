@@ -128,6 +128,10 @@ apps/mobile          Expo + React Native. Camera, SQLite executor, UI projection
       └── packages/sim         virtual clock, seeded RNG, injected faults
 ```
 
+(This diagram predates `services/ingest`, the server the phone actually talks to
+now, and `apps/admin`, a small dashboard for that server's own health — see
+[ARCHITECTURE.md](ARCHITECTURE.md) for the fuller picture.)
+
 `packages/core` has no clock, no randomness and no I/O — ESLint enforces this by
 banning `Date.now()` and `Math.random()` inside it. Time and jitter arrive as
 parameters, which is what lets the simulator explore fault schedules
@@ -240,8 +244,6 @@ Next, in order of how much they would change:
 4. Background sync, where the OS allows it.
 5. Multi-server profiles -- more than one named Paperless connection on one
    phone, each with its own local event log.
-6. A small web dashboard for the ingest server's own health -- forwarding,
-   retention, reconciliation, all currently visible only as `/v1/health` JSON.
 
 Done, since this list was last written:
 
@@ -259,6 +261,10 @@ Done, since this list was last written:
   archive — title, metadata, thumbnail, and Paperless's own OCR excerpt — so a
   document looked at once is still there without a connection. Deliberately not
   a mirror of the whole archive; see [ARCHITECTURE.md](ARCHITECTURE.md).
+- **A small admin dashboard** ([apps/admin](apps/admin)) for the ingest
+  server's own health — forwarding, retention, reconciliation — polled and
+  drawn instead of read as raw JSON. The first browser client this project has
+  had, and the reason `/v1/health` responses now carry CORS headers.
 
 ## Privacy
 
