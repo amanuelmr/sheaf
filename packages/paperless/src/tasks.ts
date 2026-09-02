@@ -13,9 +13,11 @@ import type { PaperlessTask } from './types.ts';
  * upload proves the document is in Paperless. That is what makes retry safe and
  * turns at-least-once delivery into exactly-once semantics.
  *
- * NOTE: the exact wording and the shape of `related_document` vary across
- * Paperless-ngx versions; the contract tests in `test/` pin the versions we
- * actually support.
+ * NOTE: the exact wording and the shape of the related-document field vary
+ * across Paperless-ngx versions; the contract tests in `test/` pin the
+ * versions we actually support. A real v3 server sends `related_document_ids`
+ * (a list) and never sets `related_document` (singular) at all -- checked
+ * against a live instance after both remoteIds in a test came back null.
  */
 export function interpretTask(task: PaperlessTask): ServerOutcome | 'pending' {
   // Case matters, and it varies. A real Paperless-ngx answers with lowercase
@@ -27,7 +29,7 @@ export function interpretTask(task: PaperlessTask): ServerOutcome | 'pending' {
   const status = task.status.toLowerCase();
   if (status === 'pending' || status === 'started' || status === 'received') return 'pending';
 
-  const remoteId = toRemoteId(task.related_document);
+  const remoteId = toRemoteId(task.related_document_ids?.[0] ?? task.related_document);
   const result = task.result ?? '';
 
   if (/duplicate/i.test(result)) {

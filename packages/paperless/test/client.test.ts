@@ -251,7 +251,8 @@ suite('browsing', () => {
     await clientFor(h).listDocuments({ text: 'amazon', page: 2, pageSize: 25, correspondentId: 3 });
     const url = new URL(h.calls[0]!.url);
     expect(url.pathname).toBe('/api/documents/');
-    expect(url.searchParams.get('query')).toBe('amazon');
+    expect(url.searchParams.get('text')).toBe('amazon');
+    expect(url.searchParams.has('query')).toBe(false);
     expect(url.searchParams.get('page')).toBe('2');
     expect(url.searchParams.get('page_size')).toBe('25');
     expect(url.searchParams.get('correspondent__id')).toBe('3');
@@ -262,6 +263,15 @@ suite('browsing', () => {
     const h = harness({ body: '{"count":0,"results":[]}' });
     await clientFor(h).listDocuments({});
     expect(new URL(h.calls[0]!.url).search).toBe('');
+  });
+
+  it('passes a colon through as literal text, not a query-syntax field separator', async () => {
+    // Found against a real Paperless-ngx: `query=` is Tantivy's own syntax and
+    // answers 400 on "Amazon: order #1234" because `:` means something to it.
+    // `text=` must never inherit that.
+    const h = harness({ body: '{"count":0,"results":[]}' });
+    await clientFor(h).listDocuments({ text: 'Amazon: order #1234' });
+    expect(new URL(h.calls[0]!.url).searchParams.get('text')).toBe('Amazon: order #1234');
   });
 
   it('returns the count and rows a search found', async () => {

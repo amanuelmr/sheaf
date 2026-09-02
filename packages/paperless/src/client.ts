@@ -162,10 +162,29 @@ export class PaperlessClient {
     return result.ok ? ok(null) : err(result.reason);
   }
 
-  /** Search or browse. Empty `query` is a valid request -- it lists everything. */
+  /**
+   * Search or browse. Empty `query` is a valid request -- it lists everything.
+   *
+   * `text=` rather than `query=`: the latter is Tantivy's own query syntax, not
+   * a plain string, and treats `:` (among other characters) as a field
+   * separator rather than something in the title someone typed -- a search
+   * for "Amazon: order #1234" fails outright rather than searching for it.
+   * `text=` is Paperless's own "simple substring-style search", which is the
+   * contract this method promises: search text in, matches out, never a
+   * syntax error over what someone typed.
+   *
+   * That promise still has a known hole, confirmed against a real server: a
+   * colon in the search text 400s ("Field does not exist: '<word before the
+   * colon>'") whenever it actually matches a document, even under `text=`.
+   * A search with no match is unaffected. This looks like the result
+   * highlighter running the matched query back through a field:value parser
+   * regardless of which param produced the match — a server-side bug, not a
+   * `text=`-vs-`query=` choice, so there is no client-side fix here beyond
+   * picking the better of two flawed options.
+   */
   async listDocuments(query: DocumentQuery): Promise<ApiResult<RawDocumentList>> {
     const params = new URLSearchParams();
-    if (query.text !== undefined) params.set('query', query.text);
+    if (query.text !== undefined) params.set('text', query.text);
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.pageSize !== undefined) params.set('page_size', String(query.pageSize));
     if (query.correspondentId !== undefined) {

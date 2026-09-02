@@ -231,12 +231,7 @@ Next, in order of how much they would change:
    write and the layout the previous version of this list said were untested.
    What a simulator cannot exercise: the camera, a permission prompt, or
    anything requiring a finger. That still needs a real phone.
-2. **Automate the contract tests against a real Paperless-ngx.** Running it by hand
-   already disproved two documented assumptions (see ADR 0002); the point is to
-   catch the next one without a person watching. Now higher-value than when this
-   was written, since the archive proxy below gives Paperless a real read path
-   to get wrong as well as a write one.
-3. On-device OCR of the outbox itself, for offline search and near-duplicate
+2. On-device OCR of the outbox itself, for offline search and near-duplicate
    detection of documents this phone captured but has not yet synced. Distinct
    from the offline archive search that now exists (below): that one searches
    OCR text Paperless already produced; this would be needed for a document
@@ -244,6 +239,15 @@ Next, in order of how much they would change:
 
 Done, since this list was last written:
 
+- **Automated the contract tests against a real Paperless-ngx**
+  (`pnpm run test:contract`, [packages/paperless/test/contract](packages/paperless/test/contract)):
+  a throwaway Docker Compose Paperless comes up, gets a real upload, consumption
+  and search cycle, and comes down again — no person watching. Running it found
+  two more real-server surprises beyond the two already in ADR 0002: the stored
+  document's id arrives as `related_document_ids` (a list), not the singular
+  field the code read; and `text=` search 400s on a colon in the query, but only
+  once it actually matches a document — a server-side bug, documented rather
+  than "fixed", since no client-side query syntax avoids it.
 - **Automatic edge detection** — the platform's own scanner (VisionKit / ML Kit)
   finds the page and corrects perspective, with the hand-drawn crop kept only as
   a fallback when that scanner is unavailable.

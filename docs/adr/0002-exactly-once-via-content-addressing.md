@@ -44,13 +44,18 @@ Costs:
 - PDF assembly must be byte-deterministic — no embedded timestamps or producer
   strings. A change to the assembler changes every hash.
 - Duplicate detection depends on Paperless's wording and response shape. **Tested
-  against a real server, and two of the assumptions here were wrong.** Its task
+  against a real server, and three of the assumptions here were wrong.** Its task
   status is lowercase (`success`, not `SUCCESS`), so every successful upload read as
-  a refusal. And it did _not_ reject a re-sent document: the same bytes produced a
+  a refusal. It did _not_ reject a re-sent document: the same bytes produced a
   second document, which is the opposite of what this ADR assumed. The forwarder now
   asks whether the target already holds a document rather than relying on it to say
-  no. Note that exactly-once between the phone and _our own_ server never depended on
-  any of this — that comes from the addressing, and held throughout.
+  no. And a real Paperless-ngx v3 names the stored document in `related_document_ids`
+  (a list) rather than `related_document` (a singular field, and never set at all) —
+  reading only the latter meant every remoteId came back null, correct-but-useless
+  for a task that was in fact stored; `interpretTask` now reads the array first and
+  falls back to the singular field for older servers. Note that exactly-once between
+  the phone and _our own_ server never depended on any of this — that comes from the
+  addressing, and held throughout.
 - Exact-hash matching cannot catch the same receipt photographed twice. That is now
   handled separately, and deliberately kept separate: see the amendment below.
 

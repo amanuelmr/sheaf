@@ -29,6 +29,9 @@ export default defineConfig({
       // The app's pure helpers. Anything importing react-native stays out.
       'apps/*/test/**/*.test.ts',
     ],
+    // Needs a real Paperless-ngx and real wall-clock time; run explicitly via
+    // packages/paperless/test/contract/run.sh, never as part of this suite.
+    exclude: ['**/node_modules/**', '**/test/contract/**'],
     coverage: {
       provider: 'v8',
       include: [

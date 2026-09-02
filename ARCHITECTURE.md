@@ -103,7 +103,7 @@ code.
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `core`, `pdf` | Pure. Unit tested, ~100% of statements. `pdf` also cross-checked against `node:crypto`.                                                                                                                                                                |
 | `store`       | Real SQL against `node:sqlite`, and both log implementations held to one parametrised suite.                                                                                                                                                           |
-| `paperless`   | Every branch, against an injected transport. Not yet against a real Paperless-ngx.                                                                                                                                                                     |
+| `paperless`   | Every branch, against an injected transport, and the whole upload/consume/reconcile/browse cycle against a real, disposable Paperless-ngx (`pnpm run test:contract`).                                                                                  |
 | `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                  |
 | `apps/mobile` | Typechecked and linted, and now built and booted in the iOS Simulator with no crash -- the native SQLite write and the layout execute. **Never tapped**: no camera, no permission prompt, nothing requiring a finger, which a simulator cannot supply. |
 
@@ -112,12 +112,44 @@ Ghostscript from real JPEG fixtures, and the rendered page is checked for the ri
 geometry and for actually containing the image. Everything else about that package is
 my own reading of the PDF spec checking itself.
 
-The two open assumptions, both recorded in ADRs: that
-`original_filename__istartswith` filters on real servers
-([0004](docs/adr/0004-reconcile-by-filename.md)), and that Paperless's duplicate
-wording matches what `interpretTask` looks for
-([0002](docs/adr/0002-exactly-once-via-content-addressing.md)). Contract tests
-against Paperless in Docker are the next thing that would settle both.
+Both assumptions this section used to call "open" are now settled by
+`packages/paperless/test/contract` (below): `original_filename__istartswith`
+does filter correctly on a real server
+([0004](docs/adr/0004-reconcile-by-filename.md)), and `interpretTask`'s reading
+of a real server's task shape was wrong in two places, now fixed
+([0002](docs/adr/0002-exactly-once-via-content-addressing.md)).
+
+## Contract tests: checking the belief, not the code
+
+Every other test in `packages/paperless` proves the code does what it was written
+to believe about Paperless -- against a transport this repo controls, so a wrong
+belief and its test can agree with each other forever. `packages/paperless/test/
+contract/live.test.ts` is the one place that checks the belief itself, against a
+real, disposable Paperless-ngx that `run.sh` brings up under its own Docker
+Compose project (`sheaf-paperless-contract-test`, its own ports and volumes --
+safe to run alongside a real deployment on the same machine) and tears down
+again whether the tests passed or not. `vitest.contract.config.ts` at the repo
+root keeps it out of `pnpm test`: it needs Docker and real wall-clock time for
+Paperless to actually consume each document, neither of which the rest of this
+repository's tests may depend on.
+
+It exists because ADR 0002 and ADR 0004 each record an assumption that was
+checked once, by hand, and was wrong -- and "by hand" does not catch the next
+one. Automating it immediately found two more, neither previously recorded
+anywhere: a real Paperless-ngx v3 names the stored document in
+`related_document_ids` (a list) and never sets the singular `related_document`
+field `interpretTask` was reading, so every resolved id came back null on a
+document that was in fact safely stored; and `GET /api/documents/?text=`
+400s on a colon in the search text, but only once it actually matches a
+document -- a server-side bug in the result highlighter, not something either
+`text=` or `query=` avoids, documented on `PaperlessClient#listDocuments`
+rather than "fixed". The suite's own fixture text avoids colons for that
+reason, the same way it does not retry a genuinely-flaky assertion: a known,
+reported limitation shouldn't fail an otherwise-passing run.
+
+Different failure mode from the simulator in `packages/sim`: that proves the
+_engine_ survives a hostile network talking to a well-understood target; this
+proves the _target_ still behaves the way the engine assumes.
 
 ## Browsing the archive: a live proxy on the server, a small deliberate cache on the phone
 

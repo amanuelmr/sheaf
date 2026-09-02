@@ -1,0 +1,38 @@
+# A throwaway Paperless-ngx, for the contract tests in this directory only.
+#
+# Deliberately separate from the root compose.yml: a different project name (see
+# run.sh) gives it its own volumes and network, so it can come up and be torn
+# down without touching a real, already-running deployment on this same
+# machine. No postgres service, same as the root compose file -- Paperless
+# falls back to SQLite when PAPERLESS_DBHOST is unset, which is exactly the
+# "don't run more than the test needs" this stack should stay.
+services:
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    depends_on:
+      - broker
+    ports:
+      - '18000:8000'
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_URL: http://localhost:18000
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: contract-test-only
+      PAPERLESS_TIME_ZONE: UTC
+      PAPERLESS_OCR_LANGUAGE: eng
+      # The fixtures already carry a real text layer, not a scanned image, so
+      # OCR has nothing to do -- `auto` (Paperless's own default, set
+      # explicitly since it is the only value this version accepts here)
+      # skips straight past it for text already present.
+      PAPERLESS_OCR_MODE: auto
+      PAPERLESS_SECRET_KEY: insecure-contract-test-key
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+
+  broker:
+    image: docker.io/library/redis:7
+
+volumes:
+  paperless-data:
+  paperless-media:

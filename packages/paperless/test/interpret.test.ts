@@ -73,4 +73,26 @@ suite('status casing, as real servers actually send it', () => {
       remoteId: null,
     });
   });
+
+  it('reads related_document_ids, the array a real v3 server sends instead of related_document', () => {
+    // Observed on a real Paperless-ngx v3.0.5: the response carries
+    // related_document_ids: [1] and no related_document field at all. Missing
+    // this meant every remoteId came back null even though the document was
+    // stored -- both tests above passed because their fixtures still used the
+    // shape the docs describe, not the one a real server sends.
+    expect(
+      interpretTask({ task_id: 't', status: 'success', related_document_ids: [4821] }),
+    ).toEqual({ kind: 'stored', remoteId: 4821 });
+  });
+
+  it('prefers related_document_ids over related_document when a server somehow sends both', () => {
+    expect(
+      interpretTask({
+        task_id: 't',
+        status: 'success',
+        related_document: 1,
+        related_document_ids: [4821],
+      }),
+    ).toEqual({ kind: 'stored', remoteId: 4821 });
+  });
 });

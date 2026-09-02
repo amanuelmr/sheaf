@@ -4,6 +4,8 @@ export interface PaperlessTask {
   readonly status: 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE' | (string & {});
   readonly result?: string | null;
   readonly related_document?: number | string | null;
+  /** What a real Paperless-ngx v3 actually sends instead of `related_document`. */
+  readonly related_document_ids?: readonly (number | string)[] | null;
   /** The name the file was uploaded under. Present from the moment it is accepted. */
   readonly task_file_name?: string | null;
 }
