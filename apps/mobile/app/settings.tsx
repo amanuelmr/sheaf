@@ -130,6 +130,13 @@ export default function Settings() {
           onChange={(next) => void updateSetting('keepLocalAfterSync', next)}
           palette={palette}
         />
+        <Toggle
+          label="Sync in the background"
+          hint="Ask the OS for an occasional tick while Sheaf isn't open. It decides how often -- this only asks."
+          value={settings.backgroundSyncEnabled}
+          onChange={(next) => void updateSetting('backgroundSyncEnabled', next)}
+          palette={palette}
+        />
       </Section>
 
       <Divider palette={palette} />

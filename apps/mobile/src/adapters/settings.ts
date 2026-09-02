@@ -18,6 +18,13 @@ export interface AppSettings extends SyncPolicy {
    * locked out of documents they just scanned.
    */
   readonly appLockEnabled: boolean;
+  /**
+   * Ask the OS for an occasional tick while the app is not open. Off by
+   * default: it is a real, if small, cost in battery and data for someone who
+   * never asked for it, and `autoSync` already covers the far more common
+   * case of the app being open at all.
+   */
+  readonly backgroundSyncEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -27,6 +34,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dpi: 150,
   autoSync: true,
   appLockEnabled: false,
+  backgroundSyncEnabled: false,
 };
 
 /**
@@ -52,6 +60,7 @@ export async function loadSettings(driver: SqlDriver): Promise<AppSettings> {
     autoSync: bool('autoSync', DEFAULT_SETTINGS.autoSync),
     dpi: int('dpi', DEFAULT_SETTINGS.dpi),
     appLockEnabled: bool('appLockEnabled', DEFAULT_SETTINGS.appLockEnabled),
+    backgroundSyncEnabled: bool('backgroundSyncEnabled', DEFAULT_SETTINGS.backgroundSyncEnabled),
   };
 }
 

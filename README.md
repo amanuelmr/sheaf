@@ -241,7 +241,6 @@ Next, in order of how much they would change:
    from the offline archive search that now exists (below): that one searches
    OCR text Paperless already produced; this would be needed for a document
    that has not reached Paperless yet.
-4. Background sync, where the OS allows it.
 
 Done, since this list was last written:
 
@@ -268,6 +267,11 @@ Done, since this list was last written:
   between from Settings. An install from before this existed is carried
   forward automatically as a profile named after its own address, in the same
   database file it always used — nothing about upgrading loses a capture.
+- **Background sync** — an occasional tick while Sheaf is not open
+  (`expo-background-task`, `BGTaskScheduler` on iOS / `WorkManager` on
+  Android), off by default. `autoSync` already covers the app being open at
+  all; this is only for the gap between opening it, which is a real if small
+  cost in battery and data for whoever never asked for it.
 
 ## Privacy
 

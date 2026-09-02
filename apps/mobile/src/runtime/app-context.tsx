@@ -33,6 +33,7 @@ import {
   saveSetting,
   type AppSettings,
 } from '../adapters/settings';
+import { syncBackgroundTaskRegistration } from './background-sync';
 import { SyncService } from './sync-service';
 import { palettes, type Palette } from '../theme';
 
@@ -240,6 +241,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     return () => subscription.remove();
   }, [lockAvailable, settings.appLockEnabled]);
+
+  // The setting is the source of truth for whether the OS should be asked for
+  // an occasional background tick; this just makes that ask match it, every
+  // time the setting changes and once at boot in case reality had drifted
+  // from it (a reinstall, an OS-level permission revoked outside the app).
+  useEffect(() => {
+    if (boot !== 'ready') return;
+    void syncBackgroundTaskRegistration(settings.backgroundSyncEnabled);
+  }, [boot, settings.backgroundSyncEnabled]);
 
   // The sync loop only exists once there is somewhere to sync to. Switching the
   // active profile changes `store` and `server` together, which tears this down

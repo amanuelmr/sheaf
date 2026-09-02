@@ -25,6 +25,8 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
+      "expo-task-manager",
+      "expo-background-task",
       [
         "expo-local-authentication",
         {

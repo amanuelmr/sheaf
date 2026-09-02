@@ -185,6 +185,26 @@ database filename (`sheaf.db`) that install's captures already live in -- see
 `migrateLegacyConnection` -- so this shipping to someone already mid-outbox
 never means renaming a file out from under their own captures.
 
+## Background sync: the same engine, woken from nowhere
+
+`apps/mobile/src/runtime/background-sync.ts` defines a task the OS can invoke
+without any screen ever having been open -- there is no `AppProvider`, no
+`SyncService`, nothing a component set up for it to reuse. So it does not try
+to reuse anything: it rebuilds the exact wiring `SyncService` assembles for
+the foreground (a store over the active profile's own database, a
+`SheafAdapter`, the same policy), runs `tickAll` once, and lets the process
+end. One pass, not a loop -- the OS decides how long the call gets to run, not
+this code, and `expo-background-task`'s own `minimumInterval` is a floor the
+platform is free to miss entirely if battery or usage patterns say so.
+
+`resuming` is `true` on every single call, not just a first one: this process
+did not exist a moment ago and will not exist a moment from now, so it has
+exactly the same amnesia about an in-flight upload that a killed-and-relaunched
+foreground process has -- which is precisely the condition `resuming` exists
+to handle (see "The document lifecycle" above). It only changes anything for a
+document already `UPLOADING`; everything else is decided exactly as the
+foreground would.
+
 ## Deliberate non-goals
 
 No full mirror of the archive -- only what was actually opened or starred, ever.
