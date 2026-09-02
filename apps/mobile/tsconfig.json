@@ -22,6 +22,7 @@
       "@sheaf/pdf": ["../../packages/pdf/src/index.ts"],
       "@sheaf/http": ["../../packages/http/src/index.ts"],
       "@sheaf/protocol": ["../../packages/protocol/src/index.ts"],
+      "@sheaf/outbox-ocr": ["../../packages/outbox-ocr/src/index.ts"],
       "@sheaf/client": ["../../packages/client/src/index.ts"],
       "@sheaf/store": ["../../packages/store/src/index.ts"]
     }

@@ -10,6 +10,7 @@ import type { PageRef } from '@sheaf/core';
 import { pendingCount } from '@sheaf/store';
 import { useApp } from '../src/runtime/app-context';
 import { readPageBytes, storeThumbnail, writePdf } from '../src/adapters/files';
+import { extractAndSaveText } from '../src/adapters/ocr';
 import { scanDocument } from '../src/adapters/scanner';
 import { timeAgo } from '../src/lib/format';
 import { radius, spacing, TOUCH_TARGET } from '../src/theme';
@@ -65,7 +66,7 @@ async function makeThumbnail(
  * looks tappable, and keeps the shutter as the largest thing on screen.
  */
 export default function Shutter() {
-  const { palette, outbox, offline, service, settings, server, refresh } = useApp();
+  const { palette, outbox, offline, service, settings, server, refresh, driver } = useApp();
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
   const camera = useRef<CameraView>(null);
@@ -136,6 +137,17 @@ export default function Shutter() {
         return;
       }
 
+      // Never awaited: OCR has nothing to do with the document being safely
+      // captured, and a slow or failed recognition must never hold up the
+      // shutter. See `extractAndSaveText` for why this can only help, never hurt.
+      if (driver !== null) {
+        void extractAndSaveText(
+          driver,
+          result.sha256,
+          collected.map((page) => page.ref),
+        ).catch(() => {});
+      }
+
       const saved = offline
         ? 'Saved on this device. It’ll sync when your server is reachable.'
         : 'Saved. On its way to your server.';
@@ -157,7 +169,7 @@ export default function Shutter() {
       await service.tick();
       await refresh();
     },
-    [service, settings.dpi, offline, outbox, refresh],
+    [service, settings.dpi, offline, outbox, refresh, driver],
   );
 
   /**

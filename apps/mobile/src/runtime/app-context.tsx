@@ -10,6 +10,7 @@ import React, {
 import { AppState, useColorScheme, type AppStateStatus } from 'react-native';
 import type { DocId, MetadataPatch } from '@sheaf/core';
 import { DocumentStore, SqlEventLog, type OutboxRow, type SqlDriver } from '@sheaf/store';
+import { remove as removeOutboxText } from '@sheaf/outbox-ocr';
 import type { SheafClient } from '@sheaf/client';
 import { SheafAdapter, createClient } from '../adapters/api';
 import { deviceLockAvailable, unlockDevice } from '../adapters/auth';
@@ -262,7 +263,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const running = new SyncService({
       store,
       api,
-      files: engineFiles,
+      files: {
+        ...engineFiles,
+        release: async (state) => {
+          await engineFiles.release(state);
+          // The OCR text goes with the document, the same reasoning
+          // `engineFiles.release` already applies to the thumbnail: keeping it
+          // past release would let outbox search return a stale hit for a
+          // document that isn't there any more and is now properly searchable
+          // through the archive instead.
+          if (driver !== null) await removeOutboxText(driver, state.docId);
+        },
+      },
       policy: () => ({
         wifiOnly: settings.wifiOnly,
         keepLocalAfterSync: settings.keepLocalAfterSync,
@@ -278,7 +290,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       running.stop();
     };
-  }, [store, server, settings.autoSync, settings.wifiOnly, settings.keepLocalAfterSync]);
+  }, [store, server, driver, settings.autoSync, settings.wifiOnly, settings.keepLocalAfterSync]);
 
   useEffect(() => {
     void refresh();

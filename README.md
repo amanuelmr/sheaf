@@ -231,14 +231,18 @@ Next, in order of how much they would change:
    write and the layout the previous version of this list said were untested.
    What a simulator cannot exercise: the camera, a permission prompt, or
    anything requiring a finger. That still needs a real phone.
-2. On-device OCR of the outbox itself, for offline search and near-duplicate
-   detection of documents this phone captured but has not yet synced. Distinct
-   from the offline archive search that now exists (below): that one searches
-   OCR text Paperless already produced; this would be needed for a document
-   that has not reached Paperless yet.
 
 Done, since this list was last written:
 
+- **On-device OCR of the outbox** — documents this phone has captured but not
+  yet synced are searchable from the outbox screen itself, before Paperless
+  has ever seen them. Distinct from the archive search above, which searches
+  OCR text Paperless already produced: this is `expo-ocr-kit` (ML Kit on
+  Android, Apple's own Vision on iOS) running on-device right after capture,
+  kept in its own small table (`@sheaf/outbox-ocr`) and removed the moment a
+  document is released, the same moment its thumbnail goes. Search only, not
+  duplicate detection — the phash in `@sheaf/pdf` already does that job well
+  and OCR text would add nothing to it.
 - **Automated the contract tests against a real Paperless-ngx**
   (`pnpm run test:contract`, [packages/paperless/test/contract](packages/paperless/test/contract)):
   a throwaway Docker Compose Paperless comes up, gets a real upload, consumption

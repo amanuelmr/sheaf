@@ -15,6 +15,7 @@ export default defineConfig({
       '@sheaf/paperless': pkg('paperless'),
       '@sheaf/pdf': pkg('pdf'),
       '@sheaf/protocol': pkg('protocol'),
+      '@sheaf/outbox-ocr': pkg('outbox-ocr'),
       '@sheaf/store/node': fileURLToPath(new URL('./packages/store/src/node.ts', import.meta.url)),
       '@sheaf/ingest': fileURLToPath(new URL('./services/ingest/src/index.ts', import.meta.url)),
       '@sheaf/store': pkg('store'),
@@ -45,6 +46,7 @@ export default defineConfig({
         'services/ingest/src/**',
         'packages/store/src/**',
         'packages/archive-cache/src/**',
+        'packages/outbox-ocr/src/**',
       ],
       // Type declarations and re-export barrels carry no logic to cover.
       exclude: ['**/events.ts', '**/types.ts', '**/index.ts'],

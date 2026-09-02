@@ -99,13 +99,13 @@ code.
 
 ## What is verified, and what is not
 
-|               |                                                                                                                                                                                                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `core`, `pdf` | Pure. Unit tested, ~100% of statements. `pdf` also cross-checked against `node:crypto`.                                                                                                                                                                |
-| `store`       | Real SQL against `node:sqlite`, and both log implementations held to one parametrised suite.                                                                                                                                                           |
-| `paperless`   | Every branch, against an injected transport, and the whole upload/consume/reconcile/browse cycle against a real, disposable Paperless-ngx (`pnpm run test:contract`).                                                                                  |
-| `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                  |
-| `apps/mobile` | Typechecked and linted, and now built and booted in the iOS Simulator with no crash -- the native SQLite write and the layout execute. **Never tapped**: no camera, no permission prompt, nothing requiring a finger, which a simulator cannot supply. |
+|               |                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`, `pdf` | Pure. Unit tested, ~100% of statements. `pdf` also cross-checked against `node:crypto`.                                                                                                                                                                                                                         |
+| `store`       | Real SQL against `node:sqlite`, and both log implementations held to one parametrised suite.                                                                                                                                                                                                                    |
+| `paperless`   | Every branch, against an injected transport, and the whole upload/consume/reconcile/browse cycle against a real, disposable Paperless-ngx (`pnpm run test:contract`).                                                                                                                                           |
+| `engine`      | Unit tested directly, and driven by the simulator across hundreds of fault schedules.                                                                                                                                                                                                                           |
+| `apps/mobile` | Typechecked and linted, and now built and booted in the iOS Simulator with no crash -- the native SQLite write and the layout execute. **Never tapped**: no camera, no permission prompt, nothing requiring a finger, which a simulator cannot supply -- including OCR accuracy on an actual photographed page. |
 
 The `pdf` row is worth expanding: assembled documents are parsed _and rendered_ by
 Ghostscript from real JPEG fixtures, and the rendered page is checked for the right
@@ -175,6 +175,42 @@ Search offline is plain `LIKE` over that cache, not FTS5 -- `expo-sqlite`'s FTS5
 support has a documented history of regressing silently between SDK releases,
 including an Android-only failure, and a cache measured in hundreds of rows has
 no need of a ranked index to answer well under a frame.
+
+## Searching the outbox: OCR before Paperless ever sees it
+
+`archive-cache`'s search only covers what Paperless has already stored -- a
+document still in the outbox has no OCR text anywhere yet, because Paperless
+is the thing that produces it, and Paperless hasn't consumed this document.
+`packages/outbox-ocr` closes that gap: `expo-ocr-kit` (Google ML Kit on
+Android, Apple's own Vision on iOS -- an OS framework, not a bundled model)
+runs against each captured page right after `commit()` in `app/index.tsx`,
+fire-and-forget, and the recognised text lands in its own table, structurally
+identical to `archive_cache`'s -- same "its own migration, own file, nothing in
+common but where it lives" reasoning, same plain `LIKE` search over the same
+kind of bounded row count. `Outbox`'s search bar reads it the same way
+`library.tsx` reads the archive cache: two different tables, joined only in
+memory, by `docId`.
+
+The row for a document is deleted the moment that document is released --
+wired into the same `EngineFiles.release` port that already deletes its
+thumbnail and PDF, for the same reason: keeping OCR text past that point would
+let a search return a stale hit for a document that isn't in the outbox any
+more and is now properly searchable through the archive instead. Deliberately
+search-only, not duplicate detection -- `packages/pdf`'s perceptual hash
+already recognises a re-scanned page from pixels alone (see ADR 0002's
+amendment), and OCR text would add nothing to a problem that's already solved.
+
+Choosing `expo-ocr-kit` took a real, failed build to get right. The first
+choice, `@react-native-ml-kit/text-recognition` (Google ML Kit on both
+platforms, and the more established package by GitHub stars), builds Google's
+iOS ML Kit pods with `EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64` --
+confirmed still true in the latest published version, not a stale pin. On an
+Apple Silicon Mac that doesn't just weaken OCR: it breaks the iOS Simulator
+build for the _entire app_, since the exclusion propagates to the umbrella
+Pods target. Vision ships with the OS and carries no such restriction, at the
+cost of `expo-ocr-kit` being a much smaller, single-maintainer package --
+a supply-chain tradeoff accepted deliberately, and only after the alternative
+was shown to be broken rather than just less established.
 
 ## `apps/admin`: a second client, reading the same server
 

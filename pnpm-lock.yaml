@@ -93,6 +93,9 @@ importers:
       '@sheaf/http':
         specifier: workspace:*
         version: link:../../packages/http
+      '@sheaf/outbox-ocr':
+        specifier: workspace:*
+        version: link:../../packages/outbox-ocr
       '@sheaf/pdf':
         specifier: workspace:*
         version: link:../../packages/pdf
@@ -129,6 +132,9 @@ importers:
       expo-local-authentication:
         specifier: ~57.0.2
         version: 57.0.2(expo@57.0.16)
+      expo-ocr-kit:
+        specifier: ^0.1.4
+        version: 0.1.4(expo@57.0.16)(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       expo-router:
         specifier: ~57.0.16
         version: 57.0.16(14848172b7329a8879740402dc5d9c8e)
@@ -216,6 +222,12 @@ importers:
       '@sheaf/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/outbox-ocr:
+    dependencies:
+      '@sheaf/store':
+        specifier: workspace:*
+        version: link:../store
 
   packages/paperless:
     dependencies:
@@ -2452,6 +2464,13 @@ packages:
   expo-modules-jsi@57.0.5:
     resolution: {integrity: sha512-NQF7MUF0j3rQHV8KJqETYA1SrJr3USvQ/AWEhODo+unMRFBDP9BKpn8+aNGGmx6fa2XLnqC2qulVw4DT6Gp13Q==}
     peerDependencies:
+      react-native: '*'
+
+  expo-ocr-kit@0.1.4:
+    resolution: {integrity: sha512-PyW2DjFFPM3PJptAsp8kqCqM9Qx2mg/V9Pugo7oORcJ1A+/pood1Z6qx/JOdzyP91k8YIbAvD5PJt9zR2vetcA==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
       react-native: '*'
 
   expo-router@57.0.16:
@@ -5468,7 +5487,9 @@ snapshots:
       metro-runtime: 0.84.5
     transitivePeerDependencies:
       - '@babel/core'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   '@react-native/normalize-colors@0.86.2': {}
 
@@ -6469,6 +6490,12 @@ snapshots:
 
   expo-modules-jsi@57.0.5(patch_hash=0794db2805abb43f770292fea9afbd80a85726082d33709237182a8d1568f133)(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)):
     dependencies:
+      react-native: 0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
+
+  expo-ocr-kit@0.1.4(expo@57.0.16)(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3):
+    dependencies:
+      expo: 57.0.16(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.13)(expo-router@57.0.16)(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
+      react: 19.2.3
       react-native: 0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
 
   expo-router@57.0.16(14848172b7329a8879740402dc5d9c8e):

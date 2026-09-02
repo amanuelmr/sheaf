@@ -12,6 +12,7 @@
       "@sheaf/paperless": ["./packages/paperless/src/index.ts"],
       "@sheaf/pdf": ["./packages/pdf/src/index.ts"],
       "@sheaf/protocol": ["./packages/protocol/src/index.ts"],
+      "@sheaf/outbox-ocr": ["./packages/outbox-ocr/src/index.ts"],
       "@sheaf/store/node": ["./packages/store/src/node.ts"],
       "@sheaf/ingest": ["./services/ingest/src/index.ts"],
       "@sheaf/store": ["./packages/store/src/index.ts"],
