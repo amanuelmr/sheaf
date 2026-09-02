@@ -3,7 +3,7 @@ import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useRouter } from 'expo-router';
 import { useApp } from '../src/runtime/app-context';
 import { releaseSyncedCopies } from '../src/adapters/files';
-import { spacing } from '../src/theme';
+import { spacing, TOUCH_TARGET } from '../src/theme';
 import { Button, Divider } from '../src/ui/components';
 
 /**
@@ -11,42 +11,81 @@ import { Button, Divider } from '../src/ui/components';
  * Everything expert-shaped stays out of the way.
  */
 export default function Settings() {
-  const { palette, settings, server, updateSetting, disconnect, outbox, refresh, lockAvailable } =
-    useApp();
+  const {
+    palette,
+    settings,
+    server,
+    updateSetting,
+    outbox,
+    refresh,
+    lockAvailable,
+    profiles,
+    activeProfileId,
+    switchProfile,
+    removeProfileById,
+  } = useApp();
   const router = useRouter();
   const unsent = outbox.filter((row) => row.status !== 'SYNCED').length;
   const synced = outbox.filter((row) => row.status === 'SYNCED').length;
 
+  const confirmRemove = (id: string, name: string) => {
+    const active = id === activeProfileId;
+    Alert.alert(
+      `Remove ${name}?`,
+      active && unsent > 0
+        ? `${unsent} ${unsent === 1 ? 'document is' : 'documents are'} still waiting to sync to it. Removing keeps ${unsent === 1 ? 'it' : 'them'} on this device -- nothing captured through this server is deleted.`
+        : 'Nothing captured through this server is deleted -- only the connection itself is forgotten.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => void removeProfileById(id) },
+      ],
+    );
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Section title="Server" palette={palette}>
-        <Text style={[styles.value, { color: palette.text }]}>
-          {server === null ? 'Not connected' : server.baseUrl.replace(/^https?:\/\//, '')}
-        </Text>
-        <Text style={[styles.hint, { color: palette.textMuted }]}>
-          Your documents go directly here. The API token is held in this device’s keystore and is
-          never written to a log.
-        </Text>
-        {server === null ? (
-          <Button
-            label="Connect your server"
-            palette={palette}
-            onPress={() => router.push('/connect')}
-          />
+      <Section title="Servers" palette={palette}>
+        {profiles.length === 0 ? (
+          <Text style={[styles.value, { color: palette.text }]}>Not connected</Text>
         ) : (
-          <Button
-            label="Disconnect"
-            variant="secondary"
-            palette={palette}
-            onPress={() => void disconnect()}
-          />
+          profiles.map((profile) => (
+            <View key={profile.id} style={styles.profileRow}>
+              <View style={styles.profileMain}>
+                <Text style={[styles.value, { color: palette.text }]}>{profile.name}</Text>
+                <Text style={[styles.hint, { color: palette.textMuted }]}>
+                  {profile.baseUrl.replace(/^https?:\/\//, '')}
+                  {profile.id === activeProfileId ? ' · active' : ''}
+                </Text>
+              </View>
+              {profile.id === activeProfileId ? null : (
+                <Button
+                  label="Switch"
+                  variant="secondary"
+                  palette={palette}
+                  onPress={() => void switchProfile(profile.id)}
+                  style={styles.profileButton}
+                />
+              )}
+              <Button
+                label="Remove"
+                variant="quiet"
+                palette={palette}
+                onPress={() => confirmRemove(profile.id, profile.name)}
+                style={styles.profileButton}
+              />
+            </View>
+          ))
         )}
-        {unsent > 0 && server !== null ? (
-          <Text style={[styles.hint, { color: palette.waiting }]}>
-            {unsent} {unsent === 1 ? 'document is' : 'documents are'} still waiting to sync.
-            Disconnecting keeps {unsent === 1 ? 'it' : 'them'} on this device.
-          </Text>
-        ) : null}
+        <Text style={[styles.hint, { color: palette.textMuted }]}>
+          Documents go directly to whichever of these is active. Every token is held in this
+          device’s keystore and never written to a log.
+        </Text>
+        <Button
+          label={profiles.length === 0 ? 'Connect your server' : 'Add another server'}
+          variant="secondary"
+          palette={palette}
+          onPress={() => router.push('/connect')}
+        />
       </Section>
 
       {server === null ? null : (
@@ -234,4 +273,12 @@ const styles = StyleSheet.create({
   },
   toggleRowDisabled: { opacity: 0.5 },
   toggleMain: { flex: 1, gap: 2 },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  profileMain: { flex: 1, gap: 2 },
+  profileButton: { minHeight: TOUCH_TARGET - 8, paddingHorizontal: spacing.md },
 });

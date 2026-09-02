@@ -163,6 +163,28 @@ typecheck and a production `vite build` both passed with the server still
 CORS-blind, and only pointing a real browser at a real (disposable, separately
 ported) instance of the server surfaced `Failed to fetch`.
 
+## Multiple profiles: isolation by file, not by column
+
+More than one named Paperless connection on one phone -- home and work, say --
+turned out to need no change at all to `packages/core`, `packages/engine`, or
+`packages/store`: every one of them was already parameterised over an injected
+`SqlDriver` rather than assuming a single database, because that is what let
+tests run against `node:sqlite` in the first place. Isolation is one SQLite
+file per profile (`apps/mobile/src/adapters/profiles.ts`'s `databaseNameFor`),
+not a `profile_id` column threaded through the log -- the simpler of the two
+because nothing has to change to guarantee one profile's log can never be read
+while another is active; there is no query that could do it by mistake.
+
+The list of profiles and which one is active are not secrets and live in the
+keystore anyway, for the same reason `SHEAF_TOKEN` and a document's bytes live
+in two different places on the server: a profile's _token_ is the only part of
+it worth protecting, but keeping the list next to the tokens is one dependency
+instead of two. An install from before profiles existed is migrated forward
+once, as a profile named after its own server address, keeping the exact
+database filename (`sheaf.db`) that install's captures already live in -- see
+`migrateLegacyConnection` -- so this shipping to someone already mid-outbox
+never means renaming a file out from under their own captures.
+
 ## Deliberate non-goals
 
 No full mirror of the archive -- only what was actually opened or starred, ever.

@@ -242,8 +242,6 @@ Next, in order of how much they would change:
    OCR text Paperless already produced; this would be needed for a document
    that has not reached Paperless yet.
 4. Background sync, where the OS allows it.
-5. Multi-server profiles -- more than one named Paperless connection on one
-   phone, each with its own local event log.
 
 Done, since this list was last written:
 
@@ -265,6 +263,11 @@ Done, since this list was last written:
   server's own health — forwarding, retention, reconciliation — polled and
   drawn instead of read as raw JSON. The first browser client this project has
   had, and the reason `/v1/health` responses now carry CORS headers.
+- **Multi-server profiles** — more than one named Paperless connection on one
+  phone, each with its own local event log and its own database file, switched
+  between from Settings. An install from before this existed is carried
+  forward automatically as a profile named after its own address, in the same
+  database file it always used — nothing about upgrading loses a capture.
 
 ## Privacy
 

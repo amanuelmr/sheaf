@@ -9,9 +9,12 @@ const URL_KEY = 'sheaf.server.url';
 const TOKEN_KEY = 'sheaf.server.token';
 
 /**
- * The token lives in the platform keystore (Keychain / Android Keystore) and
- * nowhere else. It is never written to the database, never logged, and never put
- * in a URL — see SECURITY.md, and the redaction tests in `@sheaf/paperless`.
+ * What every install before profiles existed stored, and all that remains of
+ * this module now: reading it once, for `profiles.ts`'s `migrateLegacyConnection`
+ * to carry forward, and clearing it once that has happened. Nothing here is
+ * written to any more -- see `profiles.ts` for where a connection actually lives
+ * now, and SECURITY.md for why the token was in the keystore and nowhere else
+ * even back when this was the only place a connection lived.
  */
 export async function loadServerConfig(): Promise<ServerConfig | null> {
   const [baseUrl, token] = await Promise.all([
@@ -20,13 +23,6 @@ export async function loadServerConfig(): Promise<ServerConfig | null> {
   ]);
   if (baseUrl === null || token === null) return null;
   return { baseUrl, token };
-}
-
-export async function saveServerConfig(config: ServerConfig): Promise<void> {
-  await SecureStore.setItemAsync(URL_KEY, config.baseUrl);
-  await SecureStore.setItemAsync(TOKEN_KEY, config.token, {
-    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-  });
 }
 
 export async function clearServerConfig(): Promise<void> {

@@ -23,6 +23,7 @@ type Phase =
 export default function Connect() {
   const { palette, connect } = useApp();
   const router = useRouter();
+  const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [token, setToken] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'editing' });
@@ -34,13 +35,18 @@ export default function Connect() {
     setPhase({ kind: 'testing' });
     const result = await createClient({ baseUrl: url, token: token.trim() }).testConnection();
     if (result.ok) {
+      const host = url.replace(/^https?:\/\//, '');
       setPhase({
         kind: 'connected',
         protocol: result.value.protocol,
         documents: result.value.documents,
-        host: url.replace(/^https?:\/\//, ''),
+        host,
       });
-      await connect({ baseUrl: url, token: token.trim() });
+      await connect({
+        name: name.trim() === '' ? host : name.trim(),
+        baseUrl: url,
+        token: token.trim(),
+      });
       return;
     }
     // The status code is never what a user is shown first.
@@ -76,6 +82,26 @@ export default function Connect() {
         Sheaf sends your documents straight to your own Paperless server. There is no account, and
         nothing is stored anywhere else.
       </Text>
+
+      <Field
+        label="Name"
+        palette={palette}
+        hint="Only shown once you have more than one server connected. Defaults to the address below."
+      >
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Home"
+          placeholderTextColor={palette.textMuted}
+          autoCapitalize="words"
+          autoCorrect={false}
+          accessibilityLabel="Name for this server"
+          style={[
+            styles.input,
+            { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },
+          ]}
+        />
+      </Field>
 
       <Field
         label="Server URL"
