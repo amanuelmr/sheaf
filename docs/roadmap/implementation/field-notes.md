@@ -24,3 +24,7 @@ devices. This is the raw material for the write-up in step 4.5.
   so no client change was needed. Pinned the contract stack to 3.2.1; a weekly
   workflow also runs `latest` as an early warning. The image download took ~45
   minutes on this connection, which is worth knowing before a demo.
+- 2026-10-05 — Search benchmark (`pnpm bench:search`), 10,000 documents × 300 words
+  on this Mac: indexing 10.6 s, query p50 9.8 ms, p95 16.7 ms. Raw user input breaks
+  FTS5 five different ways (`total:`, an unmatched quote, `(((`, `*^`, a leading `-`),
+  so input is turned into quoted prefix terms and never parsed.
