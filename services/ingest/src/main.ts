@@ -10,29 +10,10 @@ import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
+import { retentionFromEnv } from './config.ts';
 import { createIngestServer } from './server.ts';
 import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
 import { SuggestionFetcher } from './suggestion-fetcher.ts';
-
-/**
- * Free disk space held by documents Paperless has confirmed it already has.
- *
- * Unset by default -- see retention.ts for why keeping every copy is the right
- * starting point. A number here is an explicit statement that Paperless is trusted
- * enough to be the only copy of documents older than this.
- */
-function retentionMsFromEnv(): number | null {
-  const raw = process.env['SHEAF_RETENTION_DAYS'];
-  if (raw === undefined || raw === '') return null;
-  const days = Number(raw);
-  if (!Number.isFinite(days) || days <= 0) {
-    console.error(
-      `SHEAF_RETENTION_DAYS must be a positive number of days, got "${raw}" — ignoring it.`,
-    );
-    return null;
-  }
-  return days * 24 * 60 * 60 * 1000;
-}
 
 /**
  * Entry point. Configuration is environment only — nothing about where documents
@@ -66,6 +47,18 @@ const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects'
  * become searchable text.
  */
 const paperlessUrl = process.env['PAPERLESS_URL'];
+
+// Checked before anything waits on Paperless, so a bad setting fails in seconds
+// rather than after a five-minute wait for a token. See config.ts.
+const retentionSetting = retentionFromEnv(
+  process.env,
+  paperlessUrl === undefined ? [] : [PRIMARY_CONNECTOR],
+);
+if (retentionSetting.kind === 'invalid') {
+  console.error(retentionSetting.message);
+  process.exit(1);
+}
+const retention = retentionSetting.kind === 'on' ? retentionSetting.config : null;
 
 /**
  * Get a token for the downstream system.
@@ -136,8 +129,6 @@ const archiveSource =
     ? null
     : paperlessArchiveSource(paperlessClient, vocabulary);
 
-const retentionMs = retentionMsFromEnv();
-
 const server = createIngestServer({
   storage,
   token,
@@ -145,7 +136,7 @@ const server = createIngestServer({
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
   ...(archiveSource === null ? {} : { archive: archiveSource }),
-  ...(retentionMs === null ? {} : { retentionDays: retentionMs / 86_400_000 }),
+  ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
 });
 
 if (paperlessClient !== null && vocabulary !== null) {
@@ -185,15 +176,15 @@ if (paperlessClient !== null && vocabulary !== null) {
       });
   }, 5_000);
 
-  if (retentionMs !== null) {
-    const retention = new Retention(storage, retentionMs, PRIMARY_CONNECTOR, {
+  if (retention !== null) {
+    const sweeper = new Retention(storage, retention.ms, retention.connector, {
       now: () => Date.now(),
     });
     let releasing = false;
     setInterval(() => {
       if (releasing) return;
       releasing = true;
-      void retention
+      void sweeper
         .tick()
         .catch((error: unknown) => console.error('retention sweep failed:', String(error)))
         .finally(() => {
@@ -201,7 +192,7 @@ if (paperlessClient !== null && vocabulary !== null) {
         });
     }, 60_000);
     console.log(
-      `retention: freeing bytes ${String(retentionMs / 86_400_000)} day(s) after forwarding`,
+      `retention: freeing bytes ${String(retention.ms / 86_400_000)} day(s) after ${retention.connector} confirms`,
     );
   }
 

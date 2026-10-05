@@ -34,9 +34,11 @@ services:
       PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
       PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
       PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
-      # Optional: free a document's bytes this many days after Paperless confirms
-      # it. Unset keeps every copy forever, which is the conservative default.
+      # Optional: free a document's bytes this many days after the named connector
+      # confirms it. Unset keeps every copy forever, which is the conservative
+      # default. Setting the days without the connector stops the server starting.
       SHEAF_RETENTION_DAYS: ${SHEAF_RETENTION_DAYS:-}
+      SHEAF_RETENTION_CONNECTOR: ${SHEAF_RETENTION_CONNECTOR:-}
     volumes:
       - documents:/data
 
