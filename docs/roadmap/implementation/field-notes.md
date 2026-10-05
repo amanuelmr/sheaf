@@ -48,3 +48,9 @@ devices. This is the raw material for the write-up in step 4.5.
   "TOTAL" is the tax, amounts printed two lines below their label, "TOTAL INCL. GST"
   rejected for mentioning GST, and cash tendered taken for the bill. Fixing those
   as general rules: dev 61% → 82%, test 52% → **84%**, other fields unchanged.
+- 2026-10-06 — Inbox (3.4) built with Accept and Edit buttons; the swipe gesture is
+  left for the device session, since `react-native-gesture-handler` is a native
+  module that needs a rebuild to test. Two loose ends: (1) a suggested document date
+  is shown but cannot be saved, because protocol v1's `DocumentPatch` has no date;
+  (2) the inbox buttons need `testID`s once the step-1.4 branch (which added
+  `testID` to `Button`) is merged.
