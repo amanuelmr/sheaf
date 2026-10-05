@@ -30,7 +30,7 @@ export interface Step {
    */
   readonly budget: number | null;
   /** The earliest time this step may run for a document. */
-  notBefore?(document: DocumentRecord): number;
+  notBefore?(document: DocumentRecord): number | Promise<number>;
   /** Whether this document needs the step at all, decided when it is about to run. */
   applies(document: DocumentRecord): Promise<boolean>;
   run(document: DocumentRecord, context: StepContext): Promise<ApiResult<null>>;
@@ -185,7 +185,7 @@ export class JobRunner {
       return 'given_up';
     }
 
-    const notBefore = step.notBefore?.(document);
+    const notBefore = await step.notBefore?.(document);
     if (notBefore !== undefined && now < notBefore) {
       await this.#driver.run(
         'UPDATE jobs SET next_at = ? WHERE sha256 = ? AND step = ? AND version = ?',
