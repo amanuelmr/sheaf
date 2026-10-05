@@ -5,6 +5,7 @@ import { PaperlessClient } from '@sheaf/paperless';
 import type { ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
+import { JobRunner, type Step } from './jobs.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
@@ -220,6 +221,31 @@ if (paperlessClient !== null && vocabulary !== null) {
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
   );
 }
+/**
+ * Work each stored document goes through after it is safe: reading its text,
+ * extracting its details. Empty until those steps exist; the loop only starts once
+ * there is something for it to do.
+ */
+const steps: Step[] = [];
+if (steps.length > 0) {
+  const jobs = new JobRunner(driver, storage, steps, {
+    now: () => Date.now(),
+    jitter: () => Math.random(),
+  });
+  let runningJobs = false;
+  setInterval(() => {
+    if (runningJobs) return;
+    runningJobs = true;
+    void jobs
+      .tick()
+      .catch((error: unknown) => console.error('a job crashed:', String(error)))
+      .finally(() => {
+        runningJobs = false;
+      });
+  }, 2_000);
+  console.log(`jobs: ${steps.map((step) => step.name).join(', ')}`);
+}
+
 server.listen(port, () => {
   console.log(`sheaf-ingest listening on http://localhost:${port}`);
   console.log(`documents: ${dataDir}`);
