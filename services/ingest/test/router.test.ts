@@ -774,3 +774,72 @@ suite('pairing and devices', () => {
     expect(await paired.deps.storage.deviceOf(hashB)).toBeNull();
   });
 });
+
+suite('what the web app reads', () => {
+  const text = (t: string): Uint8Array =>
+    new Uint8Array(Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text: t })));
+  const save = (sha256: string) =>
+    deps.storage.saveExtraction(
+      sha256,
+      {
+        version: 1,
+        provider: 'heuristic',
+        model: 'heuristic-2',
+        fields: {
+          title: { value: 'Cinema City', confidence: 0.6 },
+          total: { value: { minor: 3657, currency: 'MYR' }, confidence: 0.85 },
+        },
+        usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        latencyMs: 1,
+      },
+      clock,
+    );
+
+  it('lists documents whose suggestions nobody has acted on yet', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.document(hashB), B), deps);
+    await save(hashA);
+    await save(hashB);
+    await handle(
+      req('PATCH', paths.document(hashB), new Uint8Array(Buffer.from('{"title":"Mine"}'))),
+      deps,
+    );
+
+    const inbox = await handle(req('GET', paths.inbox()), deps);
+    expect(inbox.status).toBe(200);
+    const body = inbox.json as { documents: { sha256: string; suggestions: unknown }[] };
+    expect(body.documents.map((d) => d.sha256)).toEqual([hashA]);
+    expect(body.documents[0]!.suggestions).toEqual({ title: 'Cinema City' });
+  });
+
+  it('shows each field with who set it and how sure the machine was', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await save(hashA);
+    const fields = await handle(req('GET', paths.documentFields(hashA)), deps);
+    expect((fields.json as { fields: { name: string; source: string }[] }).fields).toEqual([
+      expect.objectContaining({ name: 'title', source: 'machine', confidence: 0.6 }),
+      expect.objectContaining({ name: 'total', value: { minor: 3657, currency: 'MYR' } }),
+    ]);
+    expect((await handle(req('GET', paths.documentFields(hashB)), deps)).status).toBe(404);
+  });
+
+  it('tells a document’s history on the server, in order', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), text('CINEMA')), deps);
+    await save(hashA);
+    await handle(
+      req('PATCH', paths.document(hashA), new Uint8Array(Buffer.from('{"title":"Mine"}'))),
+      deps,
+    );
+
+    const history = await handle(req('GET', paths.documentHistory(hashA)), deps);
+    const events = (history.json as { events: { at: number; text: string }[] }).events;
+    expect(events.map((e) => e.text)).toEqual([
+      'Received',
+      'Text from the phone (mlkit)',
+      'Details read by heuristic-2',
+      'You changed: title',
+    ]);
+    expect(events.map((e) => e.at)).toEqual([...events.map((e) => e.at)].sort((a, b) => a - b));
+  });
+});

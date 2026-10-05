@@ -21,6 +21,9 @@ import {
   type HealthResponse,
   type ListResponse,
   type DevicesResponse,
+  type FieldsResponse,
+  type HistoryResponse,
+  type InboxResponse,
   type PairRequest,
   type PairResponse,
   type PairingCodeResponse,
@@ -206,6 +209,12 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return { status: 200, json: health };
   }
 
+  if (path === paths.inbox()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const response: InboxResponse = { documents: await deps.storage.inbox() };
+    return { status: 200, json: response };
+  }
+
   if (path === paths.search()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     return search(request.query, deps);
@@ -224,6 +233,18 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
+
+  for (const [suffix, read] of [
+    ['/fields', readFields],
+    ['/history', readHistory],
+  ] as const) {
+    if (!rest.endsWith(suffix)) continue;
+    const id = rest.slice(0, -suffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    if (!(await deps.storage.has(id))) return fail('not_found');
+    return { status: 200, json: await read(id, deps) };
+  }
 
   const textSuffix = '/text';
   if (rest.endsWith(textSuffix)) {
@@ -274,7 +295,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     case 'PATCH': {
       const patch = parseJson<DocumentPatch>(request.body);
       if (patch === null) return fail('bad_request', 'body must be a JSON object');
-      const record = await deps.storage.patch(id, patch);
+      const record = await deps.storage.patch(id, patch, deps.now());
       return record === null ? fail('not_found') : { status: 200, json: record };
     }
     default:
@@ -312,6 +333,14 @@ async function put(
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+async function readFields(id: string, deps: RouterDeps): Promise<FieldsResponse> {
+  return { fields: await deps.storage.fields(id) };
+}
+
+async function readHistory(id: string, deps: RouterDeps): Promise<HistoryResponse> {
+  return { events: await deps.storage.history(id) };
 }
 
 async function search(query: string, deps: RouterDeps): Promise<IngestResponse> {

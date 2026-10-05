@@ -34,6 +34,12 @@ export const paths = {
   devices: () => `/${PROTOCOL_VERSION}/devices`,
   /** Admin: `DELETE` revokes one. */
   device: (id: string) => `/${PROTOCOL_VERSION}/devices/${id}`,
+  /** Documents whose suggestions nobody has accepted or changed yet. */
+  inbox: () => `/${PROTOCOL_VERSION}/inbox`,
+  /** Each field, with who set it and how sure a machine was. */
+  documentFields: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/fields`,
+  /** What happened to a document on the server, oldest first. */
+  documentHistory: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/history`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -288,6 +294,40 @@ export interface SearchResponse {
   /** Best match first. */
   readonly hits: readonly SearchHit[];
   readonly hasMore: boolean;
+}
+
+export interface InboxEntry {
+  readonly sha256: string;
+  readonly receivedAt: number;
+  readonly title: string | null;
+  readonly suggestions: Suggestions;
+}
+
+export interface InboxResponse {
+  /** Newest first. */
+  readonly documents: readonly InboxEntry[];
+}
+
+export interface FieldEntry {
+  readonly name: string;
+  readonly value: unknown;
+  /** `user` once a person set or cleared it; extraction never overwrites those. */
+  readonly source: 'machine' | 'user';
+  readonly confidence: number;
+  readonly updatedAt: number;
+}
+
+export interface FieldsResponse {
+  readonly fields: readonly FieldEntry[];
+}
+
+export interface HistoryEvent {
+  readonly at: number;
+  readonly text: string;
+}
+
+export interface HistoryResponse {
+  readonly events: readonly HistoryEvent[];
 }
 
 export interface ListResponse {
