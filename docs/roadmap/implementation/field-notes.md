@@ -59,3 +59,9 @@ devices. This is the raw material for the write-up in step 4.5.
   '@sheaf/extract'". Every test passed, because Vitest resolves packages through
   aliases, and the Docker image worked, because its Dockerfile links packages by hand.
   Only the server's own `package.json` was wrong. CI now starts it outside Docker.
+- 2026-10-06 — Chaos run (`pnpm chaos`), 20 phones × 25 documents, three SIGKILLs:
+  seeds 1, 2 and 3 each stored exactly 500 documents with 0 lost and 0 duplicated,
+  through ~1,400 requests and ~100 replies lost after the server had stored the
+  document. Its first full run hung, and the cause was mine: the pairing rate limit
+  counted successes, so the eleventh phone paired from one address was refused for a
+  minute, and the script retried for ever. The limit now counts only failures.
