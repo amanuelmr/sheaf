@@ -100,6 +100,37 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // The archive's ids. Protocol v1 names archive documents by positive integer,
+    // which Paperless supplies; served from our own catalog they need one too. Not
+    // `documents.rowid`: a table with a text primary key may renumber its rowids on
+    // VACUUM, and the phone caches these ids. An INTEGER PRIMARY KEY never moves.
+    //
+    // And names for the archive's vocabulary, which edits by id as well. Documents
+    // keep their details as text; this only gives each distinct name a stable id.
+    id: 5,
+    name: 'archive_ids_and_names',
+    statements: [
+      `CREATE TABLE archive_ids (
+         id     INTEGER PRIMARY KEY,
+         sha256 TEXT    NOT NULL UNIQUE
+       )`,
+      `INSERT INTO archive_ids (sha256)
+       SELECT sha256 FROM documents ORDER BY received_at ASC, sha256 ASC`,
+      `CREATE TABLE names (
+         id   INTEGER PRIMARY KEY,
+         kind TEXT    NOT NULL CHECK (kind IN ('correspondent', 'document_type', 'tag')),
+         name TEXT    NOT NULL,
+         UNIQUE (kind, name)
+       )`,
+      `INSERT OR IGNORE INTO names (kind, name)
+       SELECT 'correspondent', correspondent FROM documents WHERE correspondent IS NOT NULL`,
+      `INSERT OR IGNORE INTO names (kind, name)
+       SELECT 'document_type', document_type FROM documents WHERE document_type IS NOT NULL`,
+      `INSERT OR IGNORE INTO names (kind, name)
+       SELECT 'tag', t.value FROM documents d, json_each(d.tags) t`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

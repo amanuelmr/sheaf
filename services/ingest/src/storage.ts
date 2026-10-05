@@ -30,6 +30,29 @@ export interface StorageOptions {
   readonly objectsDir: string;
 }
 
+export type NameKind = 'correspondent' | 'document_type' | 'tag';
+
+/** A document as the archive lists it: its stable archive id and what is known. */
+export interface ArchiveRow {
+  readonly id: number;
+  readonly sha256: string;
+  readonly title: string | null;
+  readonly correspondent: string | null;
+  readonly documentType: string | null;
+  readonly tags: readonly string[];
+  readonly receivedAt: number;
+  /** The start of its text, or the part around a search match. */
+  readonly excerpt: string | null;
+}
+
+export interface ArchiveFilter {
+  /** An FTS5 query from `toMatch`, or null to list everything. */
+  readonly match: string | null;
+  readonly correspondent?: string;
+  readonly documentType?: string;
+  readonly tag?: string;
+}
+
 /** Text recognised in a document, as one source last reported it. */
 export interface StoredText {
   readonly source: string;
@@ -205,6 +228,7 @@ export class Storage {
          ON CONFLICT(sha256) DO NOTHING`,
         [sha256, bytes.length, pageCount, now],
       );
+      await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
     });
     return 'stored';
@@ -313,10 +337,101 @@ export class Storage {
       values.push(sha256);
       await this.#driver.transaction(async () => {
         await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+        if (typeof patch.correspondent === 'string') {
+          await this.#addName('correspondent', patch.correspondent);
+        }
+        if (typeof patch.documentType === 'string') {
+          await this.#addName('document_type', patch.documentType);
+        }
+        for (const tag of patch.tags ?? []) await this.#addName('tag', tag);
         await this.reindex(sha256);
       });
     }
     return this.record(sha256);
+  }
+
+  async #addName(kind: NameKind, name: string): Promise<void> {
+    await this.#driver.run('INSERT OR IGNORE INTO names (kind, name) VALUES (?, ?)', [kind, name]);
+  }
+
+  /** Every name of one kind, alphabetically, with its stable id. */
+  async names(kind: NameKind): Promise<readonly { id: number; name: string }[]> {
+    return this.#driver.all<{ id: number; name: string }>(
+      'SELECT id, name FROM names WHERE kind = ? ORDER BY name COLLATE NOCASE, id',
+      [kind],
+    );
+  }
+
+  async nameFor(kind: NameKind, id: number): Promise<string | null> {
+    const rows = await this.#driver.all<{ name: string }>(
+      'SELECT name FROM names WHERE kind = ? AND id = ?',
+      [kind, id],
+    );
+    return rows[0]?.name ?? null;
+  }
+
+  async archiveIdFor(sha256: string): Promise<number | null> {
+    const rows = await this.#driver.all<{ id: number }>(
+      'SELECT id FROM archive_ids WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  async archiveRow(id: number): Promise<ArchiveRow | null> {
+    const rows = await this.#driver.all<ArchiveSqlRow>(
+      `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              ${PLAIN_EXCERPT} AS excerpt
+         FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
+        WHERE a.id = ?`,
+      [id],
+    );
+    return rows[0] === undefined ? null : toArchiveRow(rows[0]);
+  }
+
+  /**
+   * One page of the archive: newest first, or best match first when searching.
+   * `total` counts every match, so a client can say how many there are.
+   */
+  async archivePage(
+    filter: ArchiveFilter,
+    limit: number,
+    offset: number,
+  ): Promise<{ rows: readonly ArchiveRow[]; total: number }> {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (filter.match !== null) {
+      where.push('documents_fts MATCH ?');
+      params.push(filter.match);
+    }
+    if (filter.correspondent !== undefined) {
+      where.push('d.correspondent = ?');
+      params.push(filter.correspondent);
+    }
+    if (filter.documentType !== undefined) {
+      where.push('d.document_type = ?');
+      params.push(filter.documentType);
+    }
+    if (filter.tag !== undefined) {
+      where.push('EXISTS (SELECT 1 FROM json_each(d.tags) WHERE value = ?)');
+      params.push(filter.tag);
+    }
+    const from = `FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
+      ${filter.match === null ? '' : 'JOIN documents_fts f ON f.sha256 = d.sha256'}
+      ${where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`}`;
+
+    const rows = await this.#driver.all<ArchiveSqlRow>(
+      `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              ${filter.match === null ? PLAIN_EXCERPT : "snippet(documents_fts, -1, '', '', '…', 24)"}
+                AS excerpt
+         ${from}
+        ORDER BY ${filter.match === null ? '' : 'bm25(documents_fts, 0, 10, 5, 5, 3, 1),'}
+                 d.received_at DESC, a.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+    const counted = await this.#driver.all<{ n: number }>(`SELECT COUNT(*) AS n ${from}`, params);
+    return { rows: rows.map(toArchiveRow), total: counted[0]?.n ?? 0 };
   }
 
   /**
@@ -594,6 +709,34 @@ export class Storage {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
   }
+}
+
+interface ArchiveSqlRow {
+  id: number;
+  sha256: string;
+  title: string | null;
+  correspondent: string | null;
+  document_type: string | null;
+  tags: string;
+  received_at: number;
+  excerpt: string | null;
+}
+
+/** The first 200 characters of a document's text, from whichever source has some. */
+const PLAIN_EXCERPT = `(SELECT substr(group_concat(t.text, ' '), 1, 200)
+                         FROM document_text t WHERE t.sha256 = d.sha256)`;
+
+function toArchiveRow(row: ArchiveSqlRow): ArchiveRow {
+  return {
+    id: row.id,
+    sha256: row.sha256,
+    title: row.title,
+    correspondent: row.correspondent,
+    documentType: row.document_type,
+    tags: JSON.parse(row.tags) as string[],
+    receivedAt: row.received_at,
+    excerpt: row.excerpt === '' ? null : row.excerpt,
+  };
 }
 
 function toRecord(row: Row): DocumentRecord {
