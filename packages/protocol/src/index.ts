@@ -28,6 +28,8 @@ export const paths = {
   documents: () => `/${PROTOCOL_VERSION}/documents`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
+  /** Text a client already recognised in a stored document. See `DocumentTextBody`. */
+  documentText: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/text`,
   /**
    * The archive: everything the downstream system already holds, not just what
    * this server captured. A read/write proxy, not a mirror -- see
@@ -58,6 +60,43 @@ export const DOCUMENT_CONTENT_TYPE = 'application/pdf';
 
 /** 25 MB. A generous multi-page scan, and a bound on what one request can cost. */
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * 1 MB of text: hundreds of dense pages. More than that is not recognised text from
+ * a phone scan, and refusing it keeps one request from costing the server much.
+ */
+export const MAX_TEXT_BYTES = 1024 * 1024;
+
+/**
+ * `PUT /v1/documents/{sha256}/text` (ADR 0009).
+ *
+ * The phone has already read every page with the platform's own OCR by the time a
+ * document is stored, so it sends that text rather than making the server read the
+ * pages again. Idempotent by document and `source`: sending the same text twice
+ * changes nothing, and newer text for the same source replaces older.
+ *
+ * Answers 204 when stored, 404 for a document the server does not hold, 413 over
+ * `MAX_TEXT_BYTES`, and 400 for anything that is not this shape.
+ */
+export interface DocumentTextBody {
+  /** Where the text came from. Only the phone sends it today. */
+  readonly source: 'edge';
+  /** Which recogniser produced it, for comparing quality later: e.g. `apple-vision`, `mlkit`. */
+  readonly engine: string;
+  readonly text: string;
+}
+
+/** The one check both sides apply, so the client cannot send what the server refuses. */
+export function isDocumentTextBody(value: unknown): value is DocumentTextBody {
+  if (typeof value !== 'object' || value === null) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    body['source'] === 'edge' &&
+    typeof body['engine'] === 'string' &&
+    /^[a-z0-9][a-z0-9.-]{0,39}$/.test(body['engine']) &&
+    typeof body['text'] === 'string'
+  );
+}
 
 /**
  * What a `PUT` meant. Both outcomes are success: the difference is only whether we

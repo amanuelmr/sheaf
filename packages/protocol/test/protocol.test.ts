@@ -4,6 +4,7 @@ import {
   MAX_DOCUMENT_BYTES,
   authorization,
   bearerToken,
+  isDocumentTextBody,
   isPaperlessId,
   isSha256,
   paths,
@@ -18,6 +19,7 @@ suite('addressing', () => {
     expect(paths.document(HASH)).toBe(`/v1/documents/${HASH}`);
     expect(paths.document(HASH)).toBe(paths.document(HASH));
     expect(paths.suggestions(HASH)).toBe(`/v1/documents/${HASH}/suggestions`);
+    expect(paths.documentText(HASH)).toBe(`/v1/documents/${HASH}/text`);
     expect(paths.archive()).toBe('/v1/archive');
     expect(paths.archiveVocabulary()).toBe('/v1/archive/vocabulary');
     expect(paths.archiveDocument(4821)).toBe('/v1/archive/4821');
@@ -77,5 +79,25 @@ suite('error mapping', () => {
 
   it('bounds what a single request can cost', () => {
     expect(MAX_DOCUMENT_BYTES).toBe(26_214_400);
+  });
+});
+
+suite('document text', () => {
+  it('accepts text from the phone, with the engine that read it', () => {
+    expect(
+      isDocumentTextBody({ source: 'edge', engine: 'apple-vision', text: 'TOTAL 12.50' }),
+    ).toBe(true);
+    expect(isDocumentTextBody({ source: 'edge', engine: 'mlkit', text: '' })).toBe(true);
+  });
+
+  it.each([
+    ['not an object', 'text'],
+    ['null', null],
+    ['an unknown source', { source: 'server', engine: 'x', text: 't' }],
+    ['no engine', { source: 'edge', text: 't' }],
+    ['an engine that is not a short slug', { source: 'edge', engine: 'Apple Vision!', text: 't' }],
+    ['text that is not a string', { source: 'edge', engine: 'mlkit', text: 42 }],
+  ])('refuses %s', (_, body) => {
+    expect(isDocumentTextBody(body)).toBe(false);
   });
 });
