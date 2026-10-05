@@ -10,6 +10,7 @@ import {
 import { join } from 'node:path';
 import type { DocumentPatch, DocumentRecord, PutOutcome, Suggestions } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
+import { migrate } from './migrations.ts';
 
 /**
  * Content-addressed storage, the same idea the client uses on the phone: bytes live
@@ -126,6 +127,10 @@ export class Storage {
     await options.driver.exec(
       `CREATE INDEX IF NOT EXISTS documents_by_suggestions ON documents (suggestions_state, suggestions_next_at)`,
     );
+
+    // Tables added since the column-adding scheme above, in order and once each.
+    // `applied_at` is diagnostic only, so the wall clock is fine here.
+    await migrate(options.driver, Date.now());
 
     mkdirSync(options.objectsDir, { recursive: true });
     return new Storage(options.driver, options.objectsDir);
