@@ -24,6 +24,7 @@ import {
   type HealthResponse,
   type ListResponse,
   type PutOutcome,
+  type SearchResponse,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import { interpretPutStatus } from './put.ts';
@@ -114,6 +115,17 @@ export class SheafClient {
       body: JSON.stringify(body),
     });
     return result.ok ? ok(null) : err(result.reason);
+  }
+
+  /** Full-text search of the documents this server holds, best match first. */
+  async searchDocuments(
+    text: string,
+    page: { readonly limit?: number; readonly offset?: number } = {},
+  ): Promise<ApiResult<SearchResponse>> {
+    const params = new URLSearchParams({ q: text });
+    if (page.limit !== undefined) params.set('limit', String(page.limit));
+    if (page.offset !== undefined) params.set('offset', String(page.offset));
+    return this.#json<SearchResponse>('GET', `${paths.search()}?${params.toString()}`);
   }
 
   async listDocuments(): Promise<ApiResult<readonly DocumentRecord[]>> {
