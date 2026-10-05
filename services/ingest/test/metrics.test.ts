@@ -1,5 +1,11 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe as suite, expect, it } from 'vitest';
+import { nodeSqliteDriver } from '@sheaf/store/node';
 import { Registry, routeTemplate } from '../src/metrics';
+import { ServerMetrics } from '../src/observability';
+import { Storage, sha256Hex } from '../src/storage';
 
 suite('the metrics registry', () => {
   it('renders counters in Prometheus text format, label values escaped', () => {
@@ -81,5 +87,34 @@ suite('route templates', () => {
     ['/v1/' + 'x'.repeat(500), 'other'],
   ])('reports %s as %s', (path, template) => {
     expect(routeTemplate(path)).toBe(template);
+  });
+});
+
+suite('the server’s metrics', () => {
+  it('reports stored state read fresh from the database, and requests by template', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-m-')),
+    });
+    const bytes = new Uint8Array(Buffer.from('%PDF-1.4\nm\n%%EOF\n'));
+    await storage.put(sha256Hex(bytes), bytes, 1_000, 1);
+    await storage.recordForwardAttempt(sha256Hex(bytes), 'paperless', {
+      state: 'pending',
+      attempts: 1,
+      nextAt: null,
+    });
+
+    const metrics = new ServerMetrics(driver);
+    metrics.observeRequest('PUT', `/v1/documents/${sha256Hex(bytes)}`, 201, 0.02);
+    const text = await metrics.render(61_000);
+
+    expect(text).toContain('sheaf_documents 1');
+    expect(text).toContain('sheaf_deliveries{connector="paperless",state="pending"} 1');
+    expect(text).toContain('sheaf_connector_oldest_pending_seconds{connector="paperless"} 60');
+    expect(text).toContain(
+      'sheaf_http_requests_total{method="PUT",route="/v1/documents/:sha256",status="201"} 1',
+    );
+    expect(text).not.toContain(sha256Hex(bytes));
   });
 });
