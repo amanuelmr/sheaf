@@ -1,0 +1,33 @@
+# Adds server-side OCR: documents that arrive with no text from the phone are read
+# on the server instead (ADR 0009).
+#
+#   docker compose -f compose.yml -f compose.ocr.yml up -d
+#
+# Optional because the phone already reads every page it scans, and this image is
+# large. Combine with compose.paperless.yml freely.
+services:
+  ingest:
+    depends_on:
+      - ocr
+    environment:
+      SHEAF_OCR_URL: http://ocr:8080
+    networks:
+      - default
+      - ocr
+
+  ocr:
+    build:
+      context: .
+      dockerfile: services/ocr/Dockerfile
+    restart: unless-stopped
+    environment:
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-eng}
+    # A private network with no way out: the OCR service never needs the internet,
+    # and nothing but the Sheaf server can reach it.
+    networks:
+      - ocr
+    mem_limit: 1g
+
+networks:
+  ocr:
+    internal: true

@@ -6,6 +6,7 @@ import type { ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
 import { JobRunner, type Step } from './jobs.ts';
+import { ocrStep } from './steps/ocr.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
@@ -232,6 +233,26 @@ if (paperlessClient !== null && vocabulary !== null) {
  * there is something for it to do.
  */
 const steps: Step[] = [];
+
+// Server-side OCR, only when the sidecar is there (compose.ocr.yml). ADR 0009.
+const ocrUrl = process.env['SHEAF_OCR_URL'];
+if (ocrUrl !== undefined && ocrUrl !== '') {
+  steps.push(
+    ocrStep(storage, {
+      url: ocrUrl,
+      // Generous: a long scan on a small machine takes minutes, and the sidecar
+      // gives up on its own at five.
+      fetch: (url, body) =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/pdf' },
+          body,
+          signal: AbortSignal.timeout(330_000),
+        }),
+      graceMs: 120_000,
+    }),
+  );
+}
 if (steps.length > 0) {
   const jobs = new JobRunner(driver, storage, steps, {
     now: () => Date.now(),
