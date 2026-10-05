@@ -1,7 +1,23 @@
+import { Asset } from 'expo-asset';
 import DocumentScanner, {
   ResponseType,
   ScanDocumentResponseStatus,
 } from 'react-native-document-scanner-plugin';
+import fixturePage from '../../assets/e2e/page.jpg';
+
+/**
+ * End-to-end test builds scan a bundled page instead of opening a camera, because
+ * a simulator has no camera to open. Expo inlines `EXPO_PUBLIC_*` variables when
+ * it bundles, so in any build made without this flag the branch is dead code and
+ * no setting at runtime can turn it on.
+ */
+const E2E = process.env.EXPO_PUBLIC_SHEAF_E2E === '1';
+
+async function fixtureScan(): Promise<ScanOutcome> {
+  const asset = await Asset.fromModule(fixturePage).downloadAsync();
+  if (asset.localUri === null) return { kind: 'unavailable', detail: 'fixture page missing' };
+  return { kind: 'pages', uris: [asset.localUri] };
+}
 
 export type ScanOutcome =
   | { readonly kind: 'pages'; readonly uris: readonly string[] }
@@ -23,6 +39,7 @@ export type ScanOutcome =
  * the same assemble-hash-upload pipeline as before.
  */
 export async function scanDocument(quality = 100): Promise<ScanOutcome> {
+  if (E2E) return fixtureScan();
   try {
     const result = await DocumentScanner.scanDocument({
       croppedImageQuality: quality,
