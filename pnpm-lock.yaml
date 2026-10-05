@@ -286,6 +286,9 @@ importers:
       '@sheaf/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@sheaf/extract':
+        specifier: workspace:*
+        version: link:../../packages/extract
       '@sheaf/http':
         specifier: workspace:*
         version: link:../../packages/http
