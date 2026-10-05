@@ -41,3 +41,10 @@ devices. This is the raw material for the write-up in step 4.5.
   test OCR; and Python's `HTTPServer` spent 35 s on a reverse-DNS lookup at bind.
   Not yet run: the whole stack through compose, since this Mac already serves a
   Sheaf on port 8787.
+- 2026-10-06 — Extraction eval, heuristic. First run on the 50-receipt test sample:
+  date 98%, total **52%**, sender 96%. The dev set (586 other receipts) disagreed
+  about the sender (79.5%), which is why rules are tuned on dev only. The total
+  misses were real receipt layout, not edge cases: a GST summary table whose own
+  "TOTAL" is the tax, amounts printed two lines below their label, "TOTAL INCL. GST"
+  rejected for mentioning GST, and cash tendered taken for the bill. Fixing those
+  as general rules: dev 61% → 82%, test 52% → **84%**, other fields unchanged.
