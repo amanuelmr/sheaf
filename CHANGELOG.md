@@ -5,6 +5,9 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- The phone sends the text it recognised on-device to the server once the document
+  is stored there (`PUT /v1/documents/{sha256}/text`), and keeps its local copy until
+  that text has been sent. Older logs replay unchanged.
 - **Upgrading with Paperless:** `docker compose up` now starts the Sheaf server
   alone. Run `docker compose -f compose.yml -f compose.paperless.yml up -d` to keep
   Paperless; its containers and volumes keep their names, so no data moves.
