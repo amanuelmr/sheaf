@@ -20,7 +20,9 @@ services:
       PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
 
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    # The version Sheaf's contract tests last passed against. Moving it is a
+    # deliberate change, made after the weekly contract run against `latest`.
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.2.1
     restart: unless-stopped
     depends_on:
       - broker
