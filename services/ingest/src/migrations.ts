@@ -162,6 +162,30 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Device pairing (ADR 0008). Codes and tokens are kept only as SHA-256 hashes.
+    id: 7,
+    name: 'devices',
+    statements: [
+      `CREATE TABLE devices (
+         id         TEXT    PRIMARY KEY,
+         name       TEXT    NOT NULL,
+         token_hash TEXT    NOT NULL UNIQUE,
+         created_at INTEGER NOT NULL,
+         last_seen  INTEGER,
+         revoked_at INTEGER
+       )`,
+      `CREATE TABLE pairing_codes (
+         code_hash  TEXT    PRIMARY KEY,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER NOT NULL,
+         used_at    INTEGER
+       )`,
+      // Which phone first delivered each document. Null for the admin token, and for
+      // everything stored before pairing existed.
+      `ALTER TABLE documents ADD COLUMN device_id TEXT`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
