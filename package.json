@@ -27,7 +27,9 @@
     "bundle:web": "pnpm --filter @sheaf/web run build",
     "test:contract": "bash packages/paperless/test/contract/run.sh",
     "bench:search": "SHEAF_BENCH=1 vitest run services/ingest/test/search-bench.test.ts",
-    "eval": "pnpm --filter @sheaf/extract eval"
+    "eval": "pnpm --filter @sheaf/extract eval",
+    "chaos": "node --experimental-strip-types scripts/chaos.ts",
+    "seed": "node --experimental-strip-types scripts/seed-demo.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
