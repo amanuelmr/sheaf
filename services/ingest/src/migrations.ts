@@ -86,6 +86,20 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Full-text search over everything known about a document (ADR 0007). A plain
+    // FTS5 table, kept in step by `Storage.reindex` rather than by triggers across
+    // documents and document_text: one function to read is easier to trust than
+    // four triggers. Accents are folded, so "cafe" finds "Café".
+    id: 4,
+    name: 'documents_fts',
+    statements: [
+      `CREATE VIRTUAL TABLE documents_fts USING fts5(
+         sha256 UNINDEXED, title, correspondent, document_type, tags, body,
+         tokenize = 'unicode61 remove_diacritics 2'
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

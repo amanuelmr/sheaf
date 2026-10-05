@@ -255,6 +255,27 @@ export interface HealthResponse {
   };
 }
 
+/** One document matching a search of the server's own catalog. */
+export interface SearchHit {
+  readonly sha256: string;
+  readonly title: string | null;
+  readonly correspondent: string | null;
+  readonly documentType: string | null;
+  readonly tags: readonly string[];
+  readonly receivedAt: number;
+  /**
+   * A short excerpt around the match, with each matched word wrapped in « and ».
+   * Document text: escape it before putting it in HTML.
+   */
+  readonly snippet: string;
+}
+
+export interface SearchResponse {
+  /** Best match first. */
+  readonly hits: readonly SearchHit[];
+  readonly hasMore: boolean;
+}
+
 export interface ListResponse {
   readonly documents: readonly DocumentRecord[];
 }

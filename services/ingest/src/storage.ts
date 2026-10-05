@@ -13,6 +13,8 @@ import type {
   DocumentRecord,
   DocumentTextBody,
   PutOutcome,
+  SearchHit,
+  SearchResponse,
   Suggestions,
 } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
@@ -167,7 +169,11 @@ export class Storage {
     await migrate(options.driver, Date.now());
 
     mkdirSync(options.objectsDir, { recursive: true });
-    return new Storage(options.driver, options.objectsDir);
+    const storage = new Storage(options.driver, options.objectsDir);
+    // Documents stored before the index existed, or while a reindex was cut short,
+    // become searchable here rather than whenever they next happen to change.
+    await storage.reindexMissing();
+    return storage;
   }
 
   /**
@@ -192,12 +198,15 @@ export class Storage {
     writeFileSync(temp, bytes);
     renameSync(temp, target);
 
-    await this.#driver.run(
-      `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
-       VALUES (?, ?, ?, ?, '[]')
-       ON CONFLICT(sha256) DO NOTHING`,
-      [sha256, bytes.length, pageCount, now],
-    );
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
+         VALUES (?, ?, ?, ?, '[]')
+         ON CONFLICT(sha256) DO NOTHING`,
+        [sha256, bytes.length, pageCount, now],
+      );
+      await this.reindex(sha256);
+    });
     return 'stored';
   }
 
@@ -247,16 +256,19 @@ export class Storage {
     now: number,
   ): Promise<'stored' | 'unknown-document'> {
     if (!(await this.has(sha256))) return 'unknown-document';
-    await this.#driver.run(
-      `INSERT INTO document_text (sha256, source, engine, text, received_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (sha256, source) DO UPDATE SET
-         engine = excluded.engine,
-         text = excluded.text,
-         received_at = excluded.received_at
-       WHERE document_text.text <> excluded.text OR document_text.engine <> excluded.engine`,
-      [sha256, body.source, body.engine, body.text, now],
-    );
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        `INSERT INTO document_text (sha256, source, engine, text, received_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (sha256, source) DO UPDATE SET
+           engine = excluded.engine,
+           text = excluded.text,
+           received_at = excluded.received_at
+         WHERE document_text.text <> excluded.text OR document_text.engine <> excluded.engine`,
+        [sha256, body.source, body.engine, body.text, now],
+      );
+      await this.reindex(sha256);
+    });
     return 'stored';
   }
 
@@ -299,9 +311,90 @@ export class Storage {
 
     if (sets.length > 0) {
       values.push(sha256);
-      await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+      await this.#driver.transaction(async () => {
+        await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+        await this.reindex(sha256);
+      });
     }
     return this.record(sha256);
+  }
+
+  /**
+   * Rewrite one document's search entry from what is stored now: its details and
+   * every source of text. Called inside the same transaction as each change, so the
+   * index never describes a state that was not committed.
+   */
+  async reindex(sha256: string): Promise<void> {
+    await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [sha256]);
+    await this.#driver.run(
+      `INSERT INTO documents_fts (sha256, title, correspondent, document_type, tags, body)
+       SELECT d.sha256, COALESCE(d.title, ''), COALESCE(d.correspondent, ''),
+              COALESCE(d.document_type, ''), d.tags,
+              COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
+                         WHERE t.sha256 = d.sha256), '')
+         FROM documents d
+        WHERE d.sha256 = ?`,
+      [sha256],
+    );
+  }
+
+  /** Index every stored document that has no search entry yet. */
+  async reindexMissing(): Promise<number> {
+    // One pass over each table rather than a correlated lookup per document: the
+    // index's sha256 column is not indexed, and a query per row would be quadratic.
+    const indexed = new Set(
+      (await this.#driver.all<{ sha256: string }>('SELECT sha256 FROM documents_fts')).map(
+        (row) => row.sha256,
+      ),
+    );
+    const all = await this.#driver.all<{ sha256: string }>('SELECT sha256 FROM documents');
+    const missing = all.map((row) => row.sha256).filter((sha256) => !indexed.has(sha256));
+    for (let i = 0; i < missing.length; i += 200) {
+      await this.#driver.transaction(async () => {
+        for (const sha256 of missing.slice(i, i + 200)) await this.reindex(sha256);
+      });
+    }
+    return missing.length;
+  }
+
+  async indexedCount(): Promise<number> {
+    const rows = await this.#driver.all<{ n: number }>('SELECT COUNT(*) AS n FROM documents_fts');
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Best matches first for an FTS5 `match` built by `toMatch`, never by hand.
+   * Column weights rank the title above names and tags, and those above body text.
+   */
+  async search(match: string, limit: number, offset: number): Promise<SearchResponse> {
+    const rows = await this.#driver.all<{
+      sha256: string;
+      title: string | null;
+      correspondent: string | null;
+      document_type: string | null;
+      tags: string;
+      received_at: number;
+      snippet: string;
+    }>(
+      `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
+         FROM documents_fts f
+         JOIN documents d ON d.sha256 = f.sha256
+        WHERE documents_fts MATCH ?
+        ORDER BY bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC
+        LIMIT ? OFFSET ?`,
+      [match, limit + 1, offset],
+    );
+    const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
+      sha256: row.sha256,
+      title: row.title,
+      correspondent: row.correspondent,
+      documentType: row.document_type,
+      tags: JSON.parse(row.tags) as string[],
+      receivedAt: row.received_at,
+      snippet: row.snippet,
+    }));
+    return { hits, hasMore: rows.length > limit };
   }
 
   /**
