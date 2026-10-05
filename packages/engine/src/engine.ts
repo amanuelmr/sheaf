@@ -33,6 +33,8 @@ export interface CaptureInput {
   readonly thumbnailPath?: string;
   /** What the first page looks like, for recognising a page scanned twice. */
   readonly pageHash?: string;
+  /** On-device OCR has been started and will report through `recordText`. */
+  readonly ocrPending?: true;
 }
 
 /**
@@ -70,6 +72,7 @@ export class SyncEngine {
         bytes: input.bytes,
         ...(input.thumbnailPath === undefined ? {} : { thumbnailPath: input.thumbnailPath }),
         ...(input.pageHash === undefined ? {} : { pageHash: input.pageHash }),
+        ...(input.ocrPending === true ? { ocrPending: true as const } : {}),
       },
       { type: 'Enqueued', docId: input.docId, at, sha256: input.sha256 },
     );
@@ -121,6 +124,15 @@ export class SyncEngine {
     return rearmed;
   }
 
+  /** On-device OCR finished: it either stored text for this document, or found none. */
+  async recordText(docId: DocId, found: boolean): Promise<void> {
+    await this.store.commit({
+      type: found ? 'TextRecognized' : 'TextUnavailable',
+      docId,
+      at: this.ports.now(),
+    });
+  }
+
   async acceptMetadata(docId: DocId, patch: MetadataPatch): Promise<void> {
     await this.store.commit({ type: 'MetadataAccepted', docId, at: this.ports.now(), patch });
   }
@@ -137,11 +149,19 @@ export class SyncEngine {
         return this.fetchSuggestions(state, command.remoteId);
       case 'patchMetadata':
         return this.patchMetadata(state, command.remoteId, command.patch);
+      case 'uploadText':
+        return this.uploadText(state);
       case 'releaseLocalFiles':
         return this.releaseFiles(state);
       case 'wait':
       case 'idle':
         return;
+      default: {
+        // A command added to the machine without a case here would otherwise be
+        // silently dropped, leaving its document asking for it on every tick.
+        const unhandled: never = command;
+        throw new Error(`no handler for ${JSON.stringify(unhandled)}`);
+      }
     }
   }
 
@@ -246,6 +266,25 @@ export class SyncEngine {
       docId: state.docId,
       at: this.ports.now(),
     });
+  }
+
+  private async uploadText(state: DocState): Promise<void> {
+    // A server that cannot take text will never be able to; stop asking it.
+    if (this.ports.api.putText === undefined) {
+      return this.sideTaskFailed(state, 'text', { kind: 'not_found' });
+    }
+    const text = (await this.ports.text?.read(state.docId)) ?? null;
+    if (text === null) {
+      await this.store.commit({
+        type: 'TextUnavailable',
+        docId: state.docId,
+        at: this.ports.now(),
+      });
+      return;
+    }
+    const result = await this.ports.api.putText(state, text);
+    if (!result.ok) return this.sideTaskFailed(state, 'text', result.reason);
+    await this.store.commit({ type: 'TextUploaded', docId: state.docId, at: this.ports.now() });
   }
 
   private async releaseFiles(state: DocState): Promise<void> {

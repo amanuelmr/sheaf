@@ -1,4 +1,5 @@
 import type {
+  DocId,
   DocState,
   MetadataPatch,
   NetStatus,
@@ -48,6 +49,17 @@ export interface EngineApi {
   /** Ids already resolved to names by the adapter, using its cached vocabulary. */
   getSuggestions(remoteId: RemoteId): Promise<ApiResult<Suggestions>>;
   patchDocument(remoteId: RemoteId, patch: MetadataPatch): Promise<ApiResult<null>>;
+  /**
+   * Send text this device recognised in a stored document (ADR 0009). Optional: a
+   * server without it simply never receives text, and the engine stops asking.
+   */
+  putText?(state: DocState, text: string): Promise<ApiResult<null>>;
+}
+
+/** Where on-device OCR keeps the text it recognised. */
+export interface EngineText {
+  /** `null` when there is none, for instance because it has already been released. */
+  read(docId: DocId): Promise<string | null>;
 }
 
 export interface EngineFiles {
@@ -63,4 +75,6 @@ export interface EnginePorts {
   policy(): SyncPolicy;
   readonly api: EngineApi;
   readonly files: EngineFiles;
+  /** Absent on a device that does no OCR: then there is never text to send. */
+  readonly text?: EngineText;
 }
