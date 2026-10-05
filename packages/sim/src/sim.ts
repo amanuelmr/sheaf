@@ -72,6 +72,10 @@ class Sim {
   private readonly uploads = new Map<DocId, number>();
   private readonly violations: string[] = [];
   private readonly docIds: DocId[] = [];
+  /** OCR still running on the device, by document. */
+  private readonly ocrRunning = new Set<DocId>();
+  /** Text on-device OCR found and stored, until the local copy is released. */
+  private readonly localTexts = new Map<DocId, string>();
 
   private net: NetStatus = 'wifi';
   private resuming = false;
@@ -106,7 +110,9 @@ class Sim {
         pages: [
           { id: `${docId}-p1`, path: `/d/${docId}.jpg`, width: 1700, height: 2200, bytes: 210_000 },
         ],
+        ocrPending: true,
       });
+      this.ocrRunning.add(docId);
     }
 
     const maxSteps = this.options.maxSteps ?? DEFAULT_MAX_STEPS;
@@ -124,6 +130,9 @@ class Sim {
       if (rollKill(this.options.faults, this.rand, this.clock.now())) {
         this.resuming = true; // killed while idle: nothing was in flight
         this.kills += 1;
+        // OCR in progress dies with the process and never reports. The engine has
+        // to stop waiting for it on its own.
+        this.ocrRunning.clear();
       }
 
       this.net = rollOffline(this.options.faults, this.rand, this.clock.now())
@@ -166,6 +175,15 @@ class Sim {
         await this.engine.requestRetry(docId);
         return;
       }
+    }
+
+    // On-device OCR finishes at its own pace, independent of the network.
+    if (this.ocrRunning.has(docId) && this.rand.chance(0.4)) {
+      this.ocrRunning.delete(docId);
+      const found = this.rand.chance(0.85);
+      if (found) this.localTexts.set(docId, `text of ${docId}`);
+      await this.engine.recordText(docId, found);
+      return;
     }
 
     // Sometimes the user accepts what Paperless suggested.
@@ -233,6 +251,17 @@ class Sim {
           if (!applied) this.violations.push(`patched ${remoteId}, which the server lacks`);
           return Promise.resolve(ok(null));
         },
+        putText: (state, text) => {
+          this.sideTaskCalls += 1;
+          const fault = rollSideTask(this.options.faults, this.rand);
+          if (fault === 'permanent')
+            return Promise.resolve(err({ kind: 'rejected', status: 400, message: 'no' }));
+          if (fault === 'transient') return Promise.resolve(err({ kind: 'unreachable' }));
+          if (!this.server.putText(state.sha256, text)) {
+            this.violations.push(`${state.docId}: sent text for a document the server lacks`);
+          }
+          return Promise.resolve(ok(null));
+        },
       },
       files: {
         release: (state) => {
@@ -241,8 +270,21 @@ class Sim {
               `${state.docId}: released local files for a document not on the server`,
             );
           }
+          // Releasing deletes the recognised text with everything else, so it must
+          // already be on the server unless sending it was given up on.
+          if (
+            this.localTexts.has(state.docId) &&
+            this.server.textOf(state.sha256) === undefined &&
+            state.side.text.abandoned === null
+          ) {
+            this.violations.push(`${state.docId}: released before its text was sent`);
+          }
+          this.localTexts.delete(state.docId);
           return Promise.resolve();
         },
+      },
+      text: {
+        read: (docId) => Promise.resolve(this.localTexts.get(docId) ?? null),
       },
     };
   }
@@ -314,6 +356,9 @@ class Sim {
       ) {
         return false;
       }
+      if (state.text === 'available' && state.side.text.abandoned === null) return false;
+      // OCR that is still running will report; OCR lost to a kill never will.
+      if (this.ocrRunning.has(state.docId)) return false;
       if (!this.policy.keepLocalAfterSync && state.localFilesPresent) return false;
     }
     return true;

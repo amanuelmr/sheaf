@@ -26,6 +26,14 @@ function assertHealthy(result: SimResult, seed: number, documents: number): void
   for (const [docId, state] of result.states) {
     expect(state.status, `${where}: ${docId}`).toBe('SYNCED');
     expect(result.server.has(state.sha256), `${where}: ${docId} missing on server`).toBe(true);
+    // Text the phone found reaches the server, unless sending it was given up on.
+    if (state.text === 'uploaded') {
+      expect(result.server.textOf(state.sha256), `${where}: ${docId} text`).toBeDefined();
+    }
+    expect(
+      state.text === 'available' && state.side.text.abandoned === null,
+      `${where}: ${docId}`,
+    ).toBe(false);
   }
 }
 
@@ -46,6 +54,19 @@ suite('convergence under faults', () => {
     for (const seed of seeds(30, 5_000)) {
       assertHealthy(await runSim({ seed, documents: 10, faults: HOSTILE }), seed, 10);
     }
+  });
+
+  it('sends recognised text for most documents, across many schedules', async () => {
+    let sent = 0;
+    let documents = 0;
+    for (const seed of seeds(60, 90_000)) {
+      const result = await runSim({ seed, documents: 5, faults: FLAKY });
+      assertHealthy(result, seed, 5);
+      documents += 5;
+      sent += [...result.states.values()].filter((s) => s.text === 'uploaded').length;
+    }
+    // OCR finds text 85% of the time and kills lose some; most text still arrives.
+    expect(sent / documents).toBeGreaterThan(0.5);
   });
 
   it('does the obvious thing when nothing goes wrong', async () => {
