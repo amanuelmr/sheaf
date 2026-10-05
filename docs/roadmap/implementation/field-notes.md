@@ -54,3 +54,8 @@ devices. This is the raw material for the write-up in step 4.5.
   is shown but cannot be saved, because protocol v1's `DocumentPatch` has no date;
   (2) the inbox buttons need `testID`s once the step-1.4 branch (which added
   `testID` to `Button`) is merged.
+- 2026-10-06 — Found by running the server for the pairing check: since step 3.2,
+  `pnpm --filter @sheaf/ingest start` crashed with "Cannot find package
+  '@sheaf/extract'". Every test passed, because Vitest resolves packages through
+  aliases, and the Docker image worked, because its Dockerfile links packages by hand.
+  Only the server's own `package.json` was wrong. CI now starts it outside Docker.
