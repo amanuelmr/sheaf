@@ -1,6 +1,11 @@
+import { Platform } from 'react-native';
 import { recognizeText } from 'expo-ocr-kit';
+import type { EngineFiles, EngineText } from '@sheaf/engine';
 import type { SqlDriver } from '@sheaf/store';
-import { save } from '@sheaf/outbox-ocr';
+import { get, remove, save } from '@sheaf/outbox-ocr';
+
+/** Which recogniser read the page, as the server records it (ADR 0009). */
+export const OCR_ENGINE = Platform.OS === 'ios' ? 'apple-vision' : 'mlkit';
 
 /**
  * On-device OCR of a capture, for offline search of the outbox itself -- before
@@ -28,7 +33,7 @@ export async function extractAndSaveText(
   driver: SqlDriver,
   docId: string,
   pages: readonly { readonly path: string }[],
-): Promise<void> {
+): Promise<boolean> {
   const texts: string[] = [];
   for (const page of pages) {
     try {
@@ -38,5 +43,30 @@ export async function extractAndSaveText(
       // This page's text is lost, not the capture. The next page still tries.
     }
   }
-  if (texts.length > 0) await save(driver, docId, texts.join('\n\n'), Date.now());
+  if (texts.length === 0) return false;
+  await save(driver, docId, texts.join('\n\n'), Date.now());
+  return true;
+}
+
+/** Lets the engine read what was recognised, to send it to the server. */
+export function outboxText(driver: SqlDriver): EngineText {
+  return { read: (docId) => get(driver, docId) };
+}
+
+/**
+ * Release that also deletes the recognised text, for the same reason the thumbnail
+ * goes: kept past release, outbox search would return a document that is no longer
+ * in the outbox. The engine only releases once the text is on the server, or is
+ * never going to be.
+ *
+ * Shared by the foreground and background engines, so they cannot drift apart.
+ */
+export function releasingText(driver: SqlDriver, files: EngineFiles): EngineFiles {
+  return {
+    ...files,
+    release: async (state) => {
+      await files.release(state);
+      await remove(driver, state.docId);
+    },
+  };
 }
