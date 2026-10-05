@@ -4,6 +4,9 @@ import type { Api } from '../api';
 import { shortSha, when } from '../format';
 import { href } from '../route';
 
+/** Fired when the inbox changes, so the count in the navigation can follow. */
+export const INBOX_CHANGED = 'sheaf:inbox-changed';
+
 /**
  * Suggested details waiting for a person, keyboard first: j and k move, a accepts,
  * e opens the document to change it.
@@ -34,6 +37,7 @@ export function Inbox({ api }: { api: Api }) {
       });
       if (!result.ok) setError(result.message);
       await load();
+      window.dispatchEvent(new Event(INBOX_CHANGED));
     },
     [api, load],
   );

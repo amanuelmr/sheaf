@@ -81,7 +81,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
       </div>
 
       <div className="details">
-        <h1>{record.title ?? `Scan ${shortSha(sha256)}`}</h1>
+        <h1>{record.title ?? record.suggestions?.title ?? `Scan ${shortSha(sha256)}`}</h1>
         <p className="muted">Received {when(record.receivedAt)}</p>
 
         <form className="inline" onSubmit={(event) => void saveTitle(event)}>

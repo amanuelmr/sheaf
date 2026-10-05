@@ -63,7 +63,9 @@ export function Search({ api }: { api: Api }) {
             {recent.map((doc) => (
               <li key={doc.sha256}>
                 <a href={href({ page: 'document', sha256: doc.sha256 })}>
-                  <strong>{doc.title ?? `Scan ${shortSha(doc.sha256)}`}</strong>
+                  <strong>
+                    {doc.title ?? doc.suggestions?.title ?? `Scan ${shortSha(doc.sha256)}`}
+                  </strong>
                   <span className="muted">
                     {[doc.correspondent, when(doc.receivedAt)].filter(Boolean).join(' · ')}
                   </span>
@@ -79,7 +81,7 @@ export function Search({ api }: { api: Api }) {
           {hits.map((hit) => (
             <li key={hit.sha256}>
               <a href={href({ page: 'document', sha256: hit.sha256 })}>
-                <strong>{hit.title ?? `Scan ${shortSha(hit.sha256)}`}</strong>
+                <strong>{hit.title ?? hit.suggestedTitle ?? `Scan ${shortSha(hit.sha256)}`}</strong>
                 <span className="muted">
                   {[hit.correspondent, when(hit.receivedAt)].filter(Boolean).join(' · ')}
                 </span>

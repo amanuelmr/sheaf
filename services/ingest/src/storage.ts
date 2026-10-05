@@ -743,8 +743,10 @@ export class Storage {
       tags: string;
       received_at: number;
       snippet: string;
+      suggested_title: string | null;
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              json_extract(d.suggestions_json, '$.title') AS suggested_title,
               snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
          FROM documents_fts f
          JOIN documents d ON d.sha256 = f.sha256
@@ -756,6 +758,7 @@ export class Storage {
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
       title: row.title,
+      suggestedTitle: row.suggested_title,
       correspondent: row.correspondent,
       documentType: row.document_type,
       tags: JSON.parse(row.tags) as string[],

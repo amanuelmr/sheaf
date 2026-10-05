@@ -97,6 +97,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 500;
 }

@@ -9,7 +9,7 @@ import {
 } from './connection';
 import { Devices } from './pages/Devices';
 import { Document } from './pages/Document';
-import { Inbox } from './pages/Inbox';
+import { INBOX_CHANGED, Inbox } from './pages/Inbox';
 import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { href, useRoute, type Route } from './route';
@@ -132,9 +132,13 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
 function useInboxCount(api: Api, route: Route): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    void api.inbox().then((result) => {
-      if (result.ok) setCount(result.value.documents.length);
-    });
+    const refresh = () =>
+      void api.inbox().then((result) => {
+        if (result.ok) setCount(result.value.documents.length);
+      });
+    refresh();
+    window.addEventListener(INBOX_CHANGED, refresh);
+    return () => window.removeEventListener(INBOX_CHANGED, refresh);
   }, [api, route]);
   return count;
 }

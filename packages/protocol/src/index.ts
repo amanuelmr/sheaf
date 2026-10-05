@@ -277,6 +277,8 @@ export interface HealthResponse {
 export interface SearchHit {
   readonly sha256: string;
   readonly title: string | null;
+  /** What extraction suggested, for showing a document nobody has titled yet. */
+  readonly suggestedTitle: string | null;
   readonly correspondent: string | null;
   readonly documentType: string | null;
   readonly tags: readonly string[];

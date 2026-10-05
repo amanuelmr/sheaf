@@ -10,7 +10,9 @@ import { when } from '../format';
  */
 export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
   const [devices, setDevices] = useState<readonly DeviceSummary[] | null>(null);
-  const [pairing, setPairing] = useState<(PairingCodeResponse & { qr: string }) | null>(null);
+  const [pairing, setPairing] = useState<
+    (PairingCodeResponse & { qr: string; knownIds: ReadonlySet<string> }) | null
+  >(null);
   const [now, setNow] = useState(Date.now());
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
       width: 240,
       errorCorrectionLevel: 'M',
     });
-    setPairing({ ...result.value, qr });
+    setPairing({ ...result.value, qr, knownIds: new Set((devices ?? []).map((d) => d.id)) });
   };
 
   const revoke = async (id: string) => {
@@ -59,6 +61,9 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
 
   const secondsLeft =
     pairing === null ? 0 : Math.max(0, Math.round((pairing.expiresAt - now) / 1000));
+  // A code works once: when a phone that was not here before appears, it was used.
+  const justPaired =
+    pairing === null ? undefined : (devices ?? []).find((d) => !pairing.knownIds.has(d.id));
 
   return (
     <>
@@ -66,7 +71,17 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
       {error === null ? null : <p className="error">{error}</p>}
 
       <div className="card">
-        {pairing === null || secondsLeft === 0 ? (
+        {justPaired !== undefined ? (
+          <>
+            <p>
+              <span className="badge ok">✓</span> {justPaired.name} is paired and can scan into this
+              server.
+            </p>
+            <button className="secondary" onClick={() => setPairing(null)}>
+              Done
+            </button>
+          </>
+        ) : pairing === null || secondsLeft === 0 ? (
           <>
             <p>
               Pair a phone to let it scan into this server. Each phone gets its own key, which you
