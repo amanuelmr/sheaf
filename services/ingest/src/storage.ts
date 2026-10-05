@@ -137,6 +137,9 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['suggestions_json', 'TEXT'],
 ];
 
+/** Job steps whose result depends on a document's text, and so go stale with it. */
+const TEXT_READERS = ['extract'] as const;
+
 /**
  * The connector whose progress a v1 `DocumentRecord.forward` reports. Clients of
  * protocol v1 only know of one downstream system, and it was always Paperless.
@@ -310,6 +313,16 @@ export class Storage {
   ): Promise<'stored' | 'unknown-document'> {
     if (!(await this.has(sha256))) return 'unknown-document';
     await this.#driver.transaction(async () => {
+      // New or different text makes the document's extraction stale: clear it, and
+      // the job runner queues it again. Resending identical text clears nothing.
+      await this.#driver.run(
+        `DELETE FROM jobs
+          WHERE sha256 = ? AND step IN (${TEXT_READERS.map(() => '?').join(', ')})
+            AND NOT EXISTS (
+              SELECT 1 FROM document_text
+               WHERE sha256 = ? AND source = ? AND engine = ? AND text = ?)`,
+        [sha256, ...TEXT_READERS, sha256, body.source, body.engine, body.text],
+      );
       await this.#driver.run(
         `INSERT INTO document_text (sha256, source, engine, text, received_at)
          VALUES (?, ?, ?, ?, ?)
