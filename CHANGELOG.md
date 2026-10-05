@@ -5,6 +5,10 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- Pair a phone by scanning a QR code: each phone gets its own revocable token, and
+  uploads record which phone sent them. `SHEAF_TOKEN` stays the admin's and keeps
+  working. A removed phone is told so, and asked to pair again.
+- The phone has an inbox for suggested details: accept, or edit.
 - The server reads each document's title, date, sender, type, total and tags, and
   offers them as the suggestions the phone already shows. `SHEAF_EXTRACTOR` picks
   `heuristic` (default, nothing leaves the server), `claude`, `ollama`, or
