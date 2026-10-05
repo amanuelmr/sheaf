@@ -62,6 +62,25 @@ pnpm --filter @sheaf/mobile start
 Needs a development build rather than Expo Go, because `expo-sqlite`,
 `expo-secure-store` and `expo-camera` are native modules.
 
+### Android
+
+```bash
+pnpm --filter @sheaf/mobile exec expo run:android
+```
+
+Needs Android Studio's SDK and an emulator image **with Google Play**, which the
+platform document scanner (ML Kit) depends on; without Play the app falls back to
+the hand-drawn crop. The emulator reaches a server on the host Mac at `10.0.2.2`,
+not `localhost`.
+
+`app.json` sets `usesCleartextTraffic` through `expo-build-properties`. Android
+refuses plain HTTP by default, and a server on your own network usually has no
+certificate. It is the Android side of the choice iOS makes with
+`NSAllowsLocalNetworking`, but wider: Android cannot limit it to local addresses, so
+a server reachable over the internet should still be HTTPS.
+
+### iOS
+
 The iOS build requires one patched dependency: `expo-modules-jsi@57.0.5` annotates
 two constructors with `SWIFT_RETURNS_RETAINED`, which Swift 6.2 (Xcode 26) rejects.
 It is a two-line, verified-redundant removal — see [`patches/README.md`](../../patches/README.md).
