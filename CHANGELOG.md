@@ -5,6 +5,9 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- The phone's library browses the server's own documents by default, so it works
+  with no Paperless. `SHEAF_ARCHIVE_SOURCE=paperless` browses Paperless instead.
+  Native archive documents have no thumbnails yet.
 - Full-text search of the server's own documents (`GET /v1/search`): title, details
   and recognised text, ranked, with marked snippets. p95 16.7 ms over 10,000
   documents. Existing documents are indexed when the server starts.

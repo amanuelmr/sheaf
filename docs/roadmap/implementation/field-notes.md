@@ -28,3 +28,8 @@ devices. This is the raw material for the write-up in step 4.5.
   on this Mac: indexing 10.6 s, query p50 9.8 ms, p95 16.7 ms. Raw user input breaks
   FTS5 five different ways (`total:`, an unmatched quote, `(((`, `*^`, a leading `-`),
   so input is turned into quoted prefix terms and never parsed.
+- 2026-10-05 — The guide said to use `documents.rowid` as the native archive id. That
+  would have been a bug: `documents` has a text primary key, so SQLite may renumber
+  its rowids on `VACUUM`, and the phone caches archive ids. Ids now live in an
+  `archive_ids` table whose `INTEGER PRIMARY KEY` never moves; a test vacuums and
+  checks.
