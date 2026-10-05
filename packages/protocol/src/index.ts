@@ -26,6 +26,8 @@ export const PROTOCOL_VERSION = 'v1';
 export const paths = {
   health: () => `/${PROTOCOL_VERSION}/health`,
   documents: () => `/${PROTOCOL_VERSION}/documents`,
+  /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
+  search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
   /** Text a client already recognised in a stored document. See `DocumentTextBody`. */
@@ -269,6 +271,10 @@ export interface SearchHit {
    */
   readonly snippet: string;
 }
+
+/** Bounds on `limit` for `GET /v1/search`. */
+export const SEARCH_DEFAULT_LIMIT = 20;
+export const SEARCH_MAX_LIMIT = 100;
 
 export interface SearchResponse {
   /** Best match first. */

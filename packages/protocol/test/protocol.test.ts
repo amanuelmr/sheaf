@@ -20,6 +20,7 @@ suite('addressing', () => {
     expect(paths.document(HASH)).toBe(paths.document(HASH));
     expect(paths.suggestions(HASH)).toBe(`/v1/documents/${HASH}/suggestions`);
     expect(paths.documentText(HASH)).toBe(`/v1/documents/${HASH}/text`);
+    expect(paths.search()).toBe('/v1/search');
     expect(paths.archive()).toBe('/v1/archive');
     expect(paths.archiveVocabulary()).toBe('/v1/archive/vocabulary');
     expect(paths.archiveDocument(4821)).toBe('/v1/archive/4821');

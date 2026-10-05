@@ -596,3 +596,52 @@ suite('document text from the phone', () => {
     );
   });
 });
+
+suite('search', () => {
+  const textBody = (text: string): Uint8Array =>
+    new Uint8Array(Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text })));
+
+  beforeEach(async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.document(hashB), B), deps);
+    await handle(req('PUT', paths.documentText(hashA), textBody('CINEMA CITY total 12.50')), deps);
+  });
+
+  it('finds documents by their text, with a marked snippet', async () => {
+    const response = await handle(req('GET', `${paths.search()}?q=cinema`), deps);
+    expect(response.status).toBe(200);
+    const body = response.json as { hits: { sha256: string; snippet: string }[]; hasMore: boolean };
+    expect(body.hits.map((hit) => hit.sha256)).toEqual([hashA]);
+    expect(body.hits[0]!.snippet).toContain('«CINEMA»');
+    expect(body.hasMore).toBe(false);
+  });
+
+  it('answers a search that cannot fail with no results, never an error', async () => {
+    for (const q of ['', '%3A', 'total%3A%2012.50', '%22', 'NEAR(']) {
+      const response = await handle(req('GET', `${paths.search()}?q=${q}`), deps);
+      expect(response.status, q).toBe(200);
+    }
+    const none = await handle(req('GET', `${paths.search()}?q=%21%21`), deps);
+    expect(none.json).toEqual({ hits: [], hasMore: false });
+  });
+
+  it('pages with limit and offset', async () => {
+    await handle(req('PUT', paths.documentText(hashB), textBody('cinema popcorn')), deps);
+    const first = await handle(req('GET', `${paths.search()}?q=cinema&limit=1`), deps);
+    const second = await handle(req('GET', `${paths.search()}?q=cinema&limit=1&offset=1`), deps);
+    expect((first.json as { hasMore: boolean }).hasMore).toBe(true);
+    expect((second.json as { hasMore: boolean }).hasMore).toBe(false);
+  });
+
+  it.each(['limit=0', 'limit=101', 'limit=ten', 'offset=-1', 'offset=1.5'])(
+    'refuses %s',
+    async (param) => {
+      const response = await handle(req('GET', `${paths.search()}?q=cinema&${param}`), deps);
+      expect(response.status).toBe(400);
+    },
+  );
+
+  it('allows only GET', async () => {
+    expect((await handle(req('POST', paths.search()), deps)).status).toBe(400);
+  });
+});

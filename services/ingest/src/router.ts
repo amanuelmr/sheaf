@@ -7,6 +7,8 @@ import {
   MAX_DOCUMENT_BYTES,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
+  SEARCH_DEFAULT_LIMIT,
+  SEARCH_MAX_LIMIT,
   bearerToken,
   isDocumentTextBody,
   isPaperlessId,
@@ -19,9 +21,11 @@ import {
   type HealthResponse,
   type ListResponse,
   type ReconciliationProbe,
+  type SearchResponse,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
+import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
 import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 
@@ -110,6 +114,11 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
           }),
     };
     return { status: 200, json: health };
+  }
+
+  if (path === paths.search()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    return search(request.query, deps);
   }
 
   if (path === paths.documents()) {
@@ -202,6 +211,31 @@ async function put(id: string, request: IngestRequest, deps: RouterDeps): Promis
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+async function search(query: string, deps: RouterDeps): Promise<IngestResponse> {
+  const params = new URLSearchParams(query);
+  const limit = whole(params.get('limit'), SEARCH_DEFAULT_LIMIT);
+  const offset = whole(params.get('offset'), 0);
+  if (limit === null || limit < 1 || limit > SEARCH_MAX_LIMIT) {
+    return fail(
+      'bad_request',
+      `limit must be a whole number from 1 to ${String(SEARCH_MAX_LIMIT)}`,
+    );
+  }
+  if (offset === null) return fail('bad_request', 'offset must be a whole number');
+
+  // Anything typed is searchable; text with no words in it simply matches nothing.
+  const match = toMatch(params.get('q') ?? '');
+  const response: SearchResponse =
+    match === null ? { hits: [], hasMore: false } : await deps.storage.search(match, limit, offset);
+  return { status: 200, json: response };
+}
+
+/** A non-negative integer from a query parameter, the fallback when absent, or null. */
+function whole(raw: string | null, fallback: number): number | null {
+  if (raw === null) return fallback;
+  return /^\d{1,9}$/.test(raw) ? Number(raw) : null;
 }
 
 async function putText(
