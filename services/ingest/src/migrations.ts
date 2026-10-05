@@ -38,6 +38,37 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX jobs_due ON jobs (state, next_at)`,
     ],
   },
+  {
+    // One row per document per connector (ADR 0007), replacing the forward_*
+    // columns on documents, which assumed a single downstream system. Those columns
+    // stay, unread: dropping them buys nothing and risks the one migration nobody
+    // can undo. A document with no row for a connector has not been sent there yet.
+    id: 2,
+    name: 'deliveries',
+    statements: [
+      `CREATE TABLE deliveries (
+         sha256    TEXT    NOT NULL,
+         connector TEXT    NOT NULL,
+         state     TEXT    NOT NULL CHECK (state IN ('pending', 'sent', 'done', 'failed')),
+         attempts  INTEGER NOT NULL DEFAULT 0,
+         next_at   INTEGER,
+         task_id   TEXT,
+         remote_id TEXT,
+         error     TEXT,
+         done_at   INTEGER,
+         PRIMARY KEY (sha256, connector)
+       )`,
+      `CREATE INDEX deliveries_due ON deliveries (connector, state, next_at)`,
+      // Everything a server forwarded before connectors existed went to Paperless,
+      // the only target there was. Untouched documents need no row.
+      `INSERT INTO deliveries
+         (sha256, connector, state, attempts, next_at, task_id, remote_id, error, done_at)
+       SELECT sha256, 'paperless', forward_state, forward_attempts, forward_next_at,
+              forward_task_id, remote_id, forward_error, forward_done_at
+         FROM documents
+        WHERE forward_state <> 'pending' OR forward_attempts > 0 OR forward_task_id IS NOT NULL`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
