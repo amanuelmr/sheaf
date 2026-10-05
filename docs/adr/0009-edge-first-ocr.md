@@ -1,7 +1,7 @@
 # 9. Edge-first OCR, with a server fallback
 
-- Status: proposed
-- Date: 2026-10-05
+- Status: accepted
+- Date: 2026-10-05 (accepted on implementation in steps 2.1–2.6)
 
 ## Context
 

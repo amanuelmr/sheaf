@@ -1,6 +1,43 @@
 # Architecture
 
-## Layers
+## The system
+
+Sheaf is the system of record for your documents ([ADR 0007](docs/adr/0007-sheaf-is-the-system-of-record.md)).
+The phone captures and delivers; the server keeps, reads and indexes; Paperless-ngx
+and others are optional destinations.
+
+```mermaid
+flowchart LR
+  subgraph Phone["apps/mobile"]
+    CAM[Platform scanner] --> LOG[(Intent log)]
+    CAM --> EOCR[On-device OCR]
+  end
+  subgraph Server["services/ingest — Node, no runtime dependencies"]
+    API[HTTP /v1] --> BLOB[(objects/ by sha256)]
+    API --> DB[(ingest.db: catalog, jobs,<br/>deliveries, text, FTS5)]
+    DB --> JOBS[Job runner]
+    DB --> FWD[Forwarder per connector]
+  end
+  LOG -- "PUT /v1/documents/{sha256}" --> API
+  EOCR -- "PUT …/{sha256}/text" --> API
+  JOBS -. "no text after 2 min" .-> OCR[OCR sidecar<br/>compose.ocr.yml]
+  FWD -. optional .-> PL[Paperless-ngx<br/>compose.paperless.yml]
+```
+
+| Piece      | Where                                                           | What it guarantees                                                                                                        |
+| ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Delivery   | phone: `core`, `engine`, `store`                                | Exactly once, through crashes and lost replies (ADRs 0001, 0002)                                                          |
+| Text       | phone OCR → `PUT …/text`; sidecar as fallback                   | Searchable from the first scan; the local copy waits until its text is sent ([ADR 0009](docs/adr/0009-edge-first-ocr.md)) |
+| Jobs       | `services/ingest/src/jobs.ts`                                   | Each step runs once per document and version, in order, and resumes after a crash                                         |
+| Connectors | `forwarder.ts`, one `deliveries` row per document per connector | A failing destination never holds up another, or the document                                                             |
+| Search     | FTS5 in `ingest.db`, `GET /v1/search`                           | Typed input can never break a query; p95 16.7 ms at 10,000 documents                                                      |
+| Archive    | `native-archive.ts` behind `/v1/archive`                        | The phone's library works with no Paperless, with ids that survive `VACUUM`                                               |
+
+Schema changes past the original columns are ordered, run-once migrations
+(`services/ingest/src/migrations.ts`), each tested against a database the previous
+release actually produced (`services/ingest/test/fixtures/`).
+
+## Layers on the phone
 
 ```
                     ┌─────────────────────────────────┐
