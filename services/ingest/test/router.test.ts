@@ -821,6 +821,9 @@ suite('what the web app reads', () => {
       expect.objectContaining({ name: 'total', value: { minor: 3657, currency: 'MYR' } }),
     ]);
     expect((await handle(req('GET', paths.documentFields(hashB)), deps)).status).toBe(404);
+
+    const record = await handle(req('GET', paths.documentRecord(hashA)), deps);
+    expect(record.json).toMatchObject({ sha256: hashA, suggestions: { title: 'Cinema City' } });
   });
 
   it('tells a document’s history on the server, in order', async () => {

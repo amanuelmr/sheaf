@@ -36,6 +36,8 @@ export const paths = {
   device: (id: string) => `/${PROTOCOL_VERSION}/devices/${id}`,
   /** Documents whose suggestions nobody has accepted or changed yet. */
   inbox: () => `/${PROTOCOL_VERSION}/inbox`,
+  /** One document's details as JSON; the document's own address serves its PDF. */
+  documentRecord: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/record`,
   /** Each field, with who set it and how sure a machine was. */
   documentFields: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/fields`,
   /** What happened to a document on the server, oldest first. */

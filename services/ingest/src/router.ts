@@ -17,6 +17,7 @@ import {
   type ArchiveSearchResponse,
   type ArchiveVocabulary,
   type DocumentPatch,
+  type DocumentRecord,
   type ErrorCode,
   type HealthResponse,
   type ListResponse,
@@ -235,6 +236,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   const rest = path.slice(prefix.length);
 
   for (const [suffix, read] of [
+    ['/record', readRecord],
     ['/fields', readFields],
     ['/history', readHistory],
   ] as const) {
@@ -333,6 +335,10 @@ async function put(
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+async function readRecord(id: string, deps: RouterDeps): Promise<DocumentRecord | null> {
+  return deps.storage.record(id);
 }
 
 async function readFields(id: string, deps: RouterDeps): Promise<FieldsResponse> {
