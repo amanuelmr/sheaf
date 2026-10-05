@@ -158,21 +158,24 @@ pnpm test:watch
 To run the server the app talks to:
 
 ```bash
-{
-  echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-  echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")"
-} > .env
+echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
 docker compose up -d
 ```
 
-Neither has a default. A server holding your documents should not come up
+The token has no default. A server holding your documents should not come up
 guessable, so it would rather not come up at all.
 
-One command brings up both halves: `ingest` is the door the phone knocks on, and
-Paperless is what makes a stored document findable. The ingest server fetches its
-own Paperless token once that container has booted, so there is no manual step
-between `up` and scanning. `docker compose up ingest` runs the door alone if
-storage without search is all you want.
+That server is complete on its own: the phone delivers to it and it keeps every
+document. To also hand each one on to Paperless-ngx, add its password and its
+compose file:
+
+```bash
+echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")" >> .env
+docker compose -f compose.yml -f compose.paperless.yml up -d
+```
+
+The server fetches its own Paperless token once that container has booted, so
+there is no manual step between `up` and scanning.
 
 Node 20+ and pnpm. To run the app:
 

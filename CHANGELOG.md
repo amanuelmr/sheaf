@@ -5,6 +5,9 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- **Upgrading with Paperless:** `docker compose up` now starts the Sheaf server
+  alone. Run `docker compose -f compose.yml -f compose.paperless.yml up -d` to keep
+  Paperless; its containers and volumes keep their names, so no data moves.
 - **Breaking:** `SHEAF_RETENTION_DAYS` now also needs `SHEAF_RETENTION_CONNECTOR`
   (e.g. `paperless`), naming the connector trusted with the only copy. Without it
   the server refuses to start instead of guessing.
