@@ -4,3 +4,4 @@ coverage/
 *.tsbuildinfo
 pnpm-lock.yaml
 .expo/
+apps/mobile/expo-env.d.ts
