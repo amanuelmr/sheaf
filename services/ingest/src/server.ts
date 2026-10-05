@@ -12,7 +12,7 @@ import { handle, type RouterDeps } from './router.ts';
  */
 const CORS_HEADERS: Readonly<Record<string, string>> = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, PUT, PATCH, HEAD, OPTIONS',
+  'access-control-allow-methods': 'GET, PUT, PATCH, POST, DELETE, HEAD, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type, x-sheaf-page-count',
   // A day is generous but bounded; nothing here is secret enough to need the
   // browser asking again every single request.
@@ -50,6 +50,9 @@ export function createIngestServer(deps: RouterDeps): Server {
             query: (req.url ?? '').split('?')[1] ?? '',
             headers: req.headers as Record<string, string | undefined>,
             body,
+            ...(req.socket.remoteAddress === undefined
+              ? {}
+              : { remoteAddress: req.socket.remoteAddress }),
           },
           deps,
         );

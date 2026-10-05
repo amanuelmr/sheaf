@@ -244,6 +244,8 @@ export class Storage {
     bytes: Uint8Array,
     now: number,
     pageCount: number | null,
+    /** The paired phone that sent it, or null for the admin token. */
+    deviceId: string | null = null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) return 'already-stored';
 
@@ -255,15 +257,24 @@ export class Storage {
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
-        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
-         VALUES (?, ?, ?, ?, '[]')
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id)
+         VALUES (?, ?, ?, ?, '[]', ?)
          ON CONFLICT(sha256) DO NOTHING`,
-        [sha256, bytes.length, pageCount, now],
+        [sha256, bytes.length, pageCount, now, deviceId],
       );
       await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
     });
     return 'stored';
+  }
+
+  /** Which paired phone first delivered a document; null for the admin token. */
+  async deviceOf(sha256: string): Promise<string | null> {
+    const rows = await this.#driver.all<{ device_id: string | null }>(
+      'SELECT device_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.device_id ?? null;
   }
 
   async has(sha256: string): Promise<boolean> {

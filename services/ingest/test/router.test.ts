@@ -13,6 +13,7 @@ import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { Devices } from '../src/devices';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
 import { handle, type IngestRequest } from '../src/router';
@@ -673,5 +674,103 @@ suite('the archive, served from this server', () => {
       native,
     );
     expect(edit.status).toBe(400);
+  });
+});
+
+suite('pairing and devices', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  const as = (token: string, method: string, path: string, body?: Uint8Array): IngestRequest => ({
+    ...req(method, path, body),
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const anonymous = (method: string, path: string, body?: Uint8Array): IngestRequest => ({
+    ...req(method, path, body),
+    headers: {},
+    remoteAddress: '192.168.1.50',
+  });
+
+  let paired: { deps: typeof deps & { devices: Devices }; token: string; deviceId: string };
+
+  beforeEach(async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-pair-')),
+    });
+    const withDevices = { ...deps, storage, devices: new Devices(driver, { now: () => clock }) };
+    const created = await handle(req('POST', paths.pairingCodes()), withDevices);
+    const { code } = created.json as { code: string };
+    const response = await handle(
+      anonymous('POST', paths.pair(), json({ code, deviceName: 'Test phone' })),
+      withDevices,
+    );
+    const body = response.json as { token: string; deviceId: string };
+    paired = { deps: withDevices, token: body.token, deviceId: body.deviceId };
+  });
+
+  it('lets a paired phone upload, and records which phone it was', async () => {
+    const response = await handle(as(paired.token, 'PUT', paths.document(hashA), A), paired.deps);
+    expect(response.status).toBe(201);
+    expect(await paired.deps.storage.deviceOf(hashA)).toBe(paired.deviceId);
+  });
+
+  it('keeps device management to the admin token', async () => {
+    for (const [method, path] of [
+      ['POST', paths.pairingCodes()],
+      ['GET', paths.devices()],
+      ['DELETE', paths.device(paired.deviceId)],
+    ] as const) {
+      const response = await handle(as(paired.token, method, path), paired.deps);
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
+  it('lists devices for the admin, and revokes one', async () => {
+    const list = await handle(req('GET', paths.devices()), paired.deps);
+    expect((list.json as { devices: { name: string }[] }).devices.map((d) => d.name)).toEqual([
+      'Test phone',
+    ]);
+    expect((await handle(req('DELETE', paths.device(paired.deviceId)), paired.deps)).status).toBe(
+      204,
+    );
+    expect((await handle(req('DELETE', paths.device('nope')), paired.deps)).status).toBe(404);
+
+    const after = await handle(as(paired.token, 'GET', paths.health()), paired.deps);
+    expect(after.status).toBe(401);
+    expect((after.json as { error: string }).error).toBe('device_revoked');
+  });
+
+  it('refuses a code used twice, an unknown code, and a malformed request alike', async () => {
+    const created = await handle(req('POST', paths.pairingCodes()), paired.deps);
+    const { code } = created.json as { code: string };
+    const pair = (body: unknown) =>
+      handle(anonymous('POST', paths.pair(), json(body)), paired.deps);
+
+    expect((await pair({ code, deviceName: 'A' })).status).toBe(200);
+    for (const body of [
+      { code, deviceName: 'B' },
+      { code: 'ZZZZ', deviceName: 'C' },
+    ]) {
+      expect(((await pair(body)).json as { error: string }).error).toBe('pairing_invalid');
+    }
+    expect((await pair({ deviceName: 'no code' })).status).toBe(400);
+  });
+
+  it('slows down someone guessing codes', async () => {
+    let last = 0;
+    for (let i = 0; i < 12; i++) {
+      last = (
+        await handle(
+          anonymous('POST', paths.pair(), json({ code: 'X', deviceName: 'G' })),
+          paired.deps,
+        )
+      ).status;
+    }
+    expect(last).toBe(429);
+  });
+
+  it('still accepts the admin token everywhere, so existing installs keep working', async () => {
+    expect((await handle(req('PUT', paths.document(hashB), B), paired.deps)).status).toBe(201);
+    expect(await paired.deps.storage.deviceOf(hashB)).toBeNull();
   });
 });
