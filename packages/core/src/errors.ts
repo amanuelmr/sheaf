@@ -32,7 +32,8 @@ export function isBlocking(reason: FailureReason): boolean {
   }
 }
 
-export type UserAction = 'retry' | 'check_server_settings' | 'check_token' | 'view_details';
+export type UserAction =
+  'retry' | 'check_server_settings' | 'check_token' | 'pair_again' | 'view_details';
 
 /**
  * Every error must answer three questions: what happened, is my document safe,
@@ -75,6 +76,14 @@ export function describe(reason: FailureReason): UserFacingError {
         technical: `HTTP 429${reason.retryAfterMs === undefined ? '' : ` retry-after=${reason.retryAfterMs}ms`}`,
       };
     case 'auth':
+      if (reason.revoked === true) {
+        return {
+          title: 'This phone was removed from your server.',
+          reassurance: `${SAFE} Pair it again to keep syncing.`,
+          actions: ['pair_again', 'view_details'],
+          technical: `HTTP ${reason.status} device_revoked`,
+        };
+      }
       return {
         title: "We couldn't sign in to your server.",
         reassurance: `${SAFE} Nothing will be sent until this is fixed.`,

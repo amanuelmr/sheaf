@@ -40,7 +40,12 @@ export type FailureReason =
   /** 429 — back off, honouring Retry-After when present. Retryable. */
   | { readonly kind: 'rate_limited'; readonly retryAfterMs?: number }
   /** 401/403 — the token is wrong or lacks permission. Only the user can fix it. */
-  | { readonly kind: 'auth'; readonly status: number }
+  | {
+      readonly kind: 'auth';
+      readonly status: number;
+      /** This paired phone was removed from the server (ADR 0008): pair again. */
+      readonly revoked?: true;
+    }
   /** 404 — the URL does not point at a Paperless API. Only the user can fix it. */
   | { readonly kind: 'not_found' }
   /** TLS/certificate failure. Only the user can fix it. */
