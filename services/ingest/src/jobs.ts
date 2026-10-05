@@ -34,6 +34,11 @@ export interface Step {
   /** Whether this document needs the step at all, decided when it is about to run. */
   applies(document: DocumentRecord): Promise<boolean>;
   run(document: DocumentRecord, context: StepContext): Promise<ApiResult<null>>;
+  /**
+   * Called once when the runner stops trying, so the step can leave a final answer
+   * behind (an extraction that will never come can say so). Must be idempotent.
+   */
+  onGiveUp?(document: DocumentRecord, context: StepContext): Promise<void>;
 }
 
 export interface StepContext {
@@ -206,13 +211,22 @@ export class JobRunner {
       await this.#finish(job, 'done', null);
       return 'done';
     }
-    return this.#failed(job, step, outcome.reason);
+    return this.#failed(job, step, document, outcome.reason);
   }
 
-  async #failed(job: JobRow, step: Step, reason: FailureReason): Promise<'given_up' | 'waiting'> {
+  async #failed(
+    job: JobRow,
+    step: Step,
+    document: DocumentRecord,
+    reason: FailureReason,
+  ): Promise<'given_up' | 'waiting'> {
     const attempts = job.attempts + 1;
     const spent = step.budget !== null && attempts >= step.budget;
     if (!isRetryable(reason) || spent) {
+      // The hook runs before the job is marked, so a crash between them leaves the
+      // job to be retried and the hook to run again, rather than a job given up on
+      // with no final answer left behind.
+      await step.onGiveUp?.(document, { now: this.#ports.now() });
       await this.#finish(job, 'given_up', describe(reason), attempts);
       return 'given_up';
     }
