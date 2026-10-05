@@ -103,17 +103,19 @@ and the feature cost nothing, because it is one query against the log.
 
 ## Status
 
-Early. The sync engine and its tests exist; the app does not yet.
+What works today, and how each part is checked:
 
-|                      |                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| `packages/core`      | Event log, reducer, state machine, backoff, error mapping. Pure and fully tested. ✅ |
-| `packages/paperless` | Task interpretation and error classification. Client I/O still to come. 🚧           |
-| `packages/sim`       | Deterministic simulation primitives. Fault injector next. 🚧                         |
-| `apps/mobile`        | Not started. ⬜                                                                      |
-
-The engine is being built and proven _before_ the UI, because it is the part where
-being wrong is expensive.
+| Part                              | State                             | Checked by                                                                                 |
+| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| Capture and exactly-once delivery | Done                              | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated               |
+| Phone app (iOS)                   | Builds and boots in the Simulator | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                            |
+| Phone app (Android)               | Configured                        | **Not yet built**                                                                          |
+| Server as system of record        | Done                              | Job runner and connectors under fault simulation; migrations tested on a real old database |
+| Search                            | Done                              | FTS5; p95 16.7 ms over 10,000 documents                                                    |
+| On-device text sent to the server | Done                              | Engine tests and the simulator                                                             |
+| Server-side OCR (optional)        | Done                              | Sidecar tests against a stand-in; container not yet run end to end                         |
+| Paperless-ngx (optional)          | Done                              | Contract tests against a real 3.2.1, weekly in CI                                          |
+| AI extraction, pairing, web app   | Planned                           | See [the roadmap](docs/roadmap/README.md)                                                  |
 
 ## Architecture
 
