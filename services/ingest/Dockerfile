@@ -10,6 +10,8 @@ WORKDIR /srv
 # what pnpm would have linked, without an install step, a lockfile, or a network.
 COPY packages/core/package.json      packages/core/package.json
 COPY packages/core/src               packages/core/src
+COPY packages/extract/package.json   packages/extract/package.json
+COPY packages/extract/src            packages/extract/src
 COPY packages/http/package.json      packages/http/package.json
 COPY packages/http/src               packages/http/src
 COPY packages/protocol/package.json  packages/protocol/package.json
@@ -25,7 +27,7 @@ COPY services/ingest/src             services/ingest/src
 # Miss one and it fails at startup rather than at build, so they are listed
 # explicitly rather than globbed.
 RUN mkdir -p node_modules/@sheaf \
-  && for pkg in core http protocol paperless store; do \
+  && for pkg in core extract http protocol paperless store; do \
        ln -s "/srv/packages/$pkg" "node_modules/@sheaf/$pkg"; \
      done
 

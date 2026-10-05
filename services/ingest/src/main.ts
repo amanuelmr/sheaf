@@ -6,12 +6,13 @@ import type { ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
 import { JobRunner, type Step } from './jobs.ts';
+import { extractStep } from './steps/extract.ts';
 import { ocrStep } from './steps/ocr.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
-import { archiveFromEnv, retentionFromEnv } from './config.ts';
+import { archiveFromEnv, extractionFromEnv, retentionFromEnv } from './config.ts';
 import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
 import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
@@ -65,6 +66,14 @@ const retention = retentionSetting.kind === 'on' ? retentionSetting.config : nul
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
 if (archiveChoice.kind === 'invalid') {
   console.error(archiveChoice.message);
+  process.exit(1);
+}
+
+const extraction = extractionFromEnv(process.env, paperlessUrl !== undefined, (url, init) =>
+  fetch(url, { ...(init as RequestInit), signal: AbortSignal.timeout(120_000) }),
+);
+if (extraction.kind === 'invalid') {
+  console.error(extraction.message);
   process.exit(1);
 }
 
@@ -174,14 +183,17 @@ if (paperlessClient !== null && vocabulary !== null) {
   }, 5_000);
   console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
 
-  const suggestions = new SuggestionFetcher(
-    storage,
-    paperlessSuggestionSource(paperlessClient, vocabulary),
-    { now: () => Date.now(), jitter: () => Math.random() },
-  );
+  // Paperless's own suggestions, only when chosen instead of reading documents here.
+  const suggestions =
+    extraction.kind !== 'paperless'
+      ? null
+      : new SuggestionFetcher(storage, paperlessSuggestionSource(paperlessClient, vocabulary), {
+          now: () => Date.now(),
+          jitter: () => Math.random(),
+        });
   let fetchingSuggestions = false;
   setInterval(() => {
-    if (fetchingSuggestions) return;
+    if (suggestions === null || fetchingSuggestions) return;
     fetchingSuggestions = true;
     void suggestions
       .tick()
@@ -233,6 +245,22 @@ if (paperlessClient !== null && vocabulary !== null) {
  * there is something for it to do.
  */
 const steps: Step[] = [];
+
+// Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
+if (extraction.kind === 'native') {
+  steps.push(
+    extractStep(storage, {
+      extractor: extraction.extractor,
+      dateOrder: extraction.dateOrder,
+      defaultCurrency: extraction.defaultCurrency,
+      graceMs: 120_000,
+    }),
+  );
+  console.log(
+    `extraction: ${extraction.extractor.name}` +
+      (extraction.sendsTextAway ? ' (document text is sent to the provider)' : ''),
+  );
+}
 
 // Server-side OCR, only when the sidecar is there (compose.ocr.yml). ADR 0009.
 const ocrUrl = process.env['SHEAF_OCR_URL'];
