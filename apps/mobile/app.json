@@ -46,7 +46,7 @@
           "cameraPermission": "Sheaf uses the camera to scan documents and send them to your own server."
         }
       ],
-[
+      [
         "expo-build-properties",
         {
           "android": {

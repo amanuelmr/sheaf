@@ -85,6 +85,28 @@ The iOS build requires one patched dependency: `expo-modules-jsi@57.0.5` annotat
 two constructors with `SWIFT_RETURNS_RETAINED`, which Swift 6.2 (Xcode 26) rejects.
 It is a two-line, verified-redundant removal — see [`patches/README.md`](../../patches/README.md).
 
+## End-to-end tests
+
+[Maestro](https://maestro.mobile.dev) flows live in `e2e/`. A simulator has no
+camera, so the flows need a build where the shutter scans a bundled page
+(`assets/e2e/page.jpg`) instead. That build is chosen at bundle time with
+`EXPO_PUBLIC_SHEAF_E2E=1`, and a build made without it cannot reach that path.
+
+One-time setup: Java 17+ and `curl -fsSL "https://get.maestro.mobile.dev" | bash`.
+
+```bash
+# 1. A server with a known token, in one terminal
+SHEAF_TOKEN=e2e-token-0123456789 pnpm --filter @sheaf/ingest start
+
+# 2. A test build on a booted simulator, in another
+EXPO_PUBLIC_SHEAF_E2E=1 pnpm --filter @sheaf/mobile exec expo run:ios
+
+# 3. The flows
+TOKEN=e2e-token-0123456789 pnpm --filter @sheaf/mobile e2e
+```
+
+Controls the flows touch carry a `testID`, so rewording a label does not break a test.
+
 ## What is verified, and what is not
 
 `pnpm verify` typechecks this app under the same strict settings as the packages,
