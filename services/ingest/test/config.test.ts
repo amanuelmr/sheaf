@@ -1,5 +1,6 @@
 import { describe as suite, expect, it } from 'vitest';
-import { archiveFromEnv, retentionFromEnv } from '../src/config';
+import { archiveFromEnv, extractionFromEnv, retentionFromEnv } from '../src/config';
+import type { FetchLike } from '@sheaf/http';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -57,4 +58,55 @@ suite('archiveFromEnv', () => {
     expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'paperless' }, false).kind).toBe('invalid');
     expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'dropbox' }, true).kind).toBe('invalid');
   });
+});
+
+suite('extractionFromEnv', () => {
+  const fetch: FetchLike = () => Promise.reject(new Error('no network in this test'));
+  const choose = (env: Record<string, string>, paperless = false) =>
+    extractionFromEnv(env, paperless, fetch);
+
+  it('reads documents on this server, sending nothing anywhere, unless told otherwise', () => {
+    const choice = choose({});
+    expect(choice.kind === 'native' && [choice.extractor.name, choice.sendsTextAway]).toEqual([
+      'heuristic',
+      false,
+    ]);
+    expect(choice.kind === 'native' && [choice.dateOrder, choice.defaultCurrency]).toEqual([
+      'DMY',
+      'EUR',
+    ]);
+  });
+
+  it('uses Claude only with a key, and says that text leaves the server', () => {
+    expect(choose({ SHEAF_EXTRACTOR: 'claude' }).kind).toBe('invalid');
+    const choice = choose({ SHEAF_EXTRACTOR: 'claude', ANTHROPIC_API_KEY: 'sk-x' });
+    expect(choice.kind === 'native' && [choice.extractor.name, choice.sendsTextAway]).toEqual([
+      'claude',
+      true,
+    ]);
+  });
+
+  it('uses Ollama with a URL and a model, keeping text on the network', () => {
+    expect(choose({ SHEAF_EXTRACTOR: 'ollama', SHEAF_OLLAMA_URL: 'http://o:11434' }).kind).toBe(
+      'invalid',
+    );
+    const choice = choose({
+      SHEAF_EXTRACTOR: 'ollama',
+      SHEAF_OLLAMA_URL: 'http://o:11434',
+      SHEAF_OLLAMA_MODEL: 'llama3.2:3b',
+    });
+    expect(choice.kind === 'native' && choice.sendsTextAway).toBe(false);
+  });
+
+  it('falls back to Paperless suggestions only where Paperless is configured', () => {
+    expect(choose({ SHEAF_EXTRACTOR: 'paperless' }, true).kind).toBe('paperless');
+    expect(choose({ SHEAF_EXTRACTOR: 'paperless' }, false).kind).toBe('invalid');
+  });
+
+  it.each([{ SHEAF_EXTRACTOR: 'gpt' }, { SHEAF_DATE_ORDER: 'DDMM' }, { SHEAF_CURRENCY: 'euro' }])(
+    'refuses %j',
+    (env) => {
+      expect(choose(env).kind).toBe('invalid');
+    },
+  );
 });
