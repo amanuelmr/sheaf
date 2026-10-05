@@ -237,7 +237,7 @@ suite('reading documents back', () => {
 
   it('tells apart a document it never had from one retention already freed', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -280,7 +280,7 @@ suite('suggestions', () => {
 
   it('serves whatever the fetcher cached, once there is something', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -354,7 +354,7 @@ suite('retention on /v1/health', () => {
 
   it('reports the configured days and how many documents have actually been released', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,

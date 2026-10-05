@@ -69,15 +69,35 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['suggestions_json', 'TEXT'],
 ];
 
+/**
+ * The connector whose progress a v1 `DocumentRecord.forward` reports. Clients of
+ * protocol v1 only know of one downstream system, and it was always Paperless.
+ */
+export const PRIMARY_CONNECTOR = 'paperless';
+
+/**
+ * A document joined with its delivery to one connector. A document with no row
+ * for that connector has not been sent there yet, which reads as `pending`.
+ */
+const WITH_DELIVERY = `
+  SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
+         d.document_type, d.tags, d.bytes_released, d.suggestions_state,
+         d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json,
+         COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
+         v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
+         v.error AS f_error, v.done_at AS f_done_at
+    FROM documents d
+    LEFT JOIN deliveries v ON v.sha256 = d.sha256 AND v.connector = ?`;
+
 interface Row {
   sha256: string;
-  forward_state: string;
-  forward_attempts: number;
-  forward_next_at: number | null;
-  forward_task_id: string | null;
-  forward_error: string | null;
-  remote_id: string | null;
-  forward_done_at: number | null;
+  f_state: string;
+  f_attempts: number;
+  f_next_at: number | null;
+  f_task_id: string | null;
+  f_error: string | null;
+  f_remote_id: string | null;
+  f_done_at: number | null;
   bytes_released: number;
   suggestions_state: string;
   suggestions_attempts: number;
@@ -176,7 +196,10 @@ export class Storage {
   }
 
   async record(sha256: string): Promise<DocumentRecord | null> {
-    const rows = await this.#driver.all<Row>('SELECT * FROM documents WHERE sha256 = ?', [sha256]);
+    const rows = await this.#driver.all<Row>(`${WITH_DELIVERY} WHERE d.sha256 = ?`, [
+      PRIMARY_CONNECTOR,
+      sha256,
+    ]);
     const row = rows[0];
     return row === undefined ? null : toRecord(row);
   }
@@ -188,8 +211,8 @@ export class Storage {
 
   async list(limit = 200): Promise<readonly DocumentRecord[]> {
     const rows = await this.#driver.all<Row>(
-      'SELECT * FROM documents ORDER BY received_at DESC, sha256 ASC LIMIT ?',
-      [limit],
+      `${WITH_DELIVERY} ORDER BY d.received_at DESC, d.sha256 ASC LIMIT ?`,
+      [PRIMARY_CONNECTOR, limit],
     );
     return rows.map(toRecord);
   }
@@ -225,21 +248,29 @@ export class Storage {
     return this.record(sha256);
   }
 
-  /** Documents due to be handed on, oldest first so nothing starves. */
-  async dueForForwarding(now: number, limit = 20): Promise<readonly DocumentRecord[]> {
+  /**
+   * Documents due to be handed to one connector, oldest first so nothing starves.
+   * Each record's `forward` describes its delivery to that connector.
+   */
+  async dueForForwarding(
+    now: number,
+    connector: string,
+    limit = 20,
+  ): Promise<readonly DocumentRecord[]> {
     const rows = await this.#driver.all<Row>(
-      `SELECT * FROM documents
-        WHERE forward_state IN ('pending', 'sent')
-          AND (forward_next_at IS NULL OR forward_next_at <= ?)
-        ORDER BY received_at ASC
+      `${WITH_DELIVERY}
+        WHERE COALESCE(v.state, 'pending') IN ('pending', 'sent')
+          AND (v.next_at IS NULL OR v.next_at <= ?)
+        ORDER BY d.received_at ASC
         LIMIT ?`,
-      [now, limit],
+      [connector, now, limit],
     );
     return rows.map(toRecord);
   }
 
   async recordForwardAttempt(
     sha256: string,
+    connector: string,
     update: {
       state: 'pending' | 'sent' | 'done' | 'failed';
       attempts: number;
@@ -251,15 +282,24 @@ export class Storage {
       doneAt?: number;
     },
   ): Promise<void> {
+    // An upsert: the first attempt for a connector creates its row. Task id, remote
+    // id and completion time are kept once known, exactly as the columns this
+    // replaced kept them.
     await this.#driver.run(
-      `UPDATE documents
-          SET forward_state = ?, forward_attempts = ?, forward_next_at = ?,
-              forward_task_id = COALESCE(?, forward_task_id),
-              remote_id = COALESCE(?, remote_id),
-              forward_error = ?,
-              forward_done_at = COALESCE(forward_done_at, ?)
-        WHERE sha256 = ?`,
+      `INSERT INTO deliveries
+         (sha256, connector, state, attempts, next_at, task_id, remote_id, error, done_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (sha256, connector) DO UPDATE SET
+         state = excluded.state,
+         attempts = excluded.attempts,
+         next_at = excluded.next_at,
+         task_id = COALESCE(excluded.task_id, deliveries.task_id),
+         remote_id = COALESCE(excluded.remote_id, deliveries.remote_id),
+         error = excluded.error,
+         done_at = COALESCE(deliveries.done_at, excluded.done_at)`,
       [
+        sha256,
+        connector,
         update.state,
         update.attempts,
         update.nextAt,
@@ -267,7 +307,6 @@ export class Storage {
         update.remoteId ?? null,
         update.error ?? null,
         update.doneAt ?? null,
-        sha256,
       ],
     );
   }
@@ -280,15 +319,16 @@ export class Storage {
   async dueForRelease(
     now: number,
     retentionMs: number,
+    connector: string,
     limit = 50,
   ): Promise<readonly DocumentRecord[]> {
     const rows = await this.#driver.all<Row>(
-      `SELECT * FROM documents
-        WHERE forward_state = 'done' AND bytes_released = 0
-          AND forward_done_at IS NOT NULL AND forward_done_at <= ?
-        ORDER BY forward_done_at ASC
+      `${WITH_DELIVERY}
+        WHERE v.state = 'done' AND d.bytes_released = 0
+          AND v.done_at IS NOT NULL AND v.done_at <= ?
+        ORDER BY v.done_at ASC
         LIMIT ?`,
-      [now - retentionMs, limit],
+      [connector, now - retentionMs, limit],
     );
     return rows.map(toRecord);
   }
@@ -311,19 +351,24 @@ export class Storage {
     await this.#driver.run('UPDATE documents SET bytes_released = 1 WHERE sha256 = ?', [sha256]);
   }
 
-  async forwardTaskId(sha256: string): Promise<string | null> {
-    const rows = await this.#driver.all<{ forward_task_id: string | null }>(
-      'SELECT forward_task_id FROM documents WHERE sha256 = ?',
-      [sha256],
+  async forwardTaskId(sha256: string, connector: string): Promise<string | null> {
+    const rows = await this.#driver.all<{ task_id: string | null }>(
+      'SELECT task_id FROM deliveries WHERE sha256 = ? AND connector = ?',
+      [sha256, connector],
     );
-    return rows[0]?.forward_task_id ?? null;
+    return rows[0]?.task_id ?? null;
   }
 
-  async forwardCounts(): Promise<Readonly<Record<string, number>>> {
-    const rows = await this.#driver.all<{ forward_state: string; n: number }>(
-      'SELECT forward_state, COUNT(*) AS n FROM documents GROUP BY forward_state',
+  /** Documents by delivery state for one connector; never-sent documents count as pending. */
+  async forwardCounts(connector: string): Promise<Readonly<Record<string, number>>> {
+    const rows = await this.#driver.all<{ state: string; n: number }>(
+      `SELECT COALESCE(v.state, 'pending') AS state, COUNT(*) AS n
+         FROM documents d
+         LEFT JOIN deliveries v ON v.sha256 = d.sha256 AND v.connector = ?
+        GROUP BY 1`,
+      [connector],
     );
-    return Object.fromEntries(rows.map((row) => [row.forward_state, row.n]));
+    return Object.fromEntries(rows.map((row) => [row.state, row.n]));
   }
 
   /** How many documents retention has actually freed the bytes for, so far. */
@@ -344,19 +389,25 @@ export class Storage {
    * retry bookkeeping for the fetcher, not something the wire contract needs to
    * carry.
    */
-  async dueForSuggestions(now: number, limit = 20): Promise<readonly SuggestionCandidate[]> {
+  async dueForSuggestions(
+    now: number,
+    connector: string,
+    limit = 20,
+  ): Promise<readonly SuggestionCandidate[]> {
     const rows = await this.#driver.all<{
       sha256: string;
       remote_id: string;
       suggestions_attempts: number;
     }>(
-      `SELECT sha256, remote_id, suggestions_attempts FROM documents
-        WHERE forward_state = 'done' AND remote_id IS NOT NULL
-          AND suggestions_state = 'pending'
-          AND (suggestions_next_at IS NULL OR suggestions_next_at <= ?)
-        ORDER BY received_at ASC
+      `SELECT d.sha256, v.remote_id, d.suggestions_attempts
+         FROM documents d
+         JOIN deliveries v ON v.sha256 = d.sha256 AND v.connector = ?
+        WHERE v.state = 'done' AND v.remote_id IS NOT NULL
+          AND d.suggestions_state = 'pending'
+          AND (d.suggestions_next_at IS NULL OR d.suggestions_next_at <= ?)
+        ORDER BY d.received_at ASC
         LIMIT ?`,
-      [now, limit],
+      [connector, now, limit],
     );
     return rows.map((row) => ({
       sha256: row.sha256,
@@ -407,10 +458,10 @@ function toRecord(row: Row): DocumentRecord {
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
     forward: {
-      state: row.forward_state as DocumentRecord['forward']['state'],
-      attempts: row.forward_attempts,
-      remoteId: row.remote_id,
-      error: row.forward_error,
+      state: row.f_state as DocumentRecord['forward']['state'],
+      attempts: row.f_attempts,
+      remoteId: row.f_remote_id,
+      error: row.f_error,
     },
     bytesReleased: row.bytes_released === 1,
     suggestions:

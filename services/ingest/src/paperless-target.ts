@@ -2,7 +2,8 @@ import { captureFilename, interpretTask, type PaperlessClient } from '@sheaf/pap
 import type { ServerOutcome } from '@sheaf/core';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import type { DocumentRecord } from '@sheaf/protocol';
-import type { ForwardTarget } from './forwarder.ts';
+import type { Connector } from './forwarder.ts';
+import { PRIMARY_CONNECTOR } from './storage.ts';
 
 /**
  * Paperless-ngx as a forwarding target.
@@ -15,8 +16,10 @@ import type { ForwardTarget } from './forwarder.ts';
  * flaky connection, with the user waiting. Here it is a server talking to a server,
  * where a retry costs nothing and nobody is watching.
  */
-export function paperlessTarget(client: PaperlessClient): ForwardTarget {
+export function paperlessTarget(client: PaperlessClient): Connector {
   return {
+    name: PRIMARY_CONNECTOR,
+
     send(document: DocumentRecord, bytes: Uint8Array): Promise<ApiResult<string>> {
       const filename = captureFilename(document.sha256);
       const fields: Record<string, string> = {};

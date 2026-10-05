@@ -31,7 +31,7 @@ beforeEach(async () => {
 });
 
 async function markDone(): Promise<void> {
-  await storage.recordForwardAttempt(hashA, {
+  await storage.recordForwardAttempt(hashA, 'paperless', {
     state: 'done',
     attempts: 1,
     nextAt: null,
@@ -43,21 +43,21 @@ async function markDone(): Promise<void> {
 
 suite('what becomes due', () => {
   it('leaves a document alone until forwarding has finished', async () => {
-    const retention = new Retention(storage, DAY, { now: () => clock + 10 * DAY });
+    const retention = new Retention(storage, DAY, 'paperless', { now: () => clock + 10 * DAY });
     expect((await retention.tick()).released).toBe(0);
     expect(storage.bytes(hashA)).toEqual(A);
   });
 
   it('leaves a done document alone before its grace period is up', async () => {
     await markDone();
-    const retention = new Retention(storage, DAY, { now: () => clock + DAY / 2 });
+    const retention = new Retention(storage, DAY, 'paperless', { now: () => clock + DAY / 2 });
     expect((await retention.tick()).released).toBe(0);
     expect(storage.bytes(hashA)).toEqual(A);
   });
 
   it('frees the bytes once a done document has aged past the grace period', async () => {
     await markDone();
-    const retention = new Retention(storage, DAY, { now: () => clock + DAY + 1 });
+    const retention = new Retention(storage, DAY, 'paperless', { now: () => clock + DAY + 1 });
     expect((await retention.tick()).released).toBe(1);
     expect(storage.bytes(hashA)).toBeNull();
   });
@@ -67,7 +67,7 @@ suite('what survives', () => {
   it('keeps the row, the metadata, and the forwarding history', async () => {
     await markDone();
     await storage.patch(hashA, { title: 'Amazon receipt', tags: ['shopping'] });
-    const retention = new Retention(storage, DAY, { now: () => clock + DAY + 1 });
+    const retention = new Retention(storage, DAY, 'paperless', { now: () => clock + DAY + 1 });
     await retention.tick();
 
     const record = await storage.record(hashA);
@@ -79,7 +79,7 @@ suite('what survives', () => {
 
   it('is idempotent: a second pass finds nothing left to do', async () => {
     await markDone();
-    const retention = new Retention(storage, DAY, { now: () => clock + DAY + 1 });
+    const retention = new Retention(storage, DAY, 'paperless', { now: () => clock + DAY + 1 });
     await retention.tick();
     expect((await retention.tick()).released).toBe(0);
   });
@@ -100,7 +100,7 @@ suite('storage.dueForRelease', () => {
     await storage.put(hashB, B, clock, 1);
     await markDone(); // A only
 
-    const due = await storage.dueForRelease(clock + 10 * DAY, DAY);
+    const due = await storage.dueForRelease(clock + 10 * DAY, DAY, 'paperless');
     expect(due.map((d) => d.sha256)).toEqual([hashA]);
   });
 
@@ -108,7 +108,7 @@ suite('storage.dueForRelease', () => {
     const B = new Uint8Array(Buffer.from('%PDF-1.4\nsecond\n%%EOF\n'));
     const hashB = sha256Hex(B);
     await storage.put(hashB, B, clock, 1);
-    await storage.recordForwardAttempt(hashB, {
+    await storage.recordForwardAttempt(hashB, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -117,7 +117,7 @@ suite('storage.dueForRelease', () => {
     });
     await markDone(); // finished a day later than B
 
-    const due = await storage.dueForRelease(clock + 10 * DAY, DAY);
+    const due = await storage.dueForRelease(clock + 10 * DAY, DAY, 'paperless');
     expect(due.map((d) => d.sha256)).toEqual([hashB, hashA]);
   });
 });
@@ -130,7 +130,7 @@ suite('the file on disk', () => {
     const path = join(objectsDir, hashA.slice(0, 2), `${hashA}.pdf`);
     expect(existsSync(path)).toBe(true);
 
-    await local.recordForwardAttempt(hashA, {
+    await local.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,

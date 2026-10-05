@@ -21,7 +21,7 @@ import {
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Storage } from './storage.ts';
-import { sha256Hex } from './storage.ts';
+import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 
 /**
  * Every route, as a pure function of a parsed request.
@@ -101,7 +101,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
         : {
             forwarding: {
               target: deps.forwardingTo,
-              counts: await deps.storage.forwardCounts(),
+              counts: await deps.storage.forwardCounts(PRIMARY_CONNECTOR),
               ...(reconciliation === null ? {} : { reconciliation }),
               ...(retention === null ? {} : { retention }),
             },

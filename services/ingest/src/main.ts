@@ -11,7 +11,7 @@ import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { createIngestServer } from './server.ts';
-import { Storage } from './storage.ts';
+import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
 import { SuggestionFetcher } from './suggestion-fetcher.ts';
 
 /**
@@ -186,7 +186,9 @@ if (paperlessClient !== null && vocabulary !== null) {
   }, 5_000);
 
   if (retentionMs !== null) {
-    const retention = new Retention(storage, retentionMs, { now: () => Date.now() });
+    const retention = new Retention(storage, retentionMs, PRIMARY_CONNECTOR, {
+      now: () => Date.now(),
+    });
     let releasing = false;
     setInterval(() => {
       if (releasing) return;
