@@ -16,7 +16,8 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import { Devices } from '../src/devices';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
-import { handle, type IngestRequest } from '../src/router';
+import { METRICS_PATH, handle, type IngestRequest } from '../src/router';
+import { ServerMetrics } from '../src/observability';
 import { Storage, sha256Hex } from '../src/storage';
 
 const TOKEN = 'a-token-of-at-least-16-chars';
@@ -844,5 +845,44 @@ suite('what the web app reads', () => {
       'You changed: title',
     ]);
     expect(events.map((e) => e.at)).toEqual([...events.map((e) => e.at)].sort((a, b) => a - b));
+  });
+});
+
+suite('metrics', () => {
+  it('serves Prometheus text to the admin token only', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-mx-')),
+    });
+    const devices = new Devices(driver, { now: () => clock });
+    const withMetrics = { ...deps, storage, devices, metrics: new ServerMetrics(driver) };
+
+    const response = await handle(req('GET', METRICS_PATH), withMetrics);
+    expect(response.status).toBe(200);
+    expect(response.headers?.['content-type']).toMatch(/^text\/plain/);
+    expect(Buffer.from(response.bytes!).toString()).toContain('# TYPE sheaf_documents gauge');
+
+    const { code } = (await handle(req('POST', paths.pairingCodes()), withMetrics)).json as {
+      code: string;
+    };
+    const paired = (
+      await handle(
+        {
+          ...req(
+            'POST',
+            paths.pair(),
+            new Uint8Array(Buffer.from(JSON.stringify({ code, deviceName: 'p' }))),
+          ),
+          headers: {},
+        },
+        withMetrics,
+      )
+    ).json as { token: string };
+    const asPhone = await handle(
+      { ...req('GET', METRICS_PATH), headers: { authorization: `Bearer ${paired.token}` } },
+      withMetrics,
+    );
+    expect(asPhone.status).toBe(403);
   });
 });

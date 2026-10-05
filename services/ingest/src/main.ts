@@ -13,6 +13,7 @@ import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { Devices } from './devices.ts';
+import { ServerMetrics } from './observability.ts';
 import { archiveFromEnv, extractionFromEnv, retentionFromEnv } from './config.ts';
 import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
@@ -159,6 +160,7 @@ const server = createIngestServer({
   token,
   // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
   devices: new Devices(driver, { now: () => Date.now() }),
+  metrics: new ServerMetrics(driver),
   now: () => Date.now(),
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),

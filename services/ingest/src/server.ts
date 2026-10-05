@@ -30,6 +30,14 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
  */
 export function createIngestServer(deps: RouterDeps): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
+    const started = process.hrtime.bigint();
+    const path = (req.url ?? '/').split('?')[0] ?? '/';
+    // Every answer is counted once it is sent, whichever branch sent it.
+    res.on('finish', () => {
+      const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+      deps.metrics?.observeRequest(req.method ?? 'GET', path, res.statusCode, seconds);
+    });
+
     if (req.method === 'OPTIONS') {
       res.writeHead(204, CORS_HEADERS);
       res.end();

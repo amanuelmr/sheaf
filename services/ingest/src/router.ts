@@ -34,6 +34,7 @@ import {
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
+import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
 import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
@@ -81,7 +82,12 @@ export interface RouterDeps {
   readonly retentionDays?: number;
   /** Paired phones (ADR 0008). Absent, only the admin token is accepted. */
   readonly devices?: Devices;
+  /** What `/metrics` reports. Absent, the route does not exist. */
+  readonly metrics?: ServerMetrics;
 }
+
+/** Prometheus's conventional path, outside the versioned protocol. */
+export const METRICS_PATH = '/metrics';
 
 /** Who a request is from: the operator's admin token, or one paired phone. */
 type Principal = { readonly kind: 'admin' } | { readonly kind: 'device'; readonly id: string };
@@ -173,6 +179,17 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return fail('device_revoked', 'this device was removed; pair it again to keep syncing');
   }
   if (principal === null) return fail('unauthenticated');
+
+  if (path === METRICS_PATH && deps.metrics !== undefined) {
+    // Admin only: counts of documents and phones are not a paired phone's business.
+    if (principal.kind !== 'admin') return fail('forbidden', 'metrics need the admin token');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' },
+      bytes: new Uint8Array(Buffer.from(await deps.metrics.render(deps.now()))),
+    };
+  }
 
   if (
     path === paths.pairingCodes() ||
