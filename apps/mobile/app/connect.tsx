@@ -117,6 +117,7 @@ export default function Connect() {
           autoCorrect={false}
           keyboardType="url"
           accessibilityLabel="Server URL"
+          testID="connect-url"
           style={[
             styles.input,
             { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },
@@ -138,6 +139,7 @@ export default function Connect() {
           autoCorrect={false}
           secureTextEntry
           accessibilityLabel="Server token"
+          testID="connect-token"
           style={[
             styles.input,
             { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },
@@ -150,6 +152,7 @@ export default function Connect() {
         palette={palette}
         disabled={phase.kind === 'testing' || baseUrl.trim() === '' || token.trim() === ''}
         onPress={() => void test()}
+        testID="connect-submit"
       />
 
       {phase.kind === 'failed' ? (
