@@ -33,3 +33,11 @@ devices. This is the raw material for the write-up in step 4.5.
   its rowids on `VACUUM`, and the phone caches archive ids. Ids now live in an
   `archive_ids` table whose `INTEGER PRIMARY KEY` never moves; a test vacuums and
   checks.
+- 2026-10-05 — OCR sidecar, real container (`ocrmypdf-alpine:v17.13.0`): an
+  image-only 300-dpi receipt came back word for word in about 1 s. Three things the
+  real run caught that tests had not: the base image already runs as uid 1000, so
+  the Dockerfile's `adduser` would have failed the build; the repo's page fixtures
+  (480×640) are too small for Tesseract to read at all, so they cannot be used to
+  test OCR; and Python's `HTTPServer` spent 35 s on a reverse-DNS lookup at bind.
+  Not yet run: the whole stack through compose, since this Mac already serves a
+  Sheaf on port 8787.
