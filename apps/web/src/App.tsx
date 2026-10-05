@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react';
-import type { HealthResponse } from '@sheaf/protocol';
-import { fetchHealth } from './api';
-import { clearConnection, loadConnection, saveConnection, type Connection } from './connection';
-
-const POLL_MS = 5_000;
+import { useEffect, useMemo, useState } from 'react';
+import { api as makeApi, type Api } from './api';
+import {
+  clearConnection,
+  loadConnection,
+  rememberedUrl,
+  saveConnection,
+  type Connection,
+} from './connection';
+import { Devices } from './pages/Devices';
+import { Document } from './pages/Document';
+import { Inbox } from './pages/Inbox';
+import { Search } from './pages/Search';
+import { System } from './pages/System';
+import { href, useRoute, type Route } from './route';
 
 export default function App() {
   const [connection, setConnection] = useState<Connection | null>(() => loadConnection());
-
-  if (connection === null) {
-    return <ConnectScreen onConnect={setConnection} />;
-  }
+  if (connection === null) return <ConnectScreen onConnect={setConnection} />;
   return (
-    <Dashboard
+    <Shell
       connection={connection}
       onDisconnect={() => {
         clearConnection();
@@ -23,34 +29,43 @@ export default function App() {
 }
 
 function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => void }) {
-  const [baseUrl, setBaseUrl] = useState('');
+  const [baseUrl, setBaseUrl] = useState(rememberedUrl);
   const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (baseUrl.trim() === '' || token.trim() === '') return;
-    const connection: Connection = { baseUrl: baseUrl.trim(), token: token.trim() };
+    const connection: Connection = {
+      baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+      token: token.trim(),
+    };
+    if (connection.baseUrl === '' || connection.token === '') return;
+    // Check before keeping it, so a typo is caught here rather than on every page.
+    const health = await makeApi(connection).health();
+    if (!health.ok) {
+      setError(`Couldn’t connect: ${health.message}`);
+      return;
+    }
     saveConnection(connection);
     onConnect(connection);
   };
 
   return (
-    <div className="page">
-      <h1>Sheaf admin</h1>
+    <div className="page narrow">
+      <h1>Sheaf</h1>
       <p className="subtitle">
-        A window onto what your ingest server is doing -- nothing here is stored anywhere but this
-        browser.
+        Your documents, on your server. Connect with the admin token it was started with.
       </p>
-      <form className="card" onSubmit={submit}>
-        <label htmlFor="baseUrl">Server URL</label>
+      <form className="card" onSubmit={(event) => void submit(event)}>
+        <label htmlFor="baseUrl">Server address</label>
         <input
           id="baseUrl"
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.target.value)}
-          placeholder="http://192.168.1.5:8787"
-          autoComplete="off"
+          placeholder="http://192.168.1.20:8787"
+          autoComplete="url"
         />
-        <label htmlFor="token">SHEAF_TOKEN</label>
+        <label htmlFor="token">Admin token (SHEAF_TOKEN)</label>
         <input
           id="token"
           type="password"
@@ -58,152 +73,68 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
           onChange={(event) => setToken(event.target.value)}
           autoComplete="off"
         />
+        {error === null ? null : <p className="error">{error}</p>}
         <button type="submit">Connect</button>
+        <p className="muted small">The token is forgotten when you close this tab.</p>
       </form>
     </div>
   );
 }
 
-function Dashboard({
-  connection,
-  onDisconnect,
-}: {
-  connection: Connection;
-  onDisconnect: () => void;
-}) {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const NAV: readonly { route: Route; label: string }[] = [
+  { route: { page: 'search' }, label: 'Search' },
+  { route: { page: 'inbox' }, label: 'To review' },
+  { route: { page: 'devices' }, label: 'Phones' },
+  { route: { page: 'system' }, label: 'System' },
+];
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function poll(): Promise<void> {
-      const result = await fetchHealth(connection.baseUrl, connection.token);
-      if (cancelled) return;
-      // A poll that fails leaves the last good reading on screen rather than
-      // blanking it out -- one missed request over a flaky connection should
-      // not read as "the server has no idea what it's doing".
-      if (result.ok) {
-        setHealth(result.health);
-        setError(null);
-      } else {
-        setError(result.message);
-      }
-    }
-
-    void poll();
-    const timer = setInterval(() => void poll(), POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [connection]);
+function Shell({ connection, onDisconnect }: { connection: Connection; onDisconnect: () => void }) {
+  const api = useMemo(() => makeApi(connection), [connection]);
+  const route = useRoute();
+  const toReview = useInboxCount(api, route);
 
   return (
     <div className="page">
-      <h1>Sheaf admin</h1>
-      <p className="subtitle">{connection.baseUrl}</p>
-
-      {error === null ? null : <p className="error">Couldn't reach the server: {error}</p>}
-
-      {health === null ? (
-        <p className="muted">Loading…</p>
-      ) : (
-        <>
-          <div className="card">
-            <h2>Storage</h2>
-            <div className="row">
-              <span>Documents held</span>
-              <span>{health.documents}</span>
-            </div>
-          </div>
-
-          {health.forwarding === undefined ? (
-            <div className="card">
-              <h2>Forwarding</h2>
-              <p className="muted">
-                Not configured. Set <code>PAPERLESS_URL</code> to forward documents on and enable
-                browsing and suggestions.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="card">
-                <h2>Forwarding to {health.forwarding.target}</h2>
-                {Object.entries(health.forwarding.counts).map(([state, count]) => (
-                  <div className="row" key={state}>
-                    <span>{state}</span>
-                    <span>{count}</span>
-                  </div>
-                ))}
-                {Object.keys(health.forwarding.counts).length === 0 ? (
-                  <p className="muted">Nothing forwarded yet.</p>
-                ) : null}
-              </div>
-
-              <div className="card">
-                <h2>Reconciliation</h2>
-                <ReconciliationRow reconciliation={health.forwarding.reconciliation} />
-              </div>
-
-              <div className="card">
-                <h2>Retention</h2>
-                <RetentionRow retention={health.forwarding.retention} />
-              </div>
-            </>
-          )}
-        </>
-      )}
-
-      <button className="secondary" onClick={onDisconnect}>
-        Disconnect
-      </button>
+      <header className="top">
+        <a className="brand" href={href({ page: 'search' })}>
+          Sheaf
+        </a>
+        <nav>
+          {NAV.map(({ route: target, label }) => (
+            <a
+              key={label}
+              href={href(target)}
+              aria-current={route.page === target.page ? 'page' : undefined}
+            >
+              {label}
+              {target.page === 'inbox' && toReview > 0 ? (
+                <span className="count">{toReview}</span>
+              ) : null}
+            </a>
+          ))}
+        </nav>
+        <button className="link" onClick={onDisconnect}>
+          Disconnect
+        </button>
+      </header>
+      <main>
+        {route.page === 'search' ? <Search api={api} /> : null}
+        {route.page === 'document' ? <Document api={api} sha256={route.sha256} /> : null}
+        {route.page === 'inbox' ? <Inbox api={api} /> : null}
+        {route.page === 'devices' ? <Devices api={api} serverUrl={connection.baseUrl} /> : null}
+        {route.page === 'system' ? <System api={api} /> : null}
+      </main>
     </div>
   );
 }
 
-function ReconciliationRow({
-  reconciliation,
-}: {
-  reconciliation: NonNullable<HealthResponse['forwarding']>['reconciliation'];
-}) {
-  if (reconciliation === undefined) {
-    return <p className="muted">Probing…</p>;
-  }
-  if (!reconciliation.conclusive) {
-    return <p className="badge neutral">○ Inconclusive -- {reconciliation.detail}</p>;
-  }
-  return reconciliation.filterSupported ? (
-    <p className="badge ok">✓ Filter works as expected</p>
-  ) : (
-    <p className="badge danger">✕ Filter is being ignored -- {reconciliation.detail}</p>
-  );
-}
-
-function RetentionRow({
-  retention,
-}: {
-  retention: NonNullable<HealthResponse['forwarding']>['retention'];
-}) {
-  if (retention === undefined) {
-    return (
-      <p className="muted">
-        Off. Set <code>SHEAF_RETENTION_DAYS</code> to free bytes once Paperless confirms a document.
-      </p>
-    );
-  }
-  return (
-    <>
-      <div className="row">
-        <span>Freed after</span>
-        <span>
-          {retention.days} {retention.days === 1 ? 'day' : 'days'}
-        </span>
-      </div>
-      <div className="row">
-        <span>Documents released</span>
-        <span>{retention.released}</span>
-      </div>
-    </>
-  );
+/** How many documents await review, refreshed whenever the page changes. */
+function useInboxCount(api: Api, route: Route): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    void api.inbox().then((result) => {
+      if (result.ok) setCount(result.value.documents.length);
+    });
+  }, [api, route]);
+  return count;
 }
