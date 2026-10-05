@@ -1,0 +1,34 @@
+# The shortest path that proves the app works: connect, scan, and see the document
+# reach the server. Needs a build made with EXPO_PUBLIC_SHEAF_E2E=1 (the shutter
+# then scans a bundled page) and a server running with the token passed as TOKEN.
+#
+#   TOKEN=<SHEAF_TOKEN> pnpm --filter @sheaf/mobile e2e
+appId: dev.sheaf.capture
+env:
+  SERVER: http://localhost:8787
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- tapOn:
+    id: connect-url
+- inputText: ${SERVER}
+- tapOn:
+    id: connect-token
+- inputText: ${TOKEN}
+- hideKeyboard
+- tapOn:
+    id: connect-submit
+- extendedWaitUntil:
+    visible: 'Scan your first document'
+    timeout: 15000
+- tapOn: 'Scan your first document'
+- tapOn:
+    id: shutter
+- tapOn:
+    id: open-outbox
+- assertVisible:
+    id: outbox-row
+- extendedWaitUntil:
+    visible: 'Synced'
+    timeout: 30000
