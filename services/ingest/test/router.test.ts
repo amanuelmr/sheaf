@@ -533,3 +533,66 @@ suite('the archive', () => {
     expect(fake.calls).toEqual([]);
   });
 });
+
+suite('document text from the phone', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  const body = (text: string): Uint8Array => json({ source: 'edge', engine: 'apple-vision', text });
+
+  it('stores text for a document it holds, and storing it again changes nothing', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    expect(
+      (await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps)).status,
+    ).toBe(204);
+    expect(
+      (await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps)).status,
+    ).toBe(204);
+
+    const texts = await deps.storage.texts(hashA);
+    expect(texts).toEqual([
+      expect.objectContaining({ source: 'edge', engine: 'apple-vision', text: 'TOTAL 12.50' }),
+    ]);
+  });
+
+  it('leaves the stored text untouched, time included, when the same text is resent', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps);
+    const before = await deps.storage.texts(hashA);
+    await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps);
+    expect(await deps.storage.texts(hashA)).toEqual(before);
+  });
+
+  it('replaces older text from the same source', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('first read')), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('better read')), deps);
+    expect((await deps.storage.texts(hashA)).map((t) => t.text)).toEqual(['better read']);
+  });
+
+  it('refuses text for a document it does not hold', async () => {
+    const response = await handle(req('PUT', paths.documentText(hashA), body('x')), deps);
+    expect(response.status).toBe(404);
+  });
+
+  it.each([
+    ['not JSON', new Uint8Array(Buffer.from('TOTAL 12.50'))],
+    ['the wrong shape', json({ source: 'edge', text: 'no engine' })],
+    ['an empty body', new Uint8Array()],
+  ])('refuses %s', async (_, payload) => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const response = await handle(req('PUT', paths.documentText(hashA), payload), deps);
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses text over the limit', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const huge = body('x'.repeat(1024 * 1024 + 1));
+    expect((await handle(req('PUT', paths.documentText(hashA), huge), deps)).status).toBe(413);
+  });
+
+  it('allows only PUT', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    expect((await handle(req('POST', paths.documentText(hashA), body('x')), deps)).status).toBe(
+      400,
+    );
+  });
+});

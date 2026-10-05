@@ -5,8 +5,10 @@ import {
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
+  MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
   bearerToken,
+  isDocumentTextBody,
   isPaperlessId,
   isSha256,
   paths,
@@ -124,6 +126,14 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
 
+  const textSuffix = '/text';
+  if (rest.endsWith(textSuffix)) {
+    const id = rest.slice(0, -textSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'PUT') return fail('bad_request', `${method} not allowed here`);
+    return putText(id, request, deps);
+  }
+
   const suggestionsSuffix = '/suggestions';
   if (rest.endsWith(suggestionsSuffix)) {
     const id = rest.slice(0, -suggestionsSuffix.length);
@@ -192,6 +202,20 @@ async function put(id: string, request: IngestRequest, deps: RouterDeps): Promis
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+async function putText(
+  id: string,
+  request: IngestRequest,
+  deps: RouterDeps,
+): Promise<IngestResponse> {
+  if (request.body.length > MAX_TEXT_BYTES) return fail('too_large');
+  const body = request.body.length === 0 ? null : parseJson<unknown>(request.body);
+  if (!isDocumentTextBody(body)) {
+    return fail('bad_request', 'body must be {"source": "edge", "engine": "...", "text": "..."}');
+  }
+  const outcome = await deps.storage.putText(id, body, deps.now());
+  return outcome === 'stored' ? { status: 204 } : fail('not_found');
 }
 
 /**

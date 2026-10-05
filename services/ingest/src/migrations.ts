@@ -69,6 +69,23 @@ export const MIGRATIONS: readonly Migration[] = [
         WHERE forward_state <> 'pending' OR forward_attempts > 0 OR forward_task_id IS NOT NULL`,
     ],
   },
+  {
+    // Recognised text per document and source (ADR 0009). The phone's on-device OCR
+    // is the first source; a server-side fallback is the second. Keeping both lets
+    // search use either and lets their quality be compared.
+    id: 3,
+    name: 'document_text',
+    statements: [
+      `CREATE TABLE document_text (
+         sha256      TEXT    NOT NULL,
+         source      TEXT    NOT NULL,
+         engine      TEXT    NOT NULL,
+         text        TEXT    NOT NULL,
+         received_at INTEGER NOT NULL,
+         PRIMARY KEY (sha256, source)
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

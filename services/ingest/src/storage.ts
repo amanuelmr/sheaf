@@ -8,7 +8,13 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { DocumentPatch, DocumentRecord, PutOutcome, Suggestions } from '@sheaf/protocol';
+import type {
+  DocumentPatch,
+  DocumentRecord,
+  DocumentTextBody,
+  PutOutcome,
+  Suggestions,
+} from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import { migrate } from './migrations.ts';
 
@@ -20,6 +26,14 @@ import { migrate } from './migrations.ts';
 export interface StorageOptions {
   readonly driver: SqlDriver;
   readonly objectsDir: string;
+}
+
+/** Text recognised in a document, as one source last reported it. */
+export interface StoredText {
+  readonly source: string;
+  readonly engine: string;
+  readonly text: string;
+  readonly receivedAt: number;
 }
 
 export interface SuggestionCandidate {
@@ -220,6 +234,48 @@ export class Storage {
   async count(): Promise<number> {
     const rows = await this.#driver.all<{ n: number }>('SELECT COUNT(*) AS n FROM documents');
     return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Keep the text one source recognised in a stored document. Sending the same
+   * text again leaves the row exactly as it was, `receivedAt` included, so a client
+   * retrying after a lost reply changes nothing.
+   */
+  async putText(
+    sha256: string,
+    body: DocumentTextBody,
+    now: number,
+  ): Promise<'stored' | 'unknown-document'> {
+    if (!(await this.has(sha256))) return 'unknown-document';
+    await this.#driver.run(
+      `INSERT INTO document_text (sha256, source, engine, text, received_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (sha256, source) DO UPDATE SET
+         engine = excluded.engine,
+         text = excluded.text,
+         received_at = excluded.received_at
+       WHERE document_text.text <> excluded.text OR document_text.engine <> excluded.engine`,
+      [sha256, body.source, body.engine, body.text, now],
+    );
+    return 'stored';
+  }
+
+  async texts(sha256: string): Promise<readonly StoredText[]> {
+    const rows = await this.#driver.all<{
+      source: string;
+      engine: string;
+      text: string;
+      received_at: number;
+    }>(
+      'SELECT source, engine, text, received_at FROM document_text WHERE sha256 = ? ORDER BY source',
+      [sha256],
+    );
+    return rows.map((row) => ({
+      source: row.source,
+      engine: row.engine,
+      text: row.text,
+      receivedAt: row.received_at,
+    }));
   }
 
   /** Applies only the fields present. `null` clears; omitted leaves alone. */
