@@ -8,5 +8,12 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sheaf/http": "workspace:*"
+  },
+  "scripts": {
+    "eval": "node --experimental-strip-types eval/run.ts",
+    "eval:fetch": "node --experimental-strip-types eval/fetch-sroie.ts"
   }
 }
