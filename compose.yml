@@ -1,22 +1,17 @@
-# The Sheaf stack. Yours: it runs on your machine and holds your documents.
+# The Sheaf server. Yours: it runs on your machine and holds your documents.
 #
-#   {
-#     echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-#     echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")"
-#   } > .env
+#   echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
 #   docker compose up -d
 #
-# One command, one deployment. `ingest` is the door the phone knocks on;
-# `paperless` is what makes a stored document findable. They are two containers in
-# the same compose file, not two things to look after -- and `docker compose up
-# ingest` runs the door on its own if that is all you want.
+# That is a complete server on its own (ADR 0007): the phone delivers to it, and it
+# keeps every document. To also hand documents on to Paperless-ngx, add its file:
+#
+#   docker compose -f compose.yml -f compose.paperless.yml up -d
 #
 # For local development you do not need this at all -- the server has no runtime
 # dependencies, so `pnpm --filter @sheaf/ingest start` is faster and equivalent.
 services:
   ingest:
-    depends_on:
-      - paperless
     build:
       context: .
       dockerfile: services/ingest/Dockerfile
@@ -26,14 +21,6 @@ services:
     environment:
       # No default. A server holding documents should not come up guessable.
       SHEAF_TOKEN: ${SHEAF_TOKEN:?set SHEAF_TOKEN to a long random string}
-      # Where documents are handed on to become searchable. Unset it (or run
-      # `docker compose up ingest`) for a store-only server.
-      PAPERLESS_URL: ${PAPERLESS_URL:-http://paperless:8000}
-      # Optional: with the admin credentials instead, the server mints its own
-      # token on first run, so there is no manual step between `up` and scanning.
-      PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
-      PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
-      PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
       # Optional: free a document's bytes this many days after the named connector
       # confirms it. Unset keeps every copy forever, which is the conservative
       # default. Setting the days without the connector stops the server starting.
@@ -42,43 +29,5 @@ services:
     volumes:
       - documents:/data
 
-  # Optional, and the reason the whole thing is worth using: Paperless-ngx gives a
-  # stored document OCR, full-text search and tagging. Without it this server holds
-  # PDFs you cannot search, which is worse than leaving them in your camera roll.
-  #
-  #   docker compose --profile paperless up -d
-  paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
-    restart: unless-stopped
-    depends_on:
-      - broker
-    ports:
-      - '8000:8000'
-    environment:
-      PAPERLESS_REDIS: redis://broker:6379
-      PAPERLESS_URL: http://localhost:8000
-      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
-      # No default, for the same reason SHEAF_TOKEN has none. This stack started as
-      # a development fixture and is now where someone's documents actually live;
-      # admin/admin was defensible for the first and is not for the second.
-      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
-      PAPERLESS_TIME_ZONE: UTC
-      PAPERLESS_OCR_LANGUAGE: eng
-      # Paperless refuses to start without this; the default is self-describing
-      # rather than a real key, because this is a development instance.
-      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:-insecure-development-key-do-not-use-for-real-documents}
-    volumes:
-      - paperless-data:/usr/src/paperless/data
-      - paperless-media:/usr/src/paperless/media
-
-  broker:
-    image: docker.io/library/redis:7
-    restart: unless-stopped
-    volumes:
-      - redis:/data
-
 volumes:
   documents:
-  paperless-data:
-  paperless-media:
-  redis:

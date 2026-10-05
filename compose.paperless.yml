@@ -1,0 +1,54 @@
+# Adds Paperless-ngx as a connector: every document the server stores is also
+# handed on to Paperless, for its OCR, search and tagging.
+#
+#   echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")" >> .env
+#   docker compose -f compose.yml -f compose.paperless.yml up -d
+#
+# Service and volume names are the ones the single-file stack used before
+# connectors existed, so an existing Paperless keeps its data across the upgrade.
+services:
+  ingest:
+    depends_on:
+      - paperless
+    environment:
+      # Setting this is what turns the Paperless connector on.
+      PAPERLESS_URL: ${PAPERLESS_URL:-http://paperless:8000}
+      # Optional: with the admin credentials instead, the server mints its own
+      # token on first run, so there is no manual step between `up` and scanning.
+      PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:-}
+      PAPERLESS_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - broker
+    ports:
+      - '8000:8000'
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      # No default, for the same reason SHEAF_TOKEN has none: this is where
+      # someone's documents actually live.
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
+      PAPERLESS_TIME_ZONE: UTC
+      PAPERLESS_OCR_LANGUAGE: eng
+      # Paperless refuses to start without this; the default is self-describing
+      # rather than a real key, so nobody mistakes it for one.
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:-insecure-development-key-do-not-use-for-real-documents}
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+
+  broker:
+    image: docker.io/library/redis:7
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+
+volumes:
+  paperless-data:
+  paperless-media:
+  redis:
