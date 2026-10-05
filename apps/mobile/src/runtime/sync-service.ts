@@ -1,7 +1,7 @@
 import NetInfo, { NetInfoStateType, type NetInfoState } from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
 import type { NetStatus, SyncPolicy } from '@sheaf/core';
-import { SyncEngine, type EngineApi, type EngineFiles } from '@sheaf/engine';
+import { SyncEngine, type EngineApi, type EngineFiles, type EngineText } from '@sheaf/engine';
 import type { DocumentStore } from '@sheaf/store';
 
 const TICK_INTERVAL_MS = 3_000;
@@ -10,6 +10,8 @@ export interface SyncServiceOptions {
   readonly store: DocumentStore;
   readonly api: EngineApi;
   readonly files: EngineFiles;
+  /** Where recognised text is read from. Absent when this device keeps none. */
+  readonly text?: EngineText;
   readonly policy: () => SyncPolicy;
   readonly onChange: () => void;
 }
@@ -40,6 +42,7 @@ export class SyncService {
       policy: options.policy,
       api: options.api,
       files: options.files,
+      ...(options.text === undefined ? {} : { text: options.text }),
     });
   }
 
