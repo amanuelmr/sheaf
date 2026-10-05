@@ -20,6 +20,7 @@ import {
   type ArchiveVocabulary,
   type DocumentPatch,
   type DocumentRecord,
+  type DocumentTextBody,
   type HealthResponse,
   type ListResponse,
   type PutOutcome,
@@ -101,6 +102,18 @@ export class SheafClient {
 
   async patchDocument(sha256: string, patch: DocumentPatch): Promise<ApiResult<DocumentRecord>> {
     return this.#json<DocumentRecord>('PATCH', paths.document(sha256), JSON.stringify(patch));
+  }
+
+  /**
+   * Send text this device already recognised in a stored document (ADR 0009).
+   * Safe to repeat: the server keeps one copy per document and source.
+   */
+  async putText(sha256: string, body: DocumentTextBody): Promise<ApiResult<null>> {
+    const result = await this.#request('PUT', paths.documentText(sha256), {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return result.ok ? ok(null) : err(result.reason);
   }
 
   async listDocuments(): Promise<ApiResult<readonly DocumentRecord[]>> {
