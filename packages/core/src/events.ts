@@ -92,7 +92,7 @@ export interface MetadataPatch {
  * Work that happens after a document is safely on the server. Optional by nature,
  * so it must be able to fail and stop rather than retry for ever.
  */
-export type SideTask = 'suggestions' | 'metadata';
+export type SideTask = 'suggestions' | 'metadata' | 'text';
 
 interface EventBase {
   readonly docId: DocId;
@@ -122,6 +122,12 @@ export type CaptureEvent =
        * as "different".
        */
       readonly pageHash?: string;
+      /**
+       * On-device OCR was started for this capture and has not reported yet.
+       * Absent from logs written before text was sent to the server, which
+       * therefore replay exactly as they always did.
+       */
+      readonly ocrPending?: true;
     })
   | (EventBase & { readonly type: 'PageAdded'; readonly page: PageRef })
   | (EventBase & { readonly type: 'PageRemoved'; readonly pageId: PageId })
@@ -159,6 +165,12 @@ export type CaptureEvent =
   | (EventBase & { readonly type: 'GaveUp'; readonly reason: FailureReason })
   /** The user (or regained connectivity) asked for another go. Resets the budget. */
   | (EventBase & { readonly type: 'RetryRequested' })
+  /** On-device OCR finished and found text, which is now stored on this device. */
+  | (EventBase & { readonly type: 'TextRecognized' })
+  /** On-device OCR finished and found nothing, or its text is gone. */
+  | (EventBase & { readonly type: 'TextUnavailable' })
+  /** The server has the recognised text (ADR 0009). */
+  | (EventBase & { readonly type: 'TextUploaded' })
   /** Retention policy removed the local originals — only ever after confirmation. */
   | (EventBase & { readonly type: 'LocalFilesReleased' });
 

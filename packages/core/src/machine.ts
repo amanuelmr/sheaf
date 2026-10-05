@@ -35,9 +35,18 @@ export type Command =
       readonly remoteId: RemoteId;
       readonly patch: MetadataPatch;
     }
+  /** Send on-device OCR text to the server, addressed by content hash. */
+  | { readonly type: 'uploadText'; readonly docId: DocId; readonly sha256: string }
   | { readonly type: 'releaseLocalFiles'; readonly docId: DocId }
   | { readonly type: 'wait'; readonly docId: DocId; readonly untilMs: number | null }
   | { readonly type: 'idle'; readonly docId: DocId };
+
+/**
+ * How long a capture's on-device OCR may take before releasing the local copy stops
+ * waiting for it. OCR takes seconds; a process killed mid-OCR never reports at all,
+ * and without a limit that one crash would keep the local copy for ever.
+ */
+export const OCR_GRACE_MS = 10 * 60 * 1000;
 
 /**
  * Whether a piece of post-sync work may run now, must wait, or has been given up on.
@@ -112,6 +121,14 @@ export function next(state: DocState, tick: Tick): Command {
         if (due !== 'abandoned') return { type: 'wait', docId, untilMs: due };
       }
 
+      // Text before suggestions: on our own server, the text is what suggestions are
+      // made from.
+      if (state.text === 'available') {
+        const due = sideTaskDue(state.side.text, tick.now);
+        if (due === 'now') return { type: 'uploadText', docId, sha256: state.sha256 };
+        if (due !== 'abandoned') return { type: 'wait', docId, untilMs: due };
+      }
+
       if (state.remoteId !== null && state.suggestions === null) {
         const due = sideTaskDue(state.side.suggestions, tick.now);
         if (due === 'now') return { type: 'fetchSuggestions', docId, remoteId: state.remoteId };
@@ -123,6 +140,12 @@ export function next(state: DocState, tick: Tick): Command {
       const metadataSettled =
         state.metadata === null || state.metadataPatched || state.side.metadata.abandoned !== null;
       if (!tick.policy.keepLocalAfterSync && state.localFilesPresent && metadataSettled) {
+        // Releasing deletes the on-device text. Text still to send was handled above,
+        // so all that is left to wait for is OCR that has not reported yet.
+        const ocrDeadline = state.createdAt + OCR_GRACE_MS;
+        if (state.text === 'pending' && tick.now <= ocrDeadline) {
+          return { type: 'wait', docId, untilMs: ocrDeadline };
+        }
         return { type: 'releaseLocalFiles', docId };
       }
       return { type: 'idle', docId };

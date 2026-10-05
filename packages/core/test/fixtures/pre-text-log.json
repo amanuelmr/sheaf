@@ -1,0 +1,141 @@
+{
+  "log": [
+    {
+      "type": "Captured",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 1000,
+      "pages": [
+        {
+          "id": "p1",
+          "path": "/d/p1.jpg",
+          "width": 1700,
+          "height": 2200,
+          "bytes": 1
+        }
+      ],
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "bytes": 1,
+      "thumbnailPath": "/t.jpg",
+      "pageHash": "abcd"
+    },
+    {
+      "type": "Enqueued",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 1001,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "type": "UploadStarted",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 1002,
+      "attempt": 1
+    },
+    {
+      "type": "UploadFailed",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 1003,
+      "attempt": 1,
+      "reason": {
+        "kind": "unreachable"
+      },
+      "jitter": 0.25
+    },
+    {
+      "type": "UploadStarted",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 5000,
+      "attempt": 2
+    },
+    {
+      "type": "ServerConfirmed",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 5001,
+      "outcome": {
+        "kind": "stored",
+        "remoteId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "type": "SideTaskFailed",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 5002,
+      "task": "suggestions",
+      "attempt": 1,
+      "reason": {
+        "kind": "unreachable"
+      },
+      "jitter": 0.5
+    },
+    {
+      "type": "SuggestionsReceived",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 9000,
+      "suggestions": {
+        "title": "Receipt"
+      }
+    },
+    {
+      "type": "MetadataAccepted",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 9001,
+      "patch": {
+        "title": "Receipt"
+      }
+    },
+    {
+      "type": "MetadataPatched",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 9002
+    },
+    {
+      "type": "LocalFilesReleased",
+      "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "at": 9003
+    }
+  ],
+  "state": {
+    "docId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "bytes": 1,
+    "pages": [
+      {
+        "id": "p1",
+        "path": "/d/p1.jpg",
+        "width": 1700,
+        "height": 2200,
+        "bytes": 1
+      }
+    ],
+    "status": "SYNCED",
+    "attempts": 2,
+    "taskId": null,
+    "remoteId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "lastError": null,
+    "lastFailureAt": 1003,
+    "nextAttemptAt": null,
+    "suggestions": {
+      "title": "Receipt"
+    },
+    "metadata": {
+      "title": "Receipt"
+    },
+    "metadataPatched": true,
+    "thumbnailPath": "/t.jpg",
+    "pageHash": "abcd",
+    "localFilesPresent": false,
+    "side": {
+      "suggestions": {
+        "attempts": 0,
+        "nextAttemptAt": null,
+        "abandoned": null
+      },
+      "metadata": {
+        "attempts": 0,
+        "nextAttemptAt": null,
+        "abandoned": null
+      }
+    },
+    "createdAt": 1000,
+    "updatedAt": 9003
+  }
+}
