@@ -7,6 +7,11 @@
  *   pnpm --filter @sheaf/extract eval -- --replay      saved answers only (CI)
  *   ... --check             fail if any field drops more than 2 points below baseline
  *   ... --update-baseline   accept these results as the new baseline
+ *   ... --dev               score the receipts outside the test sample instead
+ *
+ * Tune against --dev, never against the test sample: rules fitted to the documents
+ * they are scored on report flattering numbers. --dev writes no report, results or
+ * baseline.
  *
  * The heuristic extractor always runs. Claude runs with ANTHROPIC_API_KEY (or its
  * recordings, in replay); Ollama with SHEAF_OLLAMA_URL and SHEAF_OLLAMA_MODEL.
@@ -33,6 +38,7 @@ import {
 const here = import.meta.dirname;
 const args = new Set(process.argv.slice(2));
 const mode: Mode = args.has('--replay') ? 'replay' : args.has('--record') ? 'record' : 'live';
+const dev = args.has('--dev');
 const ALLOWED_DROP = 2;
 
 interface ProviderResult {
@@ -57,7 +63,14 @@ function golden(): GoldenDocument[] {
     .split('\n')
     .filter((line) => line !== '')
     .map((line) => JSON.parse(line) as GoldenDocument)
-    .filter((doc) => ids.has(doc.id));
+    .filter((doc) =>
+      dev
+        ? !ids.has(doc.id) &&
+          doc.expected.correspondent !== undefined &&
+          doc.expected.date !== undefined &&
+          doc.expected.total !== undefined
+        : ids.has(doc.id),
+    );
 }
 
 const liveFetch: FetchLike = (url, init) =>
@@ -221,6 +234,15 @@ for (const { extractor, latency } of providers()) {
   console.log(
     SCORED_FIELDS.map((f) => `${label(f)} ${result.fields[f]!.accuracy.toFixed(1)}%`).join(', '),
   );
+}
+
+if (dev) {
+  for (const [name, list] of Object.entries(misses)) {
+    const wrong = list.filter((v) => !v.correct && v.field === 'total').slice(0, 15);
+    console.log(`\n${name}, dev set (${String(documents.length)} receipts), first total misses:`);
+    for (const v of wrong) console.log(`  ${v.id}: expected ${v.expected}, got ${v.got}`);
+  }
+  process.exit(0);
 }
 
 writeFileSync(
