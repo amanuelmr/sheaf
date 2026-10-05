@@ -177,6 +177,16 @@ docker compose -f compose.yml -f compose.paperless.yml up -d
 The server fetches its own Paperless token once that container has booted, so
 there is no manual step between `up` and scanning.
 
+The phone reads the text on every page it scans and sends it along, so search works
+from the first document. For documents that arrive with no text, add server-side
+OCR (OCRmyPDF; a large image, so optional):
+
+```bash
+docker compose -f compose.yml -f compose.ocr.yml up -d
+```
+
+Add-on files combine: `-f compose.yml -f compose.paperless.yml -f compose.ocr.yml`.
+
 Node 20+ and pnpm. To run the app:
 
 ```bash

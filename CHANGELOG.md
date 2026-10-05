@@ -5,6 +5,9 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- Optional server-side OCR (`compose.ocr.yml`): an OCRmyPDF sidecar reads
+  documents that arrive with no text, after giving the phone two minutes to send its
+  own.
 - The phone's library browses the server's own documents by default, so it works
   with no Paperless. `SHEAF_ARCHIVE_SOURCE=paperless` browses Paperless instead.
   Native archive documents have no thumbnails yet.
