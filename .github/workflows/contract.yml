@@ -1,0 +1,38 @@
+name: Contract
+
+# Checks our beliefs about Paperless-ngx against a real one. Weekly rather than per
+# push: it needs Docker and real wall-clock time, and what it catches is Paperless
+# changing, which happens on Paperless's schedule rather than ours.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: Paperless-ngx ${{ matrix.paperless }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        paperless: [pinned, latest]
+    # The pinned version must pass. `latest` failing is news about Paperless, not a
+    # broken build: it is the signal to look before moving the pin.
+    continue-on-error: ${{ matrix.paperless == 'latest' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Contract tests against a disposable Paperless-ngx
+        run: pnpm run test:contract
+        env:
+          PAPERLESS_IMAGE: ${{ matrix.paperless == 'latest' && 'ghcr.io/paperless-ngx/paperless-ngx:latest' || '' }}
