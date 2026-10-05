@@ -11,7 +11,6 @@ import { join } from 'node:path';
 import type {
   DocumentPatch,
   DocumentRecord,
-  DocumentTextBody,
   PutOutcome,
   SearchHit,
   SearchResponse,
@@ -51,6 +50,16 @@ export interface ArchiveFilter {
   readonly correspondent?: string;
   readonly documentType?: string;
   readonly tag?: string;
+}
+
+/**
+ * Text to keep for a document. The phone's `DocumentTextBody` is one of these; a
+ * server-side recogniser supplies its own source name.
+ */
+export interface TextInput {
+  readonly source: string;
+  readonly engine: string;
+  readonly text: string;
 }
 
 /** Text recognised in a document, as one source last reported it. */
@@ -276,7 +285,7 @@ export class Storage {
    */
   async putText(
     sha256: string,
-    body: DocumentTextBody,
+    body: TextInput,
     now: number,
   ): Promise<'stored' | 'unknown-document'> {
     if (!(await this.has(sha256))) return 'unknown-document';
