@@ -2,7 +2,7 @@
   "sample": 50,
   "results": {
     "heuristic": {
-      "model": "heuristic-1",
+      "model": "heuristic-2",
       "documents": 50,
       "failures": 0,
       "fields": {
@@ -13,8 +13,8 @@
         },
         "total": {
           "n": 50,
-          "accuracy": 52,
-          "coverage": 100
+          "accuracy": 84,
+          "coverage": 98
         },
         "correspondent": {
           "n": 50,
@@ -29,7 +29,7 @@
       },
       "costPerDocUsd": 0,
       "latencyP50Ms": 0.1,
-      "latencyP95Ms": 0.4
+      "latencyP95Ms": 0.2
     }
   }
 }

@@ -259,10 +259,33 @@ suite('the heuristic extractor', () => {
     expect(result).toEqual(
       ok(
         expect.objectContaining({
-          model: 'heuristic-1',
+          model: 'heuristic-2',
           usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         }),
       ),
     );
+  });
+});
+
+suite('the heuristic extractor on real receipt layouts', () => {
+  const total = async (text: string): Promise<number | undefined> => {
+    const result = await heuristicExtractor().extract(input(text));
+    return result.ok ? result.value.fields.total?.value.minor : undefined;
+  };
+
+  it('stops at the tax table, whose "TOTAL" is the tax', async () => {
+    expect(await total('SHOP\nTOTAL (RM) :\n112.45\nGST SUMMARY\nTOTAL :\n6.37')).toBe(11245);
+  });
+
+  it('finds an amount printed two lines under its label', async () => {
+    expect(await total('SHOP\nTOTAL INCL .6% GST\nRM\n15.00')).toBe(1500);
+  });
+
+  it('takes cash minus change when there is no labelled total', async () => {
+    expect(await total('SHOP\nSUBTOTAL:\n28.60\nCASH\n100.00\nCHANGE\n71.40')).toBe(2860);
+  });
+
+  it('never takes the cash handed over for the total', async () => {
+    expect(await total('SHOP\nITEM 12.50\nCASH\n200.00')).toBe(1250);
   });
 });

@@ -11,13 +11,22 @@ import { NO_USAGE, type Extractor, type ExtractionInput } from './extractor.ts';
 import { findDates, matchVocabulary, parseMoney } from './normalise.ts';
 import type { ExtractedFields, Field, Money } from './schema.ts';
 
-const VERSION = 1;
+const VERSION = 2;
 
 const DATE_LABEL = /\b(date|dated|datum|fecha|invoice|issued|bill|receipt|tarikh)\b/i;
 /** Lines naming the final amount. "Subtotal", tax and change lines are not it. */
 const TOTAL_LABEL =
   /\b(grand\s+total|total|amount\s+due|balance\s+due|to\s+pay|gesamt|summe|net\s+amount)\b/i;
-const NOT_TOTAL = /\b(sub\s*-?\s*total|tax|vat|gst|rounding|change|discount|saving|tip)\b/i;
+const NOT_TOTAL =
+  /\b(sub\s*-?\s*total|tax|vat|gst|rounding|change|discount|saving|tip|qty|items?)\b/i;
+/** "TOTAL INCL. GST" names a tax but is the total all the same. */
+const INCLUSIVE = /\b(incl\.?|inclusive|with|after)\b/i;
+/** Where a receipt's tax breakdown starts; any "total" after it totals the tax. */
+const TAX_TABLE = /\b(gst|tax)\s+(summary|analysis)\b|\btax\s*code\b|\btax\s*\(rm\)/i;
+const CASH = /\b(cash|tender(ed)?|payment)\b/i;
+const CHANGE = /\bchange\b/i;
+/** How many lines below its label an amount may be printed: OCR often splits them. */
+const LOOKAHEAD = 2;
 /** An amount with a decimal part, optionally with a currency: never a phone number. */
 const AMOUNT =
   /(?:(?:[€£$¥₹]|\b(?:RM|EUR|USD|GBP|CHF|MYR|INR|ETB)\b)\s*)?-?\d{1,3}(?:[.,' ]?\d{3})*[.,]\d{2}\b(?:\s*(?:€|EUR))?/g;
@@ -78,23 +87,62 @@ function findDate(lines: readonly string[], input: ExtractionInput): Field<strin
   return fallback === null ? null : { value: fallback, confidence: 0.6 };
 }
 
-function findTotal(lines: readonly string[], currency: string): Field<Money> | null {
+function findTotal(allLines: readonly string[], currency: string): Field<Money> | null {
   const amounts = (line: string): Money[] =>
     (line.match(AMOUNT) ?? [])
       .map((raw) => parseMoney(raw, currency))
-      .filter((money): money is Money => money !== null);
+      .filter((money): money is Money => money !== null && money.minor > 0);
 
-  // The last labelled line wins: receipts often print a total before discounts and
-  // again after them, and the later one is what was paid.
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
-    if (!TOTAL_LABEL.test(line) || NOT_TOTAL.test(line)) continue;
-    // The amount may be printed on the line below the label.
-    const found = amounts(line).at(-1) ?? amounts(lines[i + 1] ?? '').at(0);
-    if (found !== undefined) return { value: found, confidence: 0.85 };
+  // The bill ends where the tax table starts.
+  const end = allLines.findIndex((line) => TAX_TABLE.test(line));
+  const lines = end === -1 ? allLines : allLines.slice(0, end);
+
+  /** The amount on a labelled line, or on one of the next few lines. */
+  const amountFor = (i: number): Money | undefined => {
+    const own = amounts(lines[i]!).at(-1);
+    if (own !== undefined) return own;
+    for (let j = i + 1; j <= i + LOOKAHEAD && j < lines.length; j++) {
+      const found = amounts(lines[j]!).at(0);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+
+  const candidates: Money[] = [];
+  lines.forEach((line, i) => {
+    if (!TOTAL_LABEL.test(line)) return;
+    if (NOT_TOTAL.test(line) && !INCLUSIVE.test(line)) return;
+    const found = amountFor(i);
+    if (found !== undefined) candidates.push(found);
+  });
+
+  // Cash handed over minus change given back is what was paid: the one figure a
+  // receipt states twice over. When it agrees with a labelled total, or there is no
+  // labelled total, it decides.
+  const cashLine = lines.findIndex((line) => CASH.test(line) && !CHANGE.test(line));
+  const changeLine = lines.findIndex((line) => CHANGE.test(line));
+  const cash = cashLine === -1 ? undefined : amountFor(cashLine);
+  const change = changeLine === -1 ? undefined : amountFor(changeLine);
+  if (cash !== undefined && change !== undefined && cash.minor > change.minor) {
+    const paid: Money = { minor: cash.minor - change.minor, currency: cash.currency };
+    if (candidates.length === 0 || candidates.some((c) => c.minor === paid.minor)) {
+      return { value: paid, confidence: 0.85 };
+    }
   }
 
-  const all = lines.flatMap(amounts).filter((money) => money.minor > 0);
+  // Otherwise the last labelled total: receipts print one before discounts or
+  // rounding and again after, and the later one is what was paid.
+  const last = candidates.at(-1);
+  if (last !== undefined) return { value: last, confidence: 0.8 };
+
+  // Last resort: the largest amount, leaving out what was handed over and given
+  // back, which are at least as large as the bill and never it.
+  const paying = new Set<number>();
+  lines.forEach((line, i) => {
+    if (!CASH.test(line) && !CHANGE.test(line)) return;
+    for (let j = i; j <= i + LOOKAHEAD; j++) paying.add(j);
+  });
+  const all = lines.filter((_, i) => !paying.has(i)).flatMap(amounts);
   if (all.length === 0) return null;
   const largest = all.reduce((a, b) => (b.minor > a.minor ? b : a));
   return { value: largest, confidence: 0.4 };
