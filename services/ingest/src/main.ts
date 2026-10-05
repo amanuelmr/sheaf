@@ -10,7 +10,8 @@ import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
-import { retentionFromEnv } from './config.ts';
+import { archiveFromEnv, retentionFromEnv } from './config.ts';
+import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
 import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
 import { SuggestionFetcher } from './suggestion-fetcher.ts';
@@ -59,6 +60,12 @@ if (retentionSetting.kind === 'invalid') {
   process.exit(1);
 }
 const retention = retentionSetting.kind === 'on' ? retentionSetting.config : null;
+
+const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
+if (archiveChoice.kind === 'invalid') {
+  console.error(archiveChoice.message);
+  process.exit(1);
+}
 
 /**
  * Get a token for the downstream system.
@@ -120,14 +127,21 @@ let reconciliationProbe: ReconciliationProbe | null = null;
 
 // The vocabulary cache is shared between everything that resolves an id to a
 // name -- suggestions and the archive both need it, and neither should pay for a
-// fetch the other already made. `archiveSource` follows the same "absent means
-// not configured" shape as `forwardingTo`: browsing needs somewhere to browse.
+// fetch the other already made.
 const vocabulary =
   paperlessClient === null ? null : paperlessVocabulary(paperlessClient, () => Date.now());
+// The phone's library browses our own catalog by default (ADR 0007). Paperless's
+// archive is used only when chosen, and is absent, so routes answer "disabled",
+// if its token could not be had.
 const archiveSource =
-  paperlessClient === null || vocabulary === null
-    ? null
-    : paperlessArchiveSource(paperlessClient, vocabulary);
+  archiveChoice.kind === 'native'
+    ? nativeArchiveSource(storage)
+    : paperlessClient === null || vocabulary === null
+      ? null
+      : paperlessArchiveSource(paperlessClient, vocabulary);
+console.log(
+  `archive: /v1/archive browses ${archiveChoice.kind === 'native' ? 'this server' : 'Paperless'}`,
+);
 
 const server = createIngestServer({
   storage,
@@ -205,12 +219,10 @@ if (paperlessClient !== null && vocabulary !== null) {
   void paperlessClient.probeReconciliation().then((result) => {
     if (result.ok) reconciliationProbe = result.value;
   });
-
-  console.log('archive: browsing and searching the downstream system is available at /v1/archive');
 } else {
   console.log(
     paperlessUrl === undefined
-      ? 'forwarding disabled (no PAPERLESS_URL) — documents are stored but not searchable'
+      ? 'no connectors: documents are stored and searched here, and sent nowhere else'
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
   );
 }

@@ -1,5 +1,5 @@
 import { describe as suite, expect, it } from 'vitest';
-import { retentionFromEnv } from '../src/config';
+import { archiveFromEnv, retentionFromEnv } from '../src/config';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -38,5 +38,23 @@ suite('retentionFromEnv', () => {
       ['paperless'],
     );
     expect(setting.kind).toBe('invalid');
+  });
+});
+
+suite('archiveFromEnv', () => {
+  it("browses the server's own catalog unless told otherwise", () => {
+    expect(archiveFromEnv({}, true)).toEqual({ kind: 'native' });
+    expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'native' }, false)).toEqual({ kind: 'native' });
+  });
+
+  it('browses Paperless when asked and configured', () => {
+    expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'paperless' }, true)).toEqual({
+      kind: 'paperless',
+    });
+  });
+
+  it('refuses Paperless without Paperless, and anything unknown', () => {
+    expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'paperless' }, false).kind).toBe('invalid');
+    expect(archiveFromEnv({ SHEAF_ARCHIVE_SOURCE: 'dropbox' }, true).kind).toBe('invalid');
   });
 });

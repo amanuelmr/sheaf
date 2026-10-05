@@ -13,6 +13,7 @@ import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
 import { handle, type IngestRequest } from '../src/router';
 import { Storage, sha256Hex } from '../src/storage';
@@ -643,5 +644,34 @@ suite('search', () => {
 
   it('allows only GET', async () => {
     expect((await handle(req('POST', paths.search()), deps)).status).toBe(400);
+  });
+});
+
+suite('the archive, served from this server', () => {
+  it('lists and searches stored documents, and refuses an edit naming an unknown tag', async () => {
+    const native = { ...deps, archive: nativeArchiveSource(deps.storage) };
+    await handle(req('PUT', paths.document(hashA), A), native);
+    await handle(
+      req(
+        'PUT',
+        paths.documentText(hashA),
+        new Uint8Array(
+          Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text: 'CINEMA' })),
+        ),
+      ),
+      native,
+    );
+
+    const found = await handle(req('GET', `${paths.archive()}?query=cinema`), native);
+    expect(found.status).toBe(200);
+    const body = found.json as { documents: { id: number }[]; count: number };
+    expect(body.count).toBe(1);
+
+    const id = body.documents[0]!.id;
+    const edit = await handle(
+      req('PATCH', paths.archiveDocument(id), new Uint8Array(Buffer.from('{"tagIds":[999]}'))),
+      native,
+    );
+    expect(edit.status).toBe(400);
   });
 });

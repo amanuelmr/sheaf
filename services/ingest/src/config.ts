@@ -61,3 +61,32 @@ export function retentionFromEnv(
   }
   return { kind: 'on', config: { ms: days * DAY_MS, connector } };
 }
+
+export type ArchiveChoice =
+  | { readonly kind: 'native' | 'paperless' }
+  | { readonly kind: 'invalid'; readonly message: string };
+
+/**
+ * Which archive the phone's library browses: the server's own catalog (`native`, the
+ * default since ADR 0007), or Paperless's, live. Choosing Paperless without
+ * configuring it fails at start rather than leaving the library quietly empty.
+ */
+export function archiveFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  paperlessConfigured: boolean,
+): ArchiveChoice {
+  const raw = env['SHEAF_ARCHIVE_SOURCE'];
+  if (raw === undefined || raw === '' || raw === 'native') return { kind: 'native' };
+  if (raw === 'paperless') {
+    return paperlessConfigured
+      ? { kind: 'paperless' }
+      : {
+          kind: 'invalid',
+          message: 'SHEAF_ARCHIVE_SOURCE is "paperless", so PAPERLESS_URL must be set too.',
+        };
+  }
+  return {
+    kind: 'invalid',
+    message: `SHEAF_ARCHIVE_SOURCE must be "native" or "paperless", got "${raw}".`,
+  };
+}

@@ -264,7 +264,7 @@ async function archive(
   deps: RouterDeps,
 ): Promise<IngestResponse> {
   if (deps.archive === undefined) {
-    return fail('archive_disabled', 'set PAPERLESS_URL to browse the archive from this server');
+    return fail('archive_disabled', 'the archive chosen by SHEAF_ARCHIVE_SOURCE is not available');
   }
   const source = deps.archive;
   const { method } = request;
@@ -338,6 +338,11 @@ async function archive(
  */
 function mapArchiveFailure(reason: FailureReason): IngestResponse {
   if (reason.kind === 'not_found') return fail('not_found');
+  // A request the archive refused as malformed, such as an edit naming a tag that
+  // does not exist, is the caller's to fix and says so.
+  if (reason.kind === 'rejected' && reason.status === 400) {
+    return fail('bad_request', reason.message);
+  }
   return fail('server_error', `the downstream system could not complete this: ${reason.kind}`);
 }
 
