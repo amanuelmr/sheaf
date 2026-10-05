@@ -92,9 +92,12 @@ export const METRICS_PATH = '/metrics';
 /** Who a request is from: the operator's admin token, or one paired phone. */
 type Principal = { readonly kind: 'admin' } | { readonly kind: 'device'; readonly id: string };
 
-/** At most this many pairing attempts per address per minute. Codes cannot be guessed
- * anyway (128 bits); this keeps a guessing loop out of the logs. */
-const PAIR_ATTEMPTS_PER_MINUTE = 10;
+/**
+ * At most this many failed pairing attempts per address per minute. Codes cannot be
+ * guessed anyway (128 bits); this keeps a guessing loop out of the logs. Successes do
+ * not count: pairing a whole household's phones from one network is not guessing.
+ */
+const PAIR_FAILURES_PER_MINUTE = 10;
 const pairAttempts = new WeakMap<Devices, Map<string, number[]>>();
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
@@ -125,17 +128,20 @@ async function pair(
     attempts = new Map();
     pairAttempts.set(devices, attempts);
   }
-  const recent = (attempts.get(address) ?? []).filter((at) => now - at < 60_000);
-  recent.push(now);
-  attempts.set(address, recent);
-  if (recent.length > PAIR_ATTEMPTS_PER_MINUTE) return fail('rate_limited');
+  const failures = (attempts.get(address) ?? []).filter((at) => now - at < 60_000);
+  attempts.set(address, failures);
+  if (failures.length >= PAIR_FAILURES_PER_MINUTE) return fail('rate_limited');
 
   const body = parseJson<Partial<PairRequest>>(request.body);
   if (body === null || typeof body.code !== 'string' || typeof body.deviceName !== 'string') {
+    failures.push(now);
     return fail('bad_request', 'body must be {"code": "...", "deviceName": "..."}');
   }
   const paired = await devices.pair(body.code, body.deviceName);
-  if (paired === null) return fail('pairing_invalid', 'that code is unknown, used or expired');
+  if (paired === null) {
+    failures.push(now);
+    return fail('pairing_invalid', 'that code is unknown, used or expired');
+  }
   const response: PairResponse = paired;
   return { status: 200, json: response };
 }

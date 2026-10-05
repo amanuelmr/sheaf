@@ -770,6 +770,19 @@ suite('pairing and devices', () => {
     expect(last).toBe(429);
   });
 
+  it('never slows down pairing a whole household from one network', async () => {
+    for (let i = 0; i < 15; i++) {
+      const { code } = (await handle(req('POST', paths.pairingCodes()), paired.deps)).json as {
+        code: string;
+      };
+      const response = await handle(
+        anonymous('POST', paths.pair(), json({ code, deviceName: `Phone ${String(i)}` })),
+        paired.deps,
+      );
+      expect(response.status, `phone ${String(i)}`).toBe(200);
+    }
+  });
+
   it('still accepts the admin token everywhere, so existing installs keep working', async () => {
     expect((await handle(req('PUT', paths.document(hashB), B), paired.deps)).status).toBe(201);
     expect(await paired.deps.storage.deviceOf(hashB)).toBeNull();
