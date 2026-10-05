@@ -105,17 +105,19 @@ and the feature cost nothing, because it is one query against the log.
 
 What works today, and how each part is checked:
 
-| Part                              | State                             | Checked by                                                                                 |
-| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
-| Capture and exactly-once delivery | Done                              | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated               |
-| Phone app (iOS)                   | Builds and boots in the Simulator | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                            |
-| Phone app (Android)               | Configured                        | **Not yet built**                                                                          |
-| Server as system of record        | Done                              | Job runner and connectors under fault simulation; migrations tested on a real old database |
-| Search                            | Done                              | FTS5; p95 16.7 ms over 10,000 documents                                                    |
-| On-device text sent to the server | Done                              | Engine tests and the simulator                                                             |
-| Server-side OCR (optional)        | Done                              | Sidecar tests against a stand-in; container not yet run end to end                         |
-| Paperless-ngx (optional)          | Done                              | Contract tests against a real 3.2.1, weekly in CI                                          |
-| AI extraction, pairing, web app   | Planned                           | See [the roadmap](docs/roadmap/README.md)                                                  |
+| Part                                  | State                                              | Checked by                                                                                                          |
+| ------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Capture and exactly-once delivery     | Done                                               | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated                                        |
+| Phone app (iOS)                       | Builds and boots in the Simulator                  | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                                                     |
+| Phone app (Android)                   | Configured                                         | **Not yet built**                                                                                                   |
+| Server as system of record            | Done                                               | Job runner and connectors under fault simulation; migrations tested on a real old database                          |
+| Search                                | Done                                               | FTS5; p95 16.7 ms over 10,000 documents                                                                             |
+| On-device text sent to the server     | Done                                               | Engine tests and the simulator                                                                                      |
+| Server-side OCR (optional)            | Done                                               | Sidecar tests against a stand-in; the real container read an image-only receipt word for word                       |
+| Paperless-ngx (optional)              | Done                                               | Contract tests against a real 3.2.1, weekly in CI                                                                   |
+| Reading details (title, date, total…) | Done: rules by default; Claude or Ollama by choice | [Eval](packages/extract/eval/report.md) on 50 held-out SROIE receipts: date 98%, total 84%, sender 96%; gated in CI |
+| Inbox on the phone                    | Done (buttons; swipe pending)                      | Projection tests; typecheck and bundle. **Not yet tapped**                                                          |
+| Pairing, web app, metrics             | Planned                                            | See [the roadmap](docs/roadmap/README.md)                                                                           |
 
 ## Architecture
 

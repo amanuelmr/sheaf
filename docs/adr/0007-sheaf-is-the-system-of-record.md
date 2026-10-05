@@ -1,7 +1,7 @@
 # 7. Sheaf is the system of record; Paperless is a connector
 
 - Status: accepted
-- Date: 2026-10-05 (accepted on implementation in steps 2.1–2.6; the native suggestion source arrives with ADR 0010)
+- Date: 2026-10-05 (accepted on implementation in steps 2.1–2.6, with native suggestions from ADR 0010 in 3.2)
 
 ## Context
 
