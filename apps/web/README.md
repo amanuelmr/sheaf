@@ -1,4 +1,4 @@
-# @sheaf/admin
+# @sheaf/web
 
 A window onto what the ingest server is doing, in place of reading `/v1/health`
 as raw JSON. Forwarding, reconciliation, retention — everything that server
@@ -8,7 +8,7 @@ minute and draw the answer instead of printing it.
 ## Running it
 
 ```bash
-pnpm --filter @sheaf/admin dev
+pnpm --filter @sheaf/web dev
 ```
 
 Opens at `http://localhost:5173`. On first load it asks for the ingest server's

@@ -45,31 +45,6 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)(lightningcss@1.33.0)(terser@5.50.0)(yaml@2.9.0)
 
-  apps/admin:
-    dependencies:
-      '@sheaf/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
-      react:
-        specifier: 19.2.3
-        version: 19.2.3
-      react-dom:
-        specifier: 19.2.3
-        version: 19.2.3(react@19.2.3)
-    devDependencies:
-      '@types/react':
-        specifier: ^19.2.0
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.0
-        version: 19.2.5(@types/react@19.2.18)
-      '@vitejs/plugin-react':
-        specifier: ^6.1.1
-        version: 6.1.1(babel-plugin-react-compiler@1.0.0)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(terser@5.50.0)(yaml@2.9.0))
-      vite:
-        specifier: ^8.2.2
-        version: 8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(terser@5.50.0)(yaml@2.9.0)
-
   apps/mobile:
     dependencies:
       '@expo/metro-runtime':
@@ -187,6 +162,31 @@ importers:
       '@types/react':
         specifier: ~19.2.2
         version: 19.2.18
+
+  apps/web:
+    dependencies:
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      react:
+        specifier: 19.2.3
+        version: 19.2.3
+      react-dom:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.3)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.0
+        version: 19.2.5(@types/react@19.2.18)
+      '@vitejs/plugin-react':
+        specifier: ^6.1.1
+        version: 6.1.1(babel-plugin-react-compiler@1.0.0)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(terser@5.50.0)(yaml@2.9.0))
+      vite:
+        specifier: ^8.2.2
+        version: 8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(terser@5.50.0)(yaml@2.9.0)
 
   packages/archive-cache:
     dependencies:

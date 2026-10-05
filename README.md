@@ -133,7 +133,7 @@ apps/mobile          Expo + React Native. Camera, SQLite executor, UI projection
 ```
 
 (This diagram predates `services/ingest`, the server the phone actually talks to
-now, and `apps/admin`, a small dashboard for that server's own health — see
+now, and `apps/web`, a small dashboard for that server's own health — see
 [ARCHITECTURE.md](ARCHITECTURE.md) for the fuller picture.)
 
 `packages/core` has no clock, no randomness and no I/O — ESLint enforces this by
@@ -283,7 +283,7 @@ Done, since this list was last written:
   archive — title, metadata, thumbnail, and Paperless's own OCR excerpt — so a
   document looked at once is still there without a connection. Deliberately not
   a mirror of the whole archive; see [ARCHITECTURE.md](ARCHITECTURE.md).
-- **A small admin dashboard** ([apps/admin](apps/admin)) for the ingest
+- **A small admin dashboard** ([apps/web](apps/web)) for the ingest
   server's own health — forwarding, retention, reconciliation — polled and
   drawn instead of read as raw JSON. The first browser client this project has
   had, and the reason `/v1/health` responses now carry CORS headers.

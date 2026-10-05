@@ -91,4 +91,4 @@ jobs:
       # Same reasoning as the mobile bundle above: a Vite production build resolves
       # every import for real, which typecheck alone does not.
       - name: Build the admin dashboard
-        run: pnpm run bundle:admin
+        run: pnpm run bundle:web

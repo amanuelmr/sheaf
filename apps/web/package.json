@@ -1,5 +1,5 @@
 {
-  "name": "@sheaf/admin",
+  "name": "@sheaf/web",
   "version": "0.0.0",
   "private": true,
   "description": "A window onto what the ingest server is doing -- forwarding, retention, reconciliation -- in place of reading /v1/health as raw JSON.",
