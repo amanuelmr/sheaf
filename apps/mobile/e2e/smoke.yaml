@@ -3,9 +3,18 @@
 # then scans a bundled page) and a server running with the token passed as TOKEN.
 #
 #   TOKEN=<SHEAF_TOKEN> pnpm --filter @sheaf/mobile e2e
+#
+# On an Android emulator the host machine is 10.0.2.2, not localhost:
+#
+#   SERVER=http://10.0.2.2:8787 TOKEN=<SHEAF_TOKEN> pnpm --filter @sheaf/mobile e2e
+#
+# Every selector below is a testID, so rewording a label cannot break this flow.
+# Rows are named after the document they show (`outbox-row-<short id>`), so an
+# assertion says which document it means even when several are on screen.
 appId: dev.sheaf.capture
 env:
   SERVER: http://localhost:8787
+  TOKEN: ''
 ---
 - launchApp:
     clearState: true
@@ -20,15 +29,18 @@ env:
 - tapOn:
     id: connect-submit
 - extendedWaitUntil:
-    visible: 'Scan your first document'
+    id: first-scan
     timeout: 15000
-- tapOn: 'Scan your first document'
+- tapOn:
+    id: first-scan
 - tapOn:
     id: shutter
 - tapOn:
     id: open-outbox
 - assertVisible:
-    id: outbox-row
+    id: outbox-list
+- assertVisible:
+    id: 'outbox-row-.*'
 - extendedWaitUntil:
-    visible: 'Synced'
+    id: 'outbox-status-.*'
     timeout: 30000
