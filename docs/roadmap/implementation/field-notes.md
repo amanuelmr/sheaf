@@ -65,3 +65,12 @@ devices. This is the raw material for the write-up in step 4.5.
   document. Its first full run hung, and the cause was mine: the pairing rate limit
   counted successes, so the eleventh phone paired from one address was refused for a
   minute, and the script retried for ever. The limit now counts only failures.
+- 2026-10-06 — Chaos re-run on a seed not used while developing it (seed 7): 500
+  documents, 0 lost, 0 duplicated, 3 SIGKILLs, 1,434 requests, 103 replies lost after
+  the server had stored the document, 54 s. Four seeds green in total.
+- 2026-10-06 — `apps/web` had **no tests at all**, three weeks after it was written,
+  because nothing in it had failed and nothing was checking. The first test — routing,
+  since a hash is the only user-controlled value that reaches a request path —
+  immediately found a money formatter rendering a non-finite amount as "€NaN". The
+  lesson is not about `apps/web`: a test count is not coverage, and an app with only
+  `tsc --noEmit` can hide a defect indefinitely.
