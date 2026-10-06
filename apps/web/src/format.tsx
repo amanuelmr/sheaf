@@ -22,6 +22,8 @@ export function money(value: unknown): string | null {
   if (typeof value !== 'object' || value === null) return null;
   const { minor, currency } = value as { minor?: unknown; currency?: unknown };
   if (typeof minor !== 'number' || typeof currency !== 'string') return null;
+  // A non-finite amount would render as "€NaN", which reads as a real number.
+  if (!Number.isFinite(minor)) return null;
   const digits = currency === 'JPY' || currency === 'KRW' ? 0 : 2;
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(
