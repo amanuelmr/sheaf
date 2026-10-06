@@ -1,6 +1,6 @@
 # 8. Pair devices with a one-time code; keep SHEAF_TOKEN for admin
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-05
 
 ## Context
