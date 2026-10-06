@@ -46,7 +46,11 @@ services:
   #
   #   docker compose --profile paperless up -d
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    # Pinned to the version the contract tests pass against, so this stack does not
+    # change under you when Paperless-ngx publishes. The weekly contract workflow
+    # (.github/workflows/contract.yml) runs against `latest` as well, and that is
+    # where a new version gets tried before you are asked to move.
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.2.1
     restart: unless-stopped
     depends_on:
       - broker
