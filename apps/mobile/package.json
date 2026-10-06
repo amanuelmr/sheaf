@@ -7,7 +7,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "e2e": "maestro test e2e"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.13",
@@ -22,7 +23,9 @@
     "@sheaf/protocol": "workspace:*",
     "@sheaf/store": "workspace:*",
     "expo": "~57.0.16",
+    "expo-asset": "~57.0.18",
     "expo-background-task": "~57.0.15",
+    "expo-build-properties": "~57.0.22",
     "expo-camera": "~57.0.4",
     "expo-constants": "~57.0.14",
     "expo-file-system": "~57.0.5",

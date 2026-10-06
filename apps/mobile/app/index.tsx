@@ -432,6 +432,7 @@ export default function Shutter() {
                 waiting === 0 ? 'Outbox, everything synced' : `Outbox, ${waiting} waiting to sync`
               }
               style={({ pressed }) => [styles.barButton, pressed && styles.pressed]}
+              testID="open-outbox"
             >
               <Text style={styles.barLabel}>Outbox</Text>
               <Text style={styles.barMeta}>
@@ -445,6 +446,7 @@ export default function Shutter() {
             accessibilityLabel={collecting ? 'Scan another page' : 'Scan document'}
             onPress={() => void (manual ? shoot(collecting) : scan())}
             disabled={busy}
+            testID="shutter"
             style={({ pressed }) => [styles.shutter, { opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
           />
 

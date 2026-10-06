@@ -8,7 +8,11 @@
 # "don't run more than the test needs" this stack should stay.
 services:
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    # Pinned to the version these tests last passed against (3.2.1, on
+    # 2026-10-05), so a new Paperless release cannot change what they check
+    # without someone choosing it. PAPERLESS_IMAGE overrides it: the weekly
+    # workflow also runs against `latest`, as an early warning.
+    image: ${PAPERLESS_IMAGE:-ghcr.io/paperless-ngx/paperless-ngx:3.2.1}
     depends_on:
       - broker
     ports:

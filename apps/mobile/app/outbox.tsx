@@ -134,6 +134,7 @@ export default function Outbox() {
             accessibilityLabel={`${item.label}. ${pageLabel(item.pageCount)}. Captured ${timeAgo(item.createdAt, now)}.`}
             onPress={() => router.push({ pathname: '/document/[id]', params: { id: item.docId } })}
             style={styles.row}
+            testID="outbox-row"
           >
             {item.thumbnailPath === null ? (
               <View style={[styles.thumbFallback, { backgroundColor: palette.surfaceRaised }]}>

@@ -62,9 +62,50 @@ pnpm --filter @sheaf/mobile start
 Needs a development build rather than Expo Go, because `expo-sqlite`,
 `expo-secure-store` and `expo-camera` are native modules.
 
+### Android
+
+```bash
+pnpm --filter @sheaf/mobile exec expo run:android
+```
+
+Needs Android Studio's SDK and an emulator image **with Google Play**, which the
+platform document scanner (ML Kit) depends on; without Play the app falls back to
+the hand-drawn crop. The emulator reaches a server on the host Mac at `10.0.2.2`,
+not `localhost`.
+
+`app.json` sets `usesCleartextTraffic` through `expo-build-properties`. Android
+refuses plain HTTP by default, and a server on your own network usually has no
+certificate. It is the Android side of the choice iOS makes with
+`NSAllowsLocalNetworking`, but wider: Android cannot limit it to local addresses, so
+a server reachable over the internet should still be HTTPS.
+
+### iOS
+
 The iOS build requires one patched dependency: `expo-modules-jsi@57.0.5` annotates
 two constructors with `SWIFT_RETURNS_RETAINED`, which Swift 6.2 (Xcode 26) rejects.
 It is a two-line, verified-redundant removal — see [`patches/README.md`](../../patches/README.md).
+
+## End-to-end tests
+
+[Maestro](https://maestro.mobile.dev) flows live in `e2e/`. A simulator has no
+camera, so the flows need a build where the shutter scans a bundled page
+(`assets/e2e/page.jpg`) instead. That build is chosen at bundle time with
+`EXPO_PUBLIC_SHEAF_E2E=1`, and a build made without it cannot reach that path.
+
+One-time setup: Java 17+ and `curl -fsSL "https://get.maestro.mobile.dev" | bash`.
+
+```bash
+# 1. A server with a known token, in one terminal
+SHEAF_TOKEN=e2e-token-0123456789 pnpm --filter @sheaf/ingest start
+
+# 2. A test build on a booted simulator, in another
+EXPO_PUBLIC_SHEAF_E2E=1 pnpm --filter @sheaf/mobile exec expo run:ios
+
+# 3. The flows
+TOKEN=e2e-token-0123456789 pnpm --filter @sheaf/mobile e2e
+```
+
+Controls the flows touch carry a `testID`, so rewording a label does not break a test.
 
 ## What is verified, and what is not
 
