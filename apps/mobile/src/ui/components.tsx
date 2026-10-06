@@ -23,7 +23,6 @@ export function Button({
   variant = 'primary',
   disabled = false,
   style,
-  testID,
 }: {
   label: string;
   onPress: () => void;
@@ -31,8 +30,6 @@ export function Button({
   variant?: 'primary' | 'secondary' | 'quiet';
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
-  /** A stable handle for end-to-end tests, which must not depend on wording. */
-  testID?: string;
 }) {
   const background =
     variant === 'primary'
@@ -47,7 +44,6 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
-      testID={testID}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [

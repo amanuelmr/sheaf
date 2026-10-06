@@ -44,8 +44,3 @@ yarn-error.*
 
 # local server data
 .sheaf-data/
-
-# Downloaded research data and recorded model replies. The eval's fetch script and
-# golden sample are committed; the raw dataset and the live-response cache are not,
-# so the repo carries no third-party documents and no recorded API traffic.
-packages/extract/eval/cache/
