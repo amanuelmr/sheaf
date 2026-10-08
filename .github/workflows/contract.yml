@@ -19,6 +19,9 @@ jobs:
     # The pinned version must pass. `latest` failing is news about Paperless, not a
     # broken build: it is the signal to look before moving the pin.
     continue-on-error: ${{ matrix.paperless == 'latest' }}
+    # The suite is bounded (readiness, token, then 120 s per test), but the image is
+    # 3.4 GB and a slow link has no upper limit. GitHub's default is six hours.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -36,3 +39,15 @@ jobs:
         run: pnpm run test:contract
         env:
           PAPERLESS_IMAGE: ${{ matrix.paperless == 'latest' && 'ghcr.io/paperless-ngx/paperless-ngx:latest' || '' }}
+
+      # `continue-on-error` means a broken `latest` still renders this run green, so
+      # it has to announce itself somewhere a person will actually see.
+      - name: Report the result
+        if: always()
+        run: |
+          if [ "${{ matrix.paperless }}" = "latest" ] && [ "${{ job.status }}" != "success" ]; then
+            echo "### Paperless-ngx \`latest\` failed the contract suite" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "The pinned version still passes; this is Paperless changing under us." >> "$GITHUB_STEP_SUMMARY"
+            echo "Look at what moved, then move the pin deliberately." >> "$GITHUB_STEP_SUMMARY"
+          fi

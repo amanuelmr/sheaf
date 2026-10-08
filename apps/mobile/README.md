@@ -92,7 +92,10 @@ camera, so the flows need a build where the shutter scans a bundled page
 (`assets/e2e/page.jpg`) instead. That build is chosen at bundle time with
 `EXPO_PUBLIC_SHEAF_E2E=1`, and a build made without it cannot reach that path.
 
-One-time setup: Java 17+ and `curl -fsSL "https://get.maestro.mobile.dev" | bash`.
+One-time setup: Java 17+, Maestro 1.40 or newer, and
+`curl -fsSL "https://get.maestro.mobile.dev" | bash`. `pnpm e2e` checks both and
+says how to install what is missing; Maestro is a global CLI rather than a
+dependency because adding it to `package.json` would still not install a JVM.
 
 ```bash
 # 1. A server with a known token, in one terminal
@@ -105,13 +108,21 @@ EXPO_PUBLIC_SHEAF_E2E=1 pnpm --filter @sheaf/mobile exec expo run:ios
 TOKEN=e2e-token-0123456789 pnpm --filter @sheaf/mobile e2e
 ```
 
-Controls the flows touch carry a `testID`, so rewording a label does not break a test.
+Every selector in a flow is a `testID`, so rewording a label cannot break a test.
+Rows in a list are named after what they show — `outbox-row-<short id>` — so an
+assertion still says which document it means when several are on screen.
+
+**What the flows do not cover:** `EXPO_PUBLIC_SHEAF_E2E=1` short-circuits
+`scanDocument()` before the platform scanner is called, so nothing past the shutter
+exercises the camera. In particular the hand-drawn crop screen and the manual
+fallback branch have **no** end-to-end coverage — a green flow means "capture,
+store and sync work", not "the camera path works".
 
 ## What is verified, and what is not
 
 `pnpm verify` typechecks this app under the same strict settings as the packages,
 lints it, and runs the pure helpers in `src/lib`. `pnpm bundle` then builds it with
-Metro — 1,211 modules into 2.7 MB of Hermes bytecode — which proves every workspace
+Metro — 1,251 modules into 2.8 MB of Hermes bytecode — which proves every workspace
 import resolves and every screen and adapter loads. Both run in CI.
 
 That is a real signal, and it caught two things typecheck could not: a missing

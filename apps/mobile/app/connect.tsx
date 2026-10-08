@@ -69,6 +69,7 @@ export default function Connect() {
         </Text>
         <Button
           label="Scan your first document"
+          testID="first-scan"
           palette={palette}
           onPress={() => router.replace('/')}
         />
