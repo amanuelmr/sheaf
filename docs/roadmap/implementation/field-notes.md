@@ -74,3 +74,8 @@ devices. This is the raw material for the write-up in step 4.5.
   its import is unconditional; only the branch that reads it is unreachable, since
   `EXPO_PUBLIC_*` is inlined at bundle time. The comment claimed the whole thing
   was dead code, which was half true.
+- 2026-10-08 — Review of the stacked PRs: the inbox's test ids (loose end 2 above)
+  are in, named per document like the outbox rows. A Maestro inbox flow is still
+  missing, and not only for want of time: the e2e fixture page is 480×640, too small
+  for on-device OCR to read, so a test build never produces suggestions to review.
+  It needs a larger fixture first.
