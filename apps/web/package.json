@@ -1,5 +1,5 @@
 {
-  "name": "@sheaf/admin",
+  "name": "@sheaf/web",
   "version": "0.0.0",
   "private": true,
   "description": "A window onto what the ingest server is doing -- forwarding, retention, reconciliation -- in place of reading /v1/health as raw JSON.",
@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@sheaf/protocol": "workspace:*",
+    "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.1.1",

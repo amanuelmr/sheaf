@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@sheaf/core": "workspace:*",
+    "@sheaf/extract": "workspace:*",
     "@sheaf/http": "workspace:*",
     "@sheaf/paperless": "workspace:*",
     "@sheaf/protocol": "workspace:*",

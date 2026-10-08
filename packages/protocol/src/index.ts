@@ -26,6 +26,22 @@ export const PROTOCOL_VERSION = 'v1';
 export const paths = {
   health: () => `/${PROTOCOL_VERSION}/health`,
   documents: () => `/${PROTOCOL_VERSION}/documents`,
+  /** Admin: `POST` creates a one-time pairing code (ADR 0008). */
+  pairingCodes: () => `/${PROTOCOL_VERSION}/pairing-codes`,
+  /** `POST` a code to become a paired device. The only route that needs no token. */
+  pair: () => `/${PROTOCOL_VERSION}/pair`,
+  /** Admin: `GET` lists paired devices. */
+  devices: () => `/${PROTOCOL_VERSION}/devices`,
+  /** Admin: `DELETE` revokes one. */
+  device: (id: string) => `/${PROTOCOL_VERSION}/devices/${id}`,
+  /** Documents whose suggestions nobody has accepted or changed yet. */
+  inbox: () => `/${PROTOCOL_VERSION}/inbox`,
+  /** One document's details as JSON; the document's own address serves its PDF. */
+  documentRecord: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/record`,
+  /** Each field, with who set it and how sure a machine was. */
+  documentFields: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/fields`,
+  /** What happened to a document on the server, oldest first. */
+  documentHistory: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/history`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -261,6 +277,8 @@ export interface HealthResponse {
 export interface SearchHit {
   readonly sha256: string;
   readonly title: string | null;
+  /** What extraction suggested, for showing a document nobody has titled yet. */
+  readonly suggestedTitle: string | null;
   readonly correspondent: string | null;
   readonly documentType: string | null;
   readonly tags: readonly string[];
@@ -282,6 +300,40 @@ export interface SearchResponse {
   readonly hasMore: boolean;
 }
 
+export interface InboxEntry {
+  readonly sha256: string;
+  readonly receivedAt: number;
+  readonly title: string | null;
+  readonly suggestions: Suggestions;
+}
+
+export interface InboxResponse {
+  /** Newest first. */
+  readonly documents: readonly InboxEntry[];
+}
+
+export interface FieldEntry {
+  readonly name: string;
+  readonly value: unknown;
+  /** `user` once a person set or cleared it; extraction never overwrites those. */
+  readonly source: 'machine' | 'user';
+  readonly confidence: number;
+  readonly updatedAt: number;
+}
+
+export interface FieldsResponse {
+  readonly fields: readonly FieldEntry[];
+}
+
+export interface HistoryEvent {
+  readonly at: number;
+  readonly text: string;
+}
+
+export interface HistoryResponse {
+  readonly events: readonly HistoryEvent[];
+}
+
 export interface ListResponse {
   readonly documents: readonly DocumentRecord[];
 }
@@ -300,7 +352,11 @@ export type ErrorCode =
   | 'bad_request'
   | 'server_error'
   | 'released'
-  | 'archive_disabled';
+  | 'archive_disabled'
+  | 'device_revoked'
+  | 'pairing_invalid'
+  | 'forbidden'
+  | 'rate_limited';
 
 /**
  * The status code each error maps to. Shared so the server cannot answer with one
@@ -322,7 +378,64 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // this server. Distinct from 404 for the same reason `released` is: a client
   // should be able to tell "no such thing" from "this feature is off".
   archive_disabled: 503,
+  // Told apart from `unauthenticated` so the phone can say "this phone was removed"
+  // rather than "check your token", which would send someone hunting for a typo.
+  device_revoked: 401,
+  // Unknown, used and expired codes look the same, so nothing is learned by guessing.
+  pairing_invalid: 400,
+  // A device token asking for an admin-only route.
+  forbidden: 403,
+  rate_limited: 429,
 };
+
+export interface PairingCodeResponse {
+  /** Base32 in groups of four, e.g. `K7QX-…`; case and dashes do not matter. */
+  readonly code: string;
+  readonly expiresAt: number;
+}
+
+export interface PairRequest {
+  readonly code: string;
+  readonly deviceName: string;
+}
+
+export interface PairResponse {
+  readonly deviceId: string;
+  /** Shown once. The server keeps only its hash. */
+  readonly token: string;
+}
+
+export interface DeviceSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly createdAt: number;
+  readonly lastSeen: number | null;
+  readonly revoked: boolean;
+}
+
+export interface DevicesResponse {
+  readonly devices: readonly DeviceSummary[];
+}
+
+/**
+ * The link a pairing QR code holds. Scanning it with the phone's own camera opens
+ * Sheaf (the `sheaf` scheme), already knowing where to connect and with what code.
+ */
+export function pairingUri(server: string, code: string): string {
+  return `sheaf://pair?server=${encodeURIComponent(server)}&code=${encodeURIComponent(code)}`;
+}
+
+/** The server and code in a pairing link, or null for anything else. */
+export function parsePairingUri(uri: string): { server: string; code: string } | null {
+  const match = /^sheaf:\/\/pair\?(.*)$/i.exec(uri.trim());
+  if (match === null) return null;
+  const params = new URLSearchParams(match[1]);
+  const server = params.get('server');
+  const code = params.get('code');
+  if (server === null || code === null || code.trim() === '') return null;
+  if (!/^https?:\/\/[^\s/]+/i.test(server)) return null;
+  return { server: server.replace(/\/+$/, ''), code: code.trim() };
+}
 
 export function authorization(token: string): string {
   return `${AUTH_SCHEME} ${token}`;

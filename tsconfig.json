@@ -26,6 +26,7 @@
     "packages/*/eval/**/*.ts",
     "services/*/src/**/*.ts",
     "services/*/test/**/*.ts",
+    "scripts/**/*.ts",
     "*.ts",
     "*.mjs"
   ]

@@ -17,14 +17,24 @@ import {
   type ArchiveSearchResponse,
   type ArchiveVocabulary,
   type DocumentPatch,
+  type DocumentRecord,
   type ErrorCode,
   type HealthResponse,
   type ListResponse,
+  type DevicesResponse,
+  type FieldsResponse,
+  type HistoryResponse,
+  type InboxResponse,
+  type PairRequest,
+  type PairResponse,
+  type PairingCodeResponse,
   type ReconciliationProbe,
   type SearchResponse,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
+import type { Devices } from './devices.ts';
+import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
 import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
@@ -43,6 +53,8 @@ export interface IngestRequest {
   readonly query: string;
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: Uint8Array;
+  /** Who is asking, for rate-limiting the one route that needs no token. */
+  readonly remoteAddress?: string;
 }
 
 export interface IngestResponse {
@@ -68,12 +80,88 @@ export interface RouterDeps {
   readonly archive?: ArchiveSource;
   /** Static once the process starts -- see SHEAF_RETENTION_DAYS. Absent means off. */
   readonly retentionDays?: number;
+  /** Paired phones (ADR 0008). Absent, only the admin token is accepted. */
+  readonly devices?: Devices;
+  /** What `/metrics` reports. Absent, the route does not exist. */
+  readonly metrics?: ServerMetrics;
 }
+
+/** Prometheus's conventional path, outside the versioned protocol. */
+export const METRICS_PATH = '/metrics';
+
+/** Who a request is from: the operator's admin token, or one paired phone. */
+type Principal = { readonly kind: 'admin' } | { readonly kind: 'device'; readonly id: string };
+
+/**
+ * At most this many failed pairing attempts per address per minute. Codes cannot be
+ * guessed anyway (128 bits); this keeps a guessing loop out of the logs. Successes do
+ * not count: pairing a whole household's phones from one network is not guessing.
+ */
+const PAIR_FAILURES_PER_MINUTE = 10;
+const pairAttempts = new WeakMap<Devices, Map<string, number[]>>();
 
 const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
   status: ERROR_STATUS[error],
   json: detail === undefined ? { error } : { error, detail },
 });
+
+async function authenticate(
+  request: IngestRequest,
+  deps: RouterDeps,
+): Promise<Principal | 'revoked' | null> {
+  const provided = bearerToken(request.headers['authorization']);
+  if (provided === null) return null;
+  if (tokenMatches(provided, deps.token)) return { kind: 'admin' };
+  const device = await deps.devices?.authenticate(provided);
+  if (device === undefined || device === null) return null;
+  return device.kind === 'revoked' ? 'revoked' : { kind: 'device', id: device.id };
+}
+
+async function pair(
+  request: IngestRequest,
+  devices: Devices,
+  now: number,
+): Promise<IngestResponse> {
+  const address = request.remoteAddress ?? 'unknown';
+  let attempts = pairAttempts.get(devices);
+  if (attempts === undefined) {
+    attempts = new Map();
+    pairAttempts.set(devices, attempts);
+  }
+  const failures = (attempts.get(address) ?? []).filter((at) => now - at < 60_000);
+  attempts.set(address, failures);
+  if (failures.length >= PAIR_FAILURES_PER_MINUTE) return fail('rate_limited');
+
+  const body = parseJson<Partial<PairRequest>>(request.body);
+  if (body === null || typeof body.code !== 'string' || typeof body.deviceName !== 'string') {
+    failures.push(now);
+    return fail('bad_request', 'body must be {"code": "...", "deviceName": "..."}');
+  }
+  const paired = await devices.pair(body.code, body.deviceName);
+  if (paired === null) {
+    failures.push(now);
+    return fail('pairing_invalid', 'that code is unknown, used or expired');
+  }
+  const response: PairResponse = paired;
+  return { status: 200, json: response };
+}
+
+async function manageDevices(request: IngestRequest, devices: Devices): Promise<IngestResponse> {
+  const { method, path } = request;
+  if (path === paths.pairingCodes()) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const response: PairingCodeResponse = await devices.createPairingCode();
+    return { status: 201, json: response };
+  }
+  if (path === paths.devices()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const response: DevicesResponse = { devices: await devices.list() };
+    return { status: 200, json: response };
+  }
+  const id = path.slice(paths.devices().length + 1);
+  if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
+  return (await devices.revoke(id)) ? { status: 204 } : fail('not_found');
+}
 
 /** Constant-time comparison, so a wrong token leaks nothing through timing. */
 function tokenMatches(provided: string, expected: string): boolean {
@@ -84,12 +172,41 @@ function tokenMatches(provided: string, expected: string): boolean {
 }
 
 export async function handle(request: IngestRequest, deps: RouterDeps): Promise<IngestResponse> {
-  const provided = bearerToken(request.headers['authorization']);
-  if (provided === null || !tokenMatches(provided, deps.token)) {
-    return fail('unauthenticated');
+  const { method, path } = request;
+
+  // The one route a stranger may call: they hold a pairing code, not yet a token.
+  if (path === paths.pair() && deps.devices !== undefined) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    return pair(request, deps.devices, deps.now());
   }
 
-  const { method, path } = request;
+  const principal = await authenticate(request, deps);
+  if (principal === 'revoked') {
+    return fail('device_revoked', 'this device was removed; pair it again to keep syncing');
+  }
+  if (principal === null) return fail('unauthenticated');
+
+  if (path === METRICS_PATH && deps.metrics !== undefined) {
+    // Admin only: counts of documents and phones are not a paired phone's business.
+    if (principal.kind !== 'admin') return fail('forbidden', 'metrics need the admin token');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' },
+      bytes: new Uint8Array(Buffer.from(await deps.metrics.render(deps.now()))),
+    };
+  }
+
+  if (
+    path === paths.pairingCodes() ||
+    path === paths.devices() ||
+    path.startsWith(`${paths.devices()}/`)
+  ) {
+    if (principal.kind !== 'admin')
+      return fail('forbidden', 'only the admin token manages devices');
+    if (deps.devices === undefined) return fail('not_found');
+    return manageDevices(request, deps.devices);
+  }
 
   if (path === paths.health()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
@@ -116,6 +233,12 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return { status: 200, json: health };
   }
 
+  if (path === paths.inbox()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const response: InboxResponse = { documents: await deps.storage.inbox() };
+    return { status: 200, json: response };
+  }
+
   if (path === paths.search()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     return search(request.query, deps);
@@ -134,6 +257,19 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
+
+  for (const [suffix, read] of [
+    ['/record', readRecord],
+    ['/fields', readFields],
+    ['/history', readHistory],
+  ] as const) {
+    if (!rest.endsWith(suffix)) continue;
+    const id = rest.slice(0, -suffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    if (!(await deps.storage.has(id))) return fail('not_found');
+    return { status: 200, json: await read(id, deps) };
+  }
 
   const textSuffix = '/text';
   if (rest.endsWith(textSuffix)) {
@@ -161,7 +297,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
 
   switch (method) {
     case 'PUT':
-      return put(id, request, deps);
+      return put(id, request, deps, principal);
     case 'HEAD':
       return (await deps.storage.has(id)) ? { status: 200 } : { status: ERROR_STATUS.not_found };
     case 'GET': {
@@ -184,7 +320,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     case 'PATCH': {
       const patch = parseJson<DocumentPatch>(request.body);
       if (patch === null) return fail('bad_request', 'body must be a JSON object');
-      const record = await deps.storage.patch(id, patch);
+      const record = await deps.storage.patch(id, patch, deps.now());
       return record === null ? fail('not_found') : { status: 200, json: record };
     }
     default:
@@ -192,7 +328,12 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   }
 }
 
-async function put(id: string, request: IngestRequest, deps: RouterDeps): Promise<IngestResponse> {
+async function put(
+  id: string,
+  request: IngestRequest,
+  deps: RouterDeps,
+  principal: Principal,
+): Promise<IngestResponse> {
   if (request.body.length === 0) return fail('bad_request', 'empty body');
   if (request.body.length > MAX_DOCUMENT_BYTES) return fail('too_large');
 
@@ -205,12 +346,30 @@ async function put(id: string, request: IngestRequest, deps: RouterDeps): Promis
   }
 
   const pageCount = parsePageCount(request.headers['x-sheaf-page-count']);
-  const outcome = await deps.storage.put(id, request.body, deps.now(), pageCount);
+  const outcome = await deps.storage.put(
+    id,
+    request.body,
+    deps.now(),
+    pageCount,
+    principal.kind === 'device' ? principal.id : null,
+  );
   const record = await deps.storage.record(id);
 
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+async function readRecord(id: string, deps: RouterDeps): Promise<DocumentRecord | null> {
+  return deps.storage.record(id);
+}
+
+async function readFields(id: string, deps: RouterDeps): Promise<FieldsResponse> {
+  return { fields: await deps.storage.fields(id) };
+}
+
+async function readHistory(id: string, deps: RouterDeps): Promise<HistoryResponse> {
+  return { events: await deps.storage.history(id) };
 }
 
 async function search(query: string, deps: RouterDeps): Promise<IngestResponse> {

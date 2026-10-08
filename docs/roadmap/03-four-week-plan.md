@@ -109,3 +109,56 @@ a portfolio than missing ones.
 - Any decision that reverses or extends an ADR gets an ADR (or an amendment) in the
   same PR — keep the repository's best habit.
 - Every week ends with a tag, a CHANGELOG entry and a screenshot/GIF.
+
+---
+
+## What the plan got wrong
+
+Written after the fact, from
+[`implementation/field-notes.md`](implementation/field-notes.md). A plan that admits
+its misses is worth more than one that claims it was right.
+
+**Week 1 needed a phone, and that is the one thing the plan could not supply.** 1.1,
+1.2, 1.4 and 1.6 — the real iPhone, the Android build, the Maestro flow, the demo
+video — are all still unrun. That is roughly a fifth of the month's work, and it is
+the part that would most have improved the project. Everything since has been built
+without ever touching the camera, the permission prompts or a finger. **A plan whose
+first week depends on hardware should say so in week 0, and have a fallback week
+that does not.**
+
+**The plan wrote its own bug.** 2.5 specified using `documents.rowid` as the native
+archive id. `documents` has a text primary key, so SQLite may renumber rowids under
+`VACUUM` — and the phone caches those ids. It was in the guide as a settled
+instruction, so it would have been implemented. Step-by-step guides written before
+the code read like fact; the one that deserved checking got checked, and the rest did
+not.
+
+**Time estimates for anything involving a container were fantasy.** The Paperless-ngx
+image is 3.4 GB and took about 45 minutes to download on this connection. Step 1.3 was
+budgeted at 2 hours and was mostly waiting.
+
+**Weeks 3 and 4 were much larger than weeks 1 and 2.** Week 4 was "a face, a pulse,
+the story" — device pairing, a five-page web app, metrics, a Grafana dashboard, a chaos
+harness and a write-up, budgeted at roughly 10 hours. It was several times that. Tasks
+were sized by how interesting they were rather than by how many unknowns they
+contained.
+
+**The eval work was underestimated in the best way.** Step 3.3 was budgeted at 4 hours
+and was the highest-leverage thing in the month, because it turned "the AI is nice"
+into a number with a CI gate. Tuning the default extractor from 52% to 84% on held-out
+receipts took longer than planned and was the most valuable hour spent.
+
+**Two things the plan never mentioned, both of which belonged in week 1:**
+
+- **Starting the server the way a developer does.** An undeclared package dependency
+  made `pnpm --filter @sheaf/ingest start` crash while every test passed — Vitest
+  resolves workspace packages through aliases, and the Docker image links them by hand.
+  The production path was broken in a way the test environment was structurally unable
+  to see. CI now starts the server outside Docker.
+- **Rate limits on a shared address.** The pairing limiter counted successes, so the
+  eleventh phone on one household's NAT was refused for a minute. Only the chaos run —
+  20 phones from one address — found it.
+
+**Also underestimated: the cost of the write-up.** The README's defects section is the
+most-read part of this repository, and its best material came from the field notes,
+which only exist because step 0 asked for them.

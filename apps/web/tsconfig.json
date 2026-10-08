@@ -12,5 +12,5 @@
       "@sheaf/protocol": ["../../packages/protocol/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"]
 }

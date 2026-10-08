@@ -25,7 +25,7 @@ export default tseslint.config(
           // auto-discovery is concerned -- no project references wire the two
           // together -- so it falls back to the default project rather than going
           // unlinted, the same as the root's own *.mjs config files.
-          allowDefaultProject: ['*.mjs', 'apps/admin/vite.config.ts'],
+          allowDefaultProject: ['*.mjs', 'apps/web/vite.config.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -104,7 +104,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/admin/**/*.ts', 'apps/admin/**/*.tsx'],
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
     rules: {
       '@typescript-eslint/no-unnecessary-condition': 'off',
     },

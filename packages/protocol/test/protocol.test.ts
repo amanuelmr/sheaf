@@ -7,6 +7,8 @@ import {
   isDocumentTextBody,
   isPaperlessId,
   isSha256,
+  pairingUri,
+  parsePairingUri,
   paths,
 } from '../src/index';
 
@@ -100,5 +102,30 @@ suite('document text', () => {
     ['text that is not a string', { source: 'edge', engine: 'mlkit', text: 42 }],
   ])('refuses %s', (_, body) => {
     expect(isDocumentTextBody(body)).toBe(false);
+  });
+});
+
+suite('pairing links', () => {
+  it('round-trip a server and code', () => {
+    const uri = pairingUri('http://192.168.1.20:8787', 'K7QX-ABCD');
+    expect(uri).toBe('sheaf://pair?server=http%3A%2F%2F192.168.1.20%3A8787&code=K7QX-ABCD');
+    expect(parsePairingUri(uri)).toEqual({ server: 'http://192.168.1.20:8787', code: 'K7QX-ABCD' });
+  });
+
+  it('drops a trailing slash from the server', () => {
+    expect(parsePairingUri(pairingUri('https://sheaf.example/', 'X'))?.server).toBe(
+      'https://sheaf.example',
+    );
+  });
+
+  it.each([
+    'https://evil.example/pair?server=x&code=y',
+    'sheaf://other?server=http%3A%2F%2Fa&code=y',
+    'sheaf://pair?server=http%3A%2F%2Fa',
+    'sheaf://pair?server=ftp%3A%2F%2Fa&code=y',
+    'sheaf://pair?server=javascript%3Aalert(1)&code=y',
+    'not a link',
+  ])('refuses %j', (uri) => {
+    expect(parsePairingUri(uri)).toBeNull();
   });
 });

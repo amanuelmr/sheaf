@@ -23,6 +23,8 @@ import {
   type DocumentTextBody,
   type HealthResponse,
   type ListResponse,
+  type PairRequest,
+  type PairResponse,
   type PutOutcome,
   type SearchResponse,
   type SuggestionsResponse,
@@ -262,5 +264,29 @@ export class SheafClient {
     const reason = classifyThrown(error);
     if (reason.kind === 'tls') return { kind: 'tls', detail: redact(reason.detail, this.#token) };
     return reason;
+  }
+}
+
+/**
+ * Become a paired device (ADR 0008): exchange a one-time code for this phone's own
+ * token. Needs no token of its own, so it is a function rather than a method of a
+ * client that already has one.
+ */
+export async function pairDevice(
+  baseUrl: string,
+  fetch: FetchLike,
+  request: PairRequest,
+): Promise<ApiResult<PairResponse>> {
+  try {
+    const response = await fetch(joinUrl(baseUrl, paths.pair()), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const text = await response.text().catch(() => '');
+    if (!response.ok) return err(classifyResponse(response.status, text));
+    return ok(JSON.parse(text) as PairResponse);
+  } catch (error) {
+    return err(classifyThrown(error));
   }
 }

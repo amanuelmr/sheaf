@@ -54,6 +54,26 @@ devices. This is the raw material for the write-up in step 4.5.
   is shown but cannot be saved, because protocol v1's `DocumentPatch` has no date;
   (2) the inbox buttons need `testID`s once the step-1.4 branch (which added
   `testID` to `Button`) is merged.
+- 2026-10-06 — Found by running the server for the pairing check: since step 3.2,
+  `pnpm --filter @sheaf/ingest start` crashed with "Cannot find package
+  '@sheaf/extract'". Every test passed, because Vitest resolves packages through
+  aliases, and the Docker image worked, because its Dockerfile links packages by hand.
+  Only the server's own `package.json` was wrong. CI now starts it outside Docker.
+- 2026-10-06 — Chaos run (`pnpm chaos`), 20 phones × 25 documents, three SIGKILLs:
+  seeds 1, 2 and 3 each stored exactly 500 documents with 0 lost and 0 duplicated,
+  through ~1,400 requests and ~100 replies lost after the server had stored the
+  document. Its first full run hung, and the cause was mine: the pairing rate limit
+  counted successes, so the eleventh phone paired from one address was refused for a
+  minute, and the script retried for ever. The limit now counts only failures.
+- 2026-10-06 — Chaos re-run on a seed not used while developing it (seed 7): 500
+  documents, 0 lost, 0 duplicated, 3 SIGKILLs, 1,434 requests, 103 replies lost after
+  the server had stored the document, 54 s. Four seeds green in total.
+- 2026-10-06 — `apps/web` had **no tests at all**, three weeks after it was written,
+  because nothing in it had failed and nothing was checking. The first test — routing,
+  since a hash is the only user-controlled value that reaches a request path —
+  immediately found a money formatter rendering a non-finite amount as "€NaN". The
+  lesson is not about `apps/web`: a test count is not coverage, and an app with only
+  `tsc --noEmit` can hide a defect indefinitely.
 - 2026-10-06 — Paperless-ngx **3.3.0** was published at 03:55Z, hours after the
   stack was pinned to 3.2.1 and verified against it. The pin stays at 3.2.1 on
   purpose: the weekly `latest` leg of the contract workflow is what tests a new

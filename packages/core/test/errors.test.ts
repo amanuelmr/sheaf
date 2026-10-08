@@ -43,6 +43,15 @@ suite('user-facing errors', () => {
     expect(isBlocking({ kind: 'server_error', status: 500 })).toBe(false);
   });
 
+  it('tells a removed phone to pair again, not to check a token it never typed', () => {
+    const removed = explain({ kind: 'auth', status: 401, revoked: true });
+    expect(removed.title).toMatch(/removed/);
+    expect(removed.actions).toContain('pair_again');
+    expect(removed.actions).not.toContain('check_token');
+    expect(removed.reassurance).toMatch(/safe on this device/);
+    expect(isRetryable({ kind: 'auth', status: 401, revoked: true })).toBe(false);
+  });
+
   it('offers a token fix for auth and a server fix for a wrong URL', () => {
     expect(explain({ kind: 'auth', status: 401 }).actions).toContain('check_token');
     expect(explain({ kind: 'not_found' }).actions).toContain('check_server_settings');

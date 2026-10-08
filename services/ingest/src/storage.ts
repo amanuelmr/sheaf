@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import type {
   DocumentPatch,
   DocumentRecord,
+  HistoryEvent,
+  InboxEntry,
   PutOutcome,
   SearchHit,
   SearchResponse,
@@ -244,6 +246,8 @@ export class Storage {
     bytes: Uint8Array,
     now: number,
     pageCount: number | null,
+    /** The paired phone that sent it, or null for the admin token. */
+    deviceId: string | null = null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) return 'already-stored';
 
@@ -255,15 +259,24 @@ export class Storage {
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
-        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
-         VALUES (?, ?, ?, ?, '[]')
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id)
+         VALUES (?, ?, ?, ?, '[]', ?)
          ON CONFLICT(sha256) DO NOTHING`,
-        [sha256, bytes.length, pageCount, now],
+        [sha256, bytes.length, pageCount, now, deviceId],
       );
       await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
     });
     return 'stored';
+  }
+
+  /** Which paired phone first delivered a document; null for the admin token. */
+  async deviceOf(sha256: string): Promise<string | null> {
+    const rows = await this.#driver.all<{ device_id: string | null }>(
+      'SELECT device_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.device_id ?? null;
   }
 
   async has(sha256: string): Promise<boolean> {
@@ -357,7 +370,11 @@ export class Storage {
   }
 
   /** Applies only the fields present. `null` clears; omitted leaves alone. */
-  async patch(sha256: string, patch: DocumentPatch): Promise<DocumentRecord | null> {
+  async patch(
+    sha256: string,
+    patch: DocumentPatch,
+    now: number = Date.now(),
+  ): Promise<DocumentRecord | null> {
     if (!(await this.has(sha256))) return null;
 
     const sets: string[] = [];
@@ -386,7 +403,7 @@ export class Storage {
           await this.#addName('document_type', patch.documentType);
         }
         for (const tag of patch.tags ?? []) await this.#addName('tag', tag);
-        await this.#recordUserFields(sha256, patch);
+        await this.#recordUserFields(sha256, patch, now);
         await this.reindex(sha256);
       });
     }
@@ -491,7 +508,7 @@ export class Storage {
    * Mark each field a person set, cleared included, as theirs. Extraction then
    * leaves it alone, however confident a later run is.
    */
-  async #recordUserFields(sha256: string, patch: DocumentPatch): Promise<void> {
+  async #recordUserFields(sha256: string, patch: DocumentPatch, now: number): Promise<void> {
     const chosen: [string, unknown][] = [
       ['title', patch.title],
       ['correspondent', patch.correspondent],
@@ -502,13 +519,88 @@ export class Storage {
       if (value === undefined) continue;
       await this.#driver.run(
         `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
-         VALUES (?, ?, ?, 'user', 1, strftime('%s', 'now') * 1000)
+         VALUES (?, ?, ?, 'user', 1, ?)
          ON CONFLICT (sha256, name) DO UPDATE SET
            value_json = excluded.value_json, source = 'user', confidence = 1,
            updated_at = excluded.updated_at`,
-        [sha256, name, JSON.stringify(value)],
+        [sha256, name, JSON.stringify(value), now],
       );
     }
+  }
+
+  /** Documents with suggestions that no person has acted on, newest first. */
+  async inbox(limit = 100): Promise<readonly InboxEntry[]> {
+    const rows = await this.#driver.all<{
+      sha256: string;
+      received_at: number;
+      title: string | null;
+      suggestions_json: string;
+    }>(
+      `SELECT sha256, received_at, title, suggestions_json FROM documents d
+        WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
+          AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
+        ORDER BY received_at DESC, sha256
+        LIMIT ?`,
+      [limit],
+    );
+    return rows.map((row) => ({
+      sha256: row.sha256,
+      receivedAt: row.received_at,
+      title: row.title,
+      suggestions: JSON.parse(row.suggestions_json) as Suggestions,
+    }));
+  }
+
+  /**
+   * What happened to a document here, oldest first, built from timestamps already
+   * kept for other reasons: nothing extra is written to have a history.
+   */
+  async history(sha256: string): Promise<readonly HistoryEvent[]> {
+    const events: HistoryEvent[] = [];
+    const received = await this.#driver.all<{ received_at: number; device: string | null }>(
+      `SELECT d.received_at, v.name AS device FROM documents d
+         LEFT JOIN devices v ON v.id = d.device_id WHERE d.sha256 = ?`,
+      [sha256],
+    );
+    for (const row of received) {
+      events.push({
+        at: row.received_at,
+        text: row.device === null ? 'Received' : `Received from ${row.device}`,
+      });
+    }
+    for (const text of await this.texts(sha256)) {
+      events.push({
+        at: text.receivedAt,
+        text:
+          text.source === 'edge'
+            ? `Text from the phone (${text.engine})`
+            : `Text read on the server (${text.engine})`,
+      });
+    }
+    const runs = await this.#driver.all<{ created_at: number; model: string }>(
+      'SELECT created_at, model FROM extractions WHERE sha256 = ? ORDER BY created_at',
+      [sha256],
+    );
+    for (const run of runs)
+      events.push({ at: run.created_at, text: `Details read by ${run.model}` });
+    const deliveries = await this.#driver.all<{ connector: string; done_at: number }>(
+      'SELECT connector, done_at FROM deliveries WHERE sha256 = ? AND done_at IS NOT NULL',
+      [sha256],
+    );
+    for (const d of deliveries) events.push({ at: d.done_at, text: `Delivered to ${d.connector}` });
+    const given = await this.#driver.all<{ step: string; finished_at: number }>(
+      `SELECT step, finished_at FROM jobs WHERE sha256 = ? AND state = 'given_up'`,
+      [sha256],
+    );
+    for (const job of given) events.push({ at: job.finished_at, text: `Gave up on ${job.step}` });
+    const edits = await this.#driver.all<{ updated_at: number; names: string }>(
+      `SELECT updated_at, group_concat(name, ', ') AS names FROM fields
+        WHERE sha256 = ? AND source = 'user' GROUP BY updated_at`,
+      [sha256],
+    );
+    for (const edit of edits)
+      events.push({ at: edit.updated_at, text: `You changed: ${edit.names}` });
+    return events.sort((a, b) => a.at - b.at);
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {
@@ -651,8 +743,10 @@ export class Storage {
       tags: string;
       received_at: number;
       snippet: string;
+      suggested_title: string | null;
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              json_extract(d.suggestions_json, '$.title') AS suggested_title,
               snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
          FROM documents_fts f
          JOIN documents d ON d.sha256 = f.sha256
@@ -664,6 +758,7 @@ export class Storage {
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
       title: row.title,
+      suggestedTitle: row.suggested_title,
       correspondent: row.correspondent,
       documentType: row.document_type,
       tags: JSON.parse(row.tags) as string[],

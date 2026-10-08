@@ -1,76 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@sheaf/protocol';
-import { fetchHealth } from './api';
-import { clearConnection, loadConnection, saveConnection, type Connection } from './connection';
+import type { Api } from '../api';
 
 const POLL_MS = 5_000;
 
-export default function App() {
-  const [connection, setConnection] = useState<Connection | null>(() => loadConnection());
-
-  if (connection === null) {
-    return <ConnectScreen onConnect={setConnection} />;
-  }
-  return (
-    <Dashboard
-      connection={connection}
-      onDisconnect={() => {
-        clearConnection();
-        setConnection(null);
-      }}
-    />
-  );
-}
-
-function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => void }) {
-  const [baseUrl, setBaseUrl] = useState('');
-  const [token, setToken] = useState('');
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (baseUrl.trim() === '' || token.trim() === '') return;
-    const connection: Connection = { baseUrl: baseUrl.trim(), token: token.trim() };
-    saveConnection(connection);
-    onConnect(connection);
-  };
-
-  return (
-    <div className="page">
-      <h1>Sheaf admin</h1>
-      <p className="subtitle">
-        A window onto what your ingest server is doing -- nothing here is stored anywhere but this
-        browser.
-      </p>
-      <form className="card" onSubmit={submit}>
-        <label htmlFor="baseUrl">Server URL</label>
-        <input
-          id="baseUrl"
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
-          placeholder="http://192.168.1.5:8787"
-          autoComplete="off"
-        />
-        <label htmlFor="token">SHEAF_TOKEN</label>
-        <input
-          id="token"
-          type="password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          autoComplete="off"
-        />
-        <button type="submit">Connect</button>
-      </form>
-    </div>
-  );
-}
-
-function Dashboard({
-  connection,
-  onDisconnect,
-}: {
-  connection: Connection;
-  onDisconnect: () => void;
-}) {
+/** The server's own health: documents held, forwarding, reconciliation, retention. */
+export function System({ api }: { api: Api }) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,13 +13,13 @@ function Dashboard({
     let cancelled = false;
 
     async function poll(): Promise<void> {
-      const result = await fetchHealth(connection.baseUrl, connection.token);
+      const result = await api.health();
       if (cancelled) return;
       // A poll that fails leaves the last good reading on screen rather than
       // blanking it out -- one missed request over a flaky connection should
       // not read as "the server has no idea what it's doing".
       if (result.ok) {
-        setHealth(result.health);
+        setHealth(result.value);
         setError(null);
       } else {
         setError(result.message);
@@ -97,12 +32,11 @@ function Dashboard({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [connection]);
+  }, [api]);
 
   return (
-    <div className="page">
-      <h1>Sheaf admin</h1>
-      <p className="subtitle">{connection.baseUrl}</p>
+    <>
+      <h1>System</h1>
 
       {error === null ? null : <p className="error">Couldn't reach the server: {error}</p>}
 
@@ -122,8 +56,8 @@ function Dashboard({
             <div className="card">
               <h2>Forwarding</h2>
               <p className="muted">
-                Not configured. Set <code>PAPERLESS_URL</code> to forward documents on and enable
-                browsing and suggestions.
+                No connectors. Documents are kept and searched here. Add Paperless with{' '}
+                <code>compose.paperless.yml</code> to send each one on as well.
               </p>
             </div>
           ) : (
@@ -154,11 +88,7 @@ function Dashboard({
           )}
         </>
       )}
-
-      <button className="secondary" onClick={onDisconnect}>
-        Disconnect
-      </button>
-    </div>
+    </>
   );
 }
 

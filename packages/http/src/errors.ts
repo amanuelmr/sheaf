@@ -5,6 +5,9 @@ import type { FailureReason } from '@sheaf/core';
  * Pure, so every branch is unit-tested without a server.
  */
 export function classifyResponse(status: number, body = '', retryAfter?: string): FailureReason {
+  if (status === 401 && body.includes('"device_revoked"')) {
+    return { kind: 'auth', status, revoked: true };
+  }
   if (status === 401 || status === 403) return { kind: 'auth', status };
   if (status === 404) return { kind: 'not_found' };
   if (status === 408) return { kind: 'unreachable' };

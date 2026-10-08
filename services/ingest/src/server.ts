@@ -12,7 +12,7 @@ import { handle, type RouterDeps } from './router.ts';
  */
 const CORS_HEADERS: Readonly<Record<string, string>> = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, PUT, PATCH, HEAD, OPTIONS',
+  'access-control-allow-methods': 'GET, PUT, PATCH, POST, DELETE, HEAD, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type, x-sheaf-page-count',
   // A day is generous but bounded; nothing here is secret enough to need the
   // browser asking again every single request.
@@ -30,6 +30,14 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
  */
 export function createIngestServer(deps: RouterDeps): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
+    const started = process.hrtime.bigint();
+    const path = (req.url ?? '/').split('?')[0] ?? '/';
+    // Every answer is counted once it is sent, whichever branch sent it.
+    res.on('finish', () => {
+      const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+      deps.metrics?.observeRequest(req.method ?? 'GET', path, res.statusCode, seconds);
+    });
+
     if (req.method === 'OPTIONS') {
       res.writeHead(204, CORS_HEADERS);
       res.end();
@@ -50,6 +58,9 @@ export function createIngestServer(deps: RouterDeps): Server {
             query: (req.url ?? '').split('?')[1] ?? '',
             headers: req.headers as Record<string, string | undefined>,
             body,
+            ...(req.socket.remoteAddress === undefined
+              ? {}
+              : { remoteAddress: req.socket.remoteAddress }),
           },
           deps,
         );
