@@ -74,3 +74,28 @@ devices. This is the raw material for the write-up in step 4.5.
   immediately found a money formatter rendering a non-finite amount as "€NaN". The
   lesson is not about `apps/web`: a test count is not coverage, and an app with only
   `tsc --noEmit` can hide a defect indefinitely.
+- 2026-10-06 — Paperless-ngx **3.3.0** was published at 03:55Z, hours after the
+  stack was pinned to 3.2.1 and verified against it. The pin stays at 3.2.1 on
+  purpose: the weekly `latest` leg of the contract workflow is what tests a new
+  version before anyone is asked to move. `latest` therefore becomes 3.3.0 on the
+  next scheduled run, and a red advisory leg there is the expected signal rather
+  than a surprise.
+- 2026-10-06 — A review of the merged work found two of our own claims that
+  measurement contradicted: the mobile README's bundle size (1,211 modules) was
+  stale — a fresh bundle reports 1,251 — and the research note still said the
+  contract suite pinned `latest` after the pin had landed. Both are the kind of
+  number nobody re-measures once it is written down.
+- 2026-10-06 — The end-to-end fixture reaches the scanner by short-circuiting
+  `scanDocument()`, where the plan said to go "via the hand-crop fallback path".
+  The short circuit is better (no camera UI in a test at all), but it means the
+  manual crop screen and the manual fallback branch have **zero** end-to-end
+  coverage. Recorded so nobody reads a green flow as "the camera path works".
+- 2026-10-06 — The 21 KB end-to-end fixture does ship in a release export, because
+  its import is unconditional; only the branch that reads it is unreachable, since
+  `EXPO_PUBLIC_*` is inlined at bundle time. The comment claimed the whole thing
+  was dead code, which was half true.
+- 2026-10-08 — Review of the stacked PRs: the inbox's test ids (loose end 2 above)
+  are in, named per document like the outbox rows. A Maestro inbox flow is still
+  missing, and not only for want of time: the e2e fixture page is 480×640, too small
+  for on-device OCR to read, so a test build never produces suggestions to review.
+  It needs a larger fixture first.

@@ -96,11 +96,14 @@ export function StatusBadge({
   label,
   tone,
   palette,
+  testID,
 }: {
   symbol: string;
   label: string;
   tone: 'ok' | 'waiting' | 'danger' | 'neutral';
   palette: Palette;
+  /** Set by callers inside a repeated row, so an end-to-end test can name one. */
+  testID?: string;
 }) {
   const color =
     tone === 'ok'
@@ -111,7 +114,12 @@ export function StatusBadge({
           ? palette.danger
           : palette.textMuted;
   return (
-    <View style={styles.badge} accessible accessibilityLabel={label}>
+    <View
+      style={styles.badge}
+      accessible
+      accessibilityLabel={label}
+      {...(testID === undefined ? {} : { testID })}
+    >
       <Text style={[styles.badgeSymbol, { color }]}>{symbol}</Text>
       <Text style={[styles.badgeLabel, { color }]}>{label}</Text>
     </View>

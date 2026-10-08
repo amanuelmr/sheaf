@@ -10,9 +10,19 @@ import fixturePage from '../../assets/e2e/page.jpg';
  * a simulator has no camera to open. Expo inlines `EXPO_PUBLIC_*` variables when
  * it bundles, so in any build made without this flag the branch is dead code and
  * no setting at runtime can turn it on.
+ *
+ * The import above is unconditional, though, so Metro does emit the 21 KB fixture
+ * into every export including release builds. That is the cost of a test path this
+ * app can exercise end to end; the branch itself still cannot run. If the bytes
+ * ever matter more than the coverage, move this import behind a dev-only entry.
  */
 const E2E = process.env.EXPO_PUBLIC_SHEAF_E2E === '1';
 
+/**
+ * Reads the bundled page. Inside the caller's try, like every other way this can
+ * fail: `downloadAsync` rejects on a missing or unreadable asset, and a test-only
+ * branch must not be the one path that throws instead of reporting `unavailable`.
+ */
 async function fixtureScan(): Promise<ScanOutcome> {
   const asset = await Asset.fromModule(fixturePage).downloadAsync();
   if (asset.localUri === null) return { kind: 'unavailable', detail: 'fixture page missing' };
@@ -39,8 +49,11 @@ export type ScanOutcome =
  * the same assemble-hash-upload pipeline as before.
  */
 export async function scanDocument(quality = 100): Promise<ScanOutcome> {
-  if (E2E) return fixtureScan();
   try {
+    // Inside the try on purpose: every failure below is reported as `unavailable`
+    // rather than thrown, and the test-only branch keeps that contract too.
+    if (E2E) return await fixtureScan();
+
     const result = await DocumentScanner.scanDocument({
       croppedImageQuality: quality,
       responseType: ResponseType.ImageFilePath,

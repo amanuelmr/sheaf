@@ -1,6 +1,6 @@
 import { classifyResponse, classifyThrown } from '@sheaf/http';
 import { joinUrl, redact } from '@sheaf/http';
-import type { PaperlessConfig } from './config.ts';
+import { DEFAULT_API_VERSION, type PaperlessConfig } from './config.ts';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import type { FormDataLike, HttpRequest, UploadFile } from '@sheaf/http';
 import { captureFilename, matchesCaptureId } from './reconcile.ts';
@@ -353,7 +353,7 @@ export class PaperlessClient {
       const response = await this.#config.fetch(url, {
         ...init,
         headers: {
-          accept: 'application/json',
+          accept: `application/json; version=${String(this.#config.apiVersion ?? DEFAULT_API_VERSION)}`,
           ...init.headers,
           authorization: `Token ${this.#token}`,
         },

@@ -213,3 +213,45 @@ suite('JobRunner', () => {
     expect(() => runner([fakeStep('ocr'), fakeStep('ocr')])).toThrow(/twice/);
   });
 });
+
+suite('a backlog behind a slow first step', () => {
+  // A guard. Jobs waiting on another step stay due, and a run takes only twenty at
+  // a time; this proves a backlog several batches deep still drains rather than
+  // filling every batch with jobs that cannot start.
+  it('finishes every document when more are waiting than fit in one batch', async () => {
+    for (let i = 0; i < 60; i++) {
+      const bytes = doc(`backlog ${String(i)}`);
+      await storage.put(sha256Hex(bytes), bytes, clock, 1);
+    }
+    const ocr = fakeStep('ocr', { notBefore: (d) => d.receivedAt + 120_000 });
+    const extract = fakeStep('extract', { after: ['ocr'] });
+    const jobs = runner([ocr, extract]);
+    for (let tick = 0; tick < 200; tick++) {
+      await jobs.tick();
+      clock += 5_000;
+    }
+    const finished = await driver.all<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM jobs WHERE step = 'extract' AND state = 'done'`,
+    );
+    expect(finished[0]!.n).toBe(61);
+  });
+
+  it('skips a step that stopped applying without waiting out its start time', async () => {
+    // OCR waits two minutes for the phone's text; text arriving sooner means OCR
+    // does not apply, and what comes after should not wait the two minutes anyway.
+    let hasText = false;
+    const ocr = fakeStep('ocr', {
+      notBefore: (d) => d.receivedAt + 120_000,
+      applies: () => Promise.resolve(!hasText),
+    });
+    const extract = fakeStep('extract', { after: ['ocr'] });
+    const jobs = runner([ocr, extract]);
+    await jobs.tick();
+    hasText = true;
+    clock += 5_000;
+    await jobs.tick();
+    await jobs.tick();
+    expect(await stateOf('ocr')).toBe('skipped');
+    expect(extract.runs).toEqual([hashA]);
+  });
+});
