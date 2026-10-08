@@ -41,6 +41,10 @@ env:
     id: outbox-list
 - assertVisible:
     id: 'outbox-row-.*'
+# The badge is on screen from the first moment, saying "waiting", so its id alone
+# proves nothing: the flow waits for this row's badge to say the document arrived.
 - extendedWaitUntil:
-    id: 'outbox-status-.*'
+    visible:
+      id: 'outbox-status-.*'
+      text: 'Synced'
     timeout: 30000
