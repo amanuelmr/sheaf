@@ -20,10 +20,12 @@ on DMS features is a losing fight. Sheaf's defensible ground is what Paperless
 structurally does not do: **the edge** — capture, offline, exactly-once delivery,
 on-device intelligence — and **owning the record** so it works without Paperless.
 
-**Also:** the redesigned v3 tasks API is a compatibility risk for
-`packages/paperless/src/tasks.ts`. The contract suite pins `paperless-ngx:latest`,
-so it will catch this. Treat a red contract run as an expected week-1 task, not a
-surprise.
+**Also:** the redesigned v3 tasks API was a compatibility risk for
+`packages/paperless/src/tasks.ts`. The contract suite runs against a **pinned**
+version (3.2.1, the one it passes) and, weekly, against `latest` as an early
+warning. Result: 11/11 against 3.2.1 with no client change, so the v3 redesign did
+not touch anything Sheaf reads. `PAPERLESS_IMAGE` points the suite at any other
+version. Treat a red contract run as an expected task, not a surprise.
 
 ## 2. Competitors on the phone
 
