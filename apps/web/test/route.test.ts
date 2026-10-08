@@ -75,11 +75,17 @@ suite('shortSha', () => {
 });
 
 suite('money', () => {
+  // The locale is named, so these pass on a machine set to any language: the page
+  // itself formats in the viewer's own locale.
   it('divides minor units by the currency own number of digits', () => {
     // 2 digits: 1234 minor units is 12.34.
-    expect(money({ minor: 1234, currency: 'EUR' })).toContain('12.34');
+    expect(money({ minor: 1234, currency: 'EUR' }, 'en-US')).toContain('12.34');
     // 0 digits: JPY has no subunit, so 1234 minor units is 1234 yen.
-    expect(money({ minor: 1234, currency: 'JPY' })).toContain('1,234');
+    expect(money({ minor: 1234, currency: 'JPY' }, 'en-US')).toContain('1,234');
+  });
+
+  it('formats in the locale it is given', () => {
+    expect(money({ minor: 1234, currency: 'EUR' }, 'de-DE')).toContain('12,34');
   });
 
   it('renders nothing rather than a wrong amount for anything unexpected', () => {
@@ -101,7 +107,7 @@ suite('money', () => {
   it('falls back to plain text for a currency Intl does not know', () => {
     // An unknown code makes Intl.NumberFormat throw; showing the digits still beats
     // showing nothing, and showing "NaN" does not.
-    const rendered = money({ minor: 1234, currency: 'XXXXX' });
+    const rendered = money({ minor: 1234, currency: 'XXXXX' }, 'en-US');
     expect(rendered).not.toBeNull();
     expect(rendered).toContain('12.34');
   });

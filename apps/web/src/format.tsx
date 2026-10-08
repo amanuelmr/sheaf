@@ -18,7 +18,7 @@ export function shortSha(sha256: string): string {
 }
 
 /** Money as the server stores it (integer minor units), shown as people read it. */
-export function money(value: unknown): string | null {
+export function money(value: unknown, locale?: string): string | null {
   if (typeof value !== 'object' || value === null) return null;
   const { minor, currency } = value as { minor?: unknown; currency?: unknown };
   if (typeof minor !== 'number' || typeof currency !== 'string') return null;
@@ -26,7 +26,7 @@ export function money(value: unknown): string | null {
   if (!Number.isFinite(minor)) return null;
   const digits = currency === 'JPY' || currency === 'KRW' ? 0 : 2;
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
       minor / 10 ** digits,
     );
   } catch {
