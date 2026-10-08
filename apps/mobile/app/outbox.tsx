@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import type { OutboxRow } from '@sheaf/store';
+import { awaitingReview, type OutboxRow } from '@sheaf/store';
 import { search as searchOutboxText } from '@sheaf/outbox-ocr';
 import { useApp } from '../src/runtime/app-context';
 import { formatBytes, pageLabel, retryIn, shortId, timeAgo } from '../src/lib/format';
@@ -43,6 +43,7 @@ export default function Outbox() {
   // ran and found nothing.
   const [ocrMatches, setOcrMatches] = useState<ReadonlySet<string> | null>(null);
   const now = Date.now();
+  const toReview = useMemo(() => awaitingReview(outbox).length, [outbox]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -92,6 +93,16 @@ export default function Outbox() {
             styles.search,
             { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface },
           ]}
+        />
+      )}
+      {toReview === 0 ? null : (
+        <Button
+          label={`${String(toReview)} ${toReview === 1 ? 'document' : 'documents'} to review`}
+          variant="secondary"
+          palette={palette}
+          onPress={() => router.push('/inbox')}
+          style={styles.review}
+          testID="open-inbox"
         />
       )}
       <FlatList
@@ -224,4 +235,5 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13 },
   detail: { fontSize: 13, lineHeight: 18 },
   retry: { paddingHorizontal: spacing.md, minHeight: TOUCH_TARGET },
+  review: { marginHorizontal: spacing.md, marginBottom: spacing.sm },
 });

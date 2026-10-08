@@ -131,6 +131,37 @@ export const MIGRATIONS: readonly Migration[] = [
        SELECT 'tag', t.value FROM documents d, json_each(d.tags) t`,
     ],
   },
+  {
+    // Extraction (ADR 0010). `extractions` keeps every run by version, so a new
+    // prompt or provider can be compared with the last. `fields` is what each field
+    // is now and who decided it: a person's choice is never overwritten by a machine.
+    id: 6,
+    name: 'extraction',
+    statements: [
+      `CREATE TABLE extractions (
+         sha256        TEXT    NOT NULL,
+         version       INTEGER NOT NULL,
+         provider      TEXT    NOT NULL,
+         model         TEXT    NOT NULL,
+         fields_json   TEXT    NOT NULL,
+         input_tokens  INTEGER NOT NULL,
+         output_tokens INTEGER NOT NULL,
+         cost_usd      REAL,
+         latency_ms    INTEGER NOT NULL,
+         created_at    INTEGER NOT NULL,
+         PRIMARY KEY (sha256, version)
+       )`,
+      `CREATE TABLE fields (
+         sha256     TEXT    NOT NULL,
+         name       TEXT    NOT NULL,
+         value_json TEXT    NOT NULL,
+         source     TEXT    NOT NULL CHECK (source IN ('machine', 'user')),
+         confidence REAL    NOT NULL,
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (sha256, name)
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

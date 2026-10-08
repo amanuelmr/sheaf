@@ -5,6 +5,11 @@ Notable changes, newest first. Versions are tagged in git; the plan behind them 
 
 ## Unreleased
 
+- The server reads each document's title, date, sender, type, total and tags, and
+  offers them as the suggestions the phone already shows. `SHEAF_EXTRACTOR` picks
+  `heuristic` (default, nothing leaves the server), `claude`, `ollama`, or
+  `paperless`. A person's edits are never overwritten.
+- The phone keeps asking for suggestions for 13–26 minutes instead of about one.
 - Optional server-side OCR (`compose.ocr.yml`): an OCRmyPDF sidecar reads
   documents that arrive with no text, after giving the phone two minutes to send its
   own.

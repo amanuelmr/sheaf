@@ -41,6 +41,19 @@ devices. This is the raw material for the write-up in step 4.5.
   test OCR; and Python's `HTTPServer` spent 35 s on a reverse-DNS lookup at bind.
   Not yet run: the whole stack through compose, since this Mac already serves a
   Sheaf on port 8787.
+- 2026-10-06 — Extraction eval, heuristic. First run on the 50-receipt test sample:
+  date 98%, total **52%**, sender 96%. The dev set (586 other receipts) disagreed
+  about the sender (79.5%), which is why rules are tuned on dev only. The total
+  misses were real receipt layout, not edge cases: a GST summary table whose own
+  "TOTAL" is the tax, amounts printed two lines below their label, "TOTAL INCL. GST"
+  rejected for mentioning GST, and cash tendered taken for the bill. Fixing those
+  as general rules: dev 61% → 82%, test 52% → **84%**, other fields unchanged.
+- 2026-10-06 — Inbox (3.4) built with Accept and Edit buttons; the swipe gesture is
+  left for the device session, since `react-native-gesture-handler` is a native
+  module that needs a rebuild to test. Two loose ends: (1) a suggested document date
+  is shown but cannot be saved, because protocol v1's `DocumentPatch` has no date;
+  (2) the inbox buttons need `testID`s once the step-1.4 branch (which added
+  `testID` to `Button`) is merged.
 - 2026-10-06 — Paperless-ngx **3.3.0** was published at 03:55Z, hours after the
   stack was pinned to 3.2.1 and verified against it. The pin stays at 3.2.1 on
   purpose: the weekly `latest` leg of the contract workflow is what tests a new
@@ -61,3 +74,8 @@ devices. This is the raw material for the write-up in step 4.5.
   its import is unconditional; only the branch that reads it is unreachable, since
   `EXPO_PUBLIC_*` is inlined at bundle time. The comment claimed the whole thing
   was dead code, which was half true.
+- 2026-10-08 — Review of the stacked PRs: the inbox's test ids (loose end 2 above)
+  are in, named per document like the outbox rows. A Maestro inbox flow is still
+  missing, and not only for want of time: the e2e fixture page is 480×640, too small
+  for on-device OCR to read, so a test build never produces suggestions to review.
+  It needs a larger fixture first.

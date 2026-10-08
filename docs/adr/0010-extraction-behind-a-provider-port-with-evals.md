@@ -1,7 +1,7 @@
 # 10. Field extraction behind a provider port, gated by evals
 
-- Status: proposed
-- Date: 2026-10-05
+- Status: accepted
+- Date: 2026-10-05 (accepted on implementation in steps 3.1–3.4)
 
 ## Context
 

@@ -1,0 +1,35 @@
+{
+  "sample": 50,
+  "results": {
+    "heuristic": {
+      "model": "heuristic-2",
+      "documents": 50,
+      "failures": 0,
+      "fields": {
+        "date": {
+          "n": 50,
+          "accuracy": 98,
+          "coverage": 100
+        },
+        "total": {
+          "n": 50,
+          "accuracy": 84,
+          "coverage": 98
+        },
+        "correspondent": {
+          "n": 50,
+          "accuracy": 96,
+          "coverage": 100
+        },
+        "correspondentFuzzy": {
+          "n": 50,
+          "accuracy": 96,
+          "coverage": 100
+        }
+      },
+      "costPerDocUsd": 0,
+      "latencyP50Ms": 0.1,
+      "latencyP95Ms": 0.2
+    }
+  }
+}

@@ -5,6 +5,6 @@ export { MemoryEventLog } from './memory-log.ts';
 export { SqlEventLog } from './sql-log.ts';
 export { DocumentStore } from './store.ts';
 export type { OutboxRow } from './outbox.ts';
-export { pendingCount, projectOutbox, toOutboxRow } from './outbox.ts';
+export { awaitingReview, pendingCount, projectOutbox, toOutboxRow } from './outbox.ts';
 export type { TrailEntry } from './trail.ts';
 export { paperTrail } from './trail.ts';

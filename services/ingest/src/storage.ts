@@ -17,6 +17,7 @@ import type {
   Suggestions,
 } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
+import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
 
 /**
@@ -30,6 +31,25 @@ export interface StorageOptions {
 }
 
 export type NameKind = 'correspondent' | 'document_type' | 'tag';
+
+/** One run of an extractor over a document, as the extract step hands it over. */
+export interface ExtractionRecord {
+  readonly version: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly fields: ExtractedFields;
+  readonly usage: Usage;
+  readonly latencyMs: number;
+}
+
+/** A field's current value, and whether a machine or a person decided it. */
+export interface FieldRow {
+  readonly name: string;
+  readonly value: unknown;
+  readonly source: 'machine' | 'user';
+  readonly confidence: number;
+  readonly updatedAt: number;
+}
 
 /** A document as the archive lists it: its stable archive id and what is known. */
 export interface ArchiveRow {
@@ -116,6 +136,9 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['suggestions_next_at', 'INTEGER'],
   ['suggestions_json', 'TEXT'],
 ];
+
+/** Job steps whose result depends on a document's text, and so go stale with it. */
+const TEXT_READERS = ['extract'] as const;
 
 /**
  * The connector whose progress a v1 `DocumentRecord.forward` reports. Clients of
@@ -290,6 +313,16 @@ export class Storage {
   ): Promise<'stored' | 'unknown-document'> {
     if (!(await this.has(sha256))) return 'unknown-document';
     await this.#driver.transaction(async () => {
+      // New or different text makes the document's extraction stale: clear it, and
+      // the job runner queues it again. Resending identical text clears nothing.
+      await this.#driver.run(
+        `DELETE FROM jobs
+          WHERE sha256 = ? AND step IN (${TEXT_READERS.map(() => '?').join(', ')})
+            AND NOT EXISTS (
+              SELECT 1 FROM document_text
+               WHERE sha256 = ? AND source = ? AND engine = ? AND text = ?)`,
+        [sha256, ...TEXT_READERS, sha256, body.source, body.engine, body.text],
+      );
       await this.#driver.run(
         `INSERT INTO document_text (sha256, source, engine, text, received_at)
          VALUES (?, ?, ?, ?, ?)
@@ -353,10 +386,129 @@ export class Storage {
           await this.#addName('document_type', patch.documentType);
         }
         for (const tag of patch.tags ?? []) await this.#addName('tag', tag);
+        await this.#recordUserFields(sha256, patch);
         await this.reindex(sha256);
       });
     }
     return this.record(sha256);
+  }
+
+  /**
+   * Keep one extraction: the run itself, each field it found where no person has
+   * set that field, and the suggestions the phone asks for. One transaction, so a
+   * crash never leaves fields without the run that produced them.
+   */
+  async saveExtraction(sha256: string, run: ExtractionRecord, now: number): Promise<void> {
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        `INSERT OR REPLACE INTO extractions
+           (sha256, version, provider, model, fields_json, input_tokens, output_tokens,
+            cost_usd, latency_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sha256,
+          run.version,
+          run.provider,
+          run.model,
+          JSON.stringify(run.fields),
+          run.usage.inputTokens,
+          run.usage.outputTokens,
+          run.usage.costUsd,
+          run.latencyMs,
+          now,
+        ],
+      );
+      for (const name of FIELD_NAMES) {
+        const field = run.fields[name];
+        if (field === undefined) continue;
+        await this.#driver.run(
+          `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
+           VALUES (?, ?, ?, 'machine', ?, ?)
+           ON CONFLICT (sha256, name) DO UPDATE SET
+             value_json = excluded.value_json,
+             confidence = excluded.confidence,
+             updated_at = excluded.updated_at
+           WHERE fields.source = 'machine'`,
+          [sha256, name, JSON.stringify(field.value), field.confidence, now],
+        );
+      }
+      const suggestions: Suggestions = {
+        ...(run.fields.title === undefined ? {} : { title: run.fields.title.value }),
+        ...(run.fields.date === undefined ? {} : { date: run.fields.date.value }),
+        ...(run.fields.correspondent === undefined
+          ? {}
+          : { correspondent: run.fields.correspondent.value }),
+        ...(run.fields.documentType === undefined
+          ? {}
+          : { documentType: run.fields.documentType.value }),
+        ...(run.fields.tags === undefined ? {} : { tags: run.fields.tags.value }),
+      };
+      await this.#driver.run(
+        `UPDATE documents SET suggestions_json = ?, suggestions_state = 'done' WHERE sha256 = ?`,
+        [JSON.stringify(suggestions), sha256],
+      );
+    });
+  }
+
+  /**
+   * Answer "nothing to suggest" for a document extraction gave up on or had no text
+   * for, so the phone stops asking. Never replaces a real answer.
+   */
+  async recordNoSuggestions(sha256: string): Promise<void> {
+    await this.#driver.run(
+      `UPDATE documents SET suggestions_json = '{}', suggestions_state = 'done'
+        WHERE sha256 = ? AND suggestions_json IS NULL`,
+      [sha256],
+    );
+  }
+
+  async fields(sha256: string): Promise<readonly FieldRow[]> {
+    const rows = await this.#driver.all<{
+      name: string;
+      value_json: string;
+      source: 'machine' | 'user';
+      confidence: number;
+      updated_at: number;
+    }>('SELECT * FROM fields WHERE sha256 = ? ORDER BY name', [sha256]);
+    return rows.map((row) => ({
+      name: row.name,
+      value: JSON.parse(row.value_json) as unknown,
+      source: row.source,
+      confidence: row.confidence,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async extractionCount(sha256: string): Promise<number> {
+    const rows = await this.#driver.all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM extractions WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Mark each field a person set, cleared included, as theirs. Extraction then
+   * leaves it alone, however confident a later run is.
+   */
+  async #recordUserFields(sha256: string, patch: DocumentPatch): Promise<void> {
+    const chosen: [string, unknown][] = [
+      ['title', patch.title],
+      ['correspondent', patch.correspondent],
+      ['documentType', patch.documentType],
+      ['tags', patch.tags],
+    ];
+    for (const [name, value] of chosen) {
+      if (value === undefined) continue;
+      await this.#driver.run(
+        `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
+         VALUES (?, ?, ?, 'user', 1, strftime('%s', 'now') * 1000)
+         ON CONFLICT (sha256, name) DO UPDATE SET
+           value_json = excluded.value_json, source = 'user', confidence = 1,
+           updated_at = excluded.updated_at`,
+        [sha256, name, JSON.stringify(value)],
+      );
+    }
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {

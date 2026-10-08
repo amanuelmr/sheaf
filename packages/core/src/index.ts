@@ -16,6 +16,6 @@ export { hasUnsavedDetails, isSynced, mayBeOnServer, needsUser } from './state.t
 export { apply, reduce } from './reduce.ts';
 export type { Command, NetStatus, SyncPolicy, Tick } from './machine.ts';
 export { next, shouldAutoRetryOnReconnect } from './machine.ts';
-export { MAX_AUTO_ATTEMPTS, backoffMs, taskPollDelayMs } from './backoff.ts';
+export { MAX_AUTO_ATTEMPTS, SUGGESTION_ATTEMPTS, backoffMs, taskPollDelayMs } from './backoff.ts';
 export type { UserAction, UserFacingError } from './errors.ts';
 export { describe, isBlocking, isRetryable } from './errors.ts';

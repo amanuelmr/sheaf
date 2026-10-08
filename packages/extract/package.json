@@ -1,0 +1,19 @@
+{
+  "name": "@sheaf/extract",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reading a document's details from its text: the schema, pure normalisers, and the extractors behind one port (ADR 0010).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sheaf/http": "workspace:*"
+  },
+  "scripts": {
+    "eval": "node --experimental-strip-types eval/run.ts",
+    "eval:fetch": "node --experimental-strip-types eval/fetch-sroie.ts"
+  }
+}
