@@ -1,0 +1,13 @@
+#!/bin/sh
+# Stands in for ocrmypdf in tests: answers --version, writes a sidecar for a normal
+# PDF, and exits as ocrmypdf does (8) for one whose bytes say ENCRYPTED.
+if [ "$1" = "--version" ]; then echo "17.13.0"; exit 0; fi
+sidecar=""; input=""; previous=""
+for argument in "$@"; do
+  if [ "$previous" = "--sidecar" ]; then sidecar="$argument"; fi
+  case "$argument" in *in.pdf) input="$argument";; esac
+  previous="$argument"
+done
+if grep -q ENCRYPTED "$input"; then exit 8; fi
+printf 'INVOICE total 99.00\n[OCR skipped on page(s) 2]\n' > "$sidecar"
+exit 0

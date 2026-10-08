@@ -158,7 +158,11 @@ export function apply(state: DocState, event: CaptureEvent): DocState {
       // A synced document has nothing to re-upload, but its abandoned post-sync
       // work can be given another go.
       if (state.status === 'SYNCED') {
-        return { ...state, side: { suggestions: FRESH, metadata: FRESH }, updatedAt: at };
+        return {
+          ...state,
+          side: { suggestions: FRESH, metadata: FRESH, text: FRESH },
+          updatedAt: at,
+        };
       }
       // Never re-arm a document the server might already hold.
       if (state.status !== 'FAILED' && state.status !== 'BLOCKED' && state.status !== 'BACKOFF') {
@@ -169,7 +173,7 @@ export function apply(state: DocState, event: CaptureEvent): DocState {
         status: 'QUEUED',
         attempts: 0,
         nextAttemptAt: null,
-        side: { suggestions: FRESH, metadata: FRESH },
+        side: { suggestions: FRESH, metadata: FRESH, text: FRESH },
         updatedAt: at,
       };
 
@@ -198,6 +202,18 @@ export function apply(state: DocState, event: CaptureEvent): DocState {
         side: { ...state.side, metadata: FRESH },
         updatedAt: at,
       };
+
+    case 'TextRecognized':
+      // Text already on the server stays there; a later re-read changes nothing.
+      if (state.text === 'uploaded') return state;
+      return { ...state, text: 'available', updatedAt: at };
+
+    case 'TextUnavailable':
+      if (state.text === 'uploaded') return state;
+      return { ...state, text: 'none', updatedAt: at };
+
+    case 'TextUploaded':
+      return { ...state, text: 'uploaded', side: { ...state.side, text: FRESH }, updatedAt: at };
 
     case 'SideTaskFailed':
       return applySideFailure(state, event.task, event.attempt, event.reason, event.jitter, at);
@@ -239,7 +255,8 @@ export function reduce(events: readonly CaptureEvent[]): DocState {
     thumbnailPath: first.thumbnailPath ?? null,
     pageHash: first.pageHash ?? null,
     localFilesPresent: true,
-    side: { suggestions: FRESH, metadata: FRESH },
+    text: first.ocrPending === true ? 'pending' : 'none',
+    side: { suggestions: FRESH, metadata: FRESH, text: FRESH },
     createdAt: first.at,
     updatedAt: first.at,
   };

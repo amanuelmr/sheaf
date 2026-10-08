@@ -1,7 +1,7 @@
 import { backoffMs, isRetryable } from '@sheaf/core';
 import type { ApiResult } from '@sheaf/http';
 import type { Suggestions } from '@sheaf/protocol';
-import type { SuggestionCandidate, Storage } from './storage.ts';
+import { PRIMARY_CONNECTOR, type SuggestionCandidate, type Storage } from './storage.ts';
 
 /**
  * Where a document's suggestions come from, once the downstream system has had a
@@ -56,7 +56,8 @@ export class SuggestionFetcher {
 
   /** One pass over everything currently due. */
   async tick(): Promise<SuggestionFetcherResult> {
-    const due = await this.#storage.dueForSuggestions(this.#ports.now());
+    // Suggestions come from Paperless's classifier, so only Paperless deliveries count.
+    const due = await this.#storage.dueForSuggestions(this.#ports.now(), PRIMARY_CONNECTOR);
     const result = { examined: due.length, fetched: 0, abandoned: 0 };
 
     for (const candidate of due) {

@@ -32,6 +32,7 @@ function fakeTarget(): Fake {
     sendResult: ok('task-1'),
     pollResult: ok('pending'),
     target: {
+      name: 'paperless',
       send: () => {
         state.calls.push('send');
         return Promise.resolve(state.sendResult);
@@ -199,9 +200,9 @@ suite('forwarding never endangers the document', () => {
   });
 
   it('reports what it is holding and how far along it is', async () => {
-    expect(await storage.forwardCounts()).toEqual({ pending: 1 });
+    expect(await storage.forwardCounts('paperless')).toEqual({ pending: 1 });
     await forwarder.tick();
-    expect(await storage.forwardCounts()).toEqual({ sent: 1 });
+    expect(await storage.forwardCounts('paperless')).toEqual({ sent: 1 });
   });
 });
 
@@ -242,5 +243,29 @@ suite('not trusting the target to deduplicate', () => {
     await f.tick();
     expect(fake.calls).toEqual(['locate', 'send']);
     expect((await forwardOf()).state).toBe('sent');
+  });
+});
+
+suite('more than one connector', () => {
+  it('delivers to each independently, and a failure at one does not hold up the other', async () => {
+    const archive = fakeTarget();
+    archive.sendResult = err({ kind: 'unreachable' });
+    const toArchive = new Forwarder(
+      storage,
+      { ...archive.target, name: 'archive' },
+      { now: () => clock, jitter: () => 0 },
+    );
+
+    await forwarder.tick();
+    await toArchive.tick();
+    fake.pollResult = ok({ kind: 'stored', remoteId: 7 });
+    await forwarder.tick();
+
+    expect(fake.calls).toEqual(['send', 'poll']);
+    expect(archive.calls).toEqual(['send']);
+    expect(await storage.forwardCounts('paperless')).toEqual({ done: 1 });
+    expect(await storage.forwardCounts('archive')).toEqual({ sent: 1 });
+    // A v1 record reports the primary connector only.
+    expect((await forwardOf()).state).toBe('done');
   });
 });

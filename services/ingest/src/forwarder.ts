@@ -13,7 +13,13 @@ import type { Storage } from './storage.ts';
  * particular server's task format belongs in the adapter, the same split the
  * engine uses on the phone.
  */
-export interface ForwardTarget {
+export interface Connector {
+  /**
+   * Names this destination in the deliveries table, so it must never change for a
+   * configured connector: a new name is a new destination, and everything would be
+   * sent to it again.
+   */
+  readonly name: string;
   /** Hand over the bytes. Returns a task id when the target consumes asynchronously. */
   send(document: DocumentRecord, bytes: Uint8Array): Promise<ApiResult<string>>;
   /** `'pending'` = still working. `null` = the target has forgotten the task. */
@@ -35,6 +41,9 @@ export interface ForwardTarget {
    */
   locateTask?(sha256: string): Promise<ApiResult<string | null>>;
 }
+
+/** The name this had when Paperless was the only destination. */
+export type ForwardTarget = Connector;
 
 export interface ForwarderPorts {
   now(): number;
@@ -65,10 +74,10 @@ export interface ForwarderResult {
  */
 export class Forwarder {
   readonly #storage: Storage;
-  readonly #target: ForwardTarget;
+  readonly #target: Connector;
   readonly #ports: ForwarderPorts;
 
-  constructor(storage: Storage, target: ForwardTarget, ports: ForwarderPorts) {
+  constructor(storage: Storage, target: Connector, ports: ForwarderPorts) {
     this.#storage = storage;
     this.#target = target;
     this.#ports = ports;
@@ -77,7 +86,7 @@ export class Forwarder {
   /** One pass over everything currently due. */
   async tick(): Promise<ForwarderResult> {
     const now = this.#ports.now();
-    const due = await this.#storage.dueForForwarding(now);
+    const due = await this.#storage.dueForForwarding(now, this.#target.name);
     const result = { examined: due.length, sent: 0, completed: 0, failed: 0 };
 
     for (const document of due) {
@@ -106,7 +115,7 @@ export class Forwarder {
       const already = await this.#target.locate(document.sha256);
       if (!already.ok) return this.#backOff(document, already.reason, 'pending');
       if (already.value !== null) {
-        await this.#storage.recordForwardAttempt(document.sha256, {
+        await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
           state: 'done',
           attempts: document.forward.attempts,
           nextAt: null,
@@ -136,7 +145,7 @@ export class Forwarder {
     //
     // This is the same discipline the phone's log uses, where the attempt is
     // recorded before the request rather than after it.
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: 'sent',
       attempts: document.forward.attempts + 1,
       nextAt: null,
@@ -146,7 +155,7 @@ export class Forwarder {
     const sent = await this.#target.send(document, bytes);
     if (!sent.ok) return this.#backOff(document, sent.reason, 'sent');
 
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: 'sent',
       attempts: document.forward.attempts + 1,
       nextAt: null,
@@ -178,7 +187,7 @@ export class Forwarder {
           polled.value.remoteId === null
             ? await this.#locate(document.sha256)
             : String(polled.value.remoteId);
-        await this.#storage.recordForwardAttempt(document.sha256, {
+        await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
           state: 'done',
           attempts: document.forward.attempts,
           nextAt: null,
@@ -222,7 +231,7 @@ export class Forwarder {
     if (!found.ok) return this.#backOff(document, found.reason, 'sent');
     if (found.value === null) return this.#restart(document);
 
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: 'sent',
       attempts: document.forward.attempts,
       nextAt: null,
@@ -233,7 +242,7 @@ export class Forwarder {
   }
 
   async #restart(document: DocumentRecord): Promise<'waiting'> {
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: 'pending',
       attempts: document.forward.attempts,
       nextAt: null,
@@ -273,7 +282,7 @@ export class Forwarder {
       await this.#give_up(document, describe(reason));
       return 'failed';
     }
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: unresolved,
       attempts,
       nextAt: this.#ports.now() + backoffMs(attempts, this.#ports.jitter()),
@@ -283,7 +292,7 @@ export class Forwarder {
   }
 
   async #give_up(document: DocumentRecord, error: string): Promise<void> {
-    await this.#storage.recordForwardAttempt(document.sha256, {
+    await this.#storage.recordForwardAttempt(document.sha256, this.#target.name, {
       state: 'failed',
       attempts: document.forward.attempts + 1,
       nextAt: null,
@@ -292,7 +301,7 @@ export class Forwarder {
   }
 
   async #taskIdFor(document: DocumentRecord): Promise<string | null> {
-    return this.#storage.forwardTaskId(document.sha256);
+    return this.#storage.forwardTaskId(document.sha256, this.#target.name);
   }
 }
 

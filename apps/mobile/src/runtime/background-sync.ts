@@ -7,6 +7,7 @@ import { DocumentStore, SqlEventLog } from '@sheaf/store';
 import { SheafAdapter, createClient } from '../adapters/api';
 import { openDatabase } from '../adapters/database';
 import { engineFiles } from '../adapters/files';
+import { outboxText, releasingText } from '../adapters/ocr';
 import { databaseNameFor, loadActiveProfile } from '../adapters/profiles';
 import { loadSettings } from '../adapters/settings';
 
@@ -57,7 +58,10 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
           keepLocalAfterSync: settings.keepLocalAfterSync,
         }),
         api,
-        files: engineFiles,
+        // Without these the engine would read no text, decide there is none, and
+        // never send it; and a release here would leave stale text behind.
+        files: releasingText(database, engineFiles),
+        text: outboxText(database),
       });
       await engine.tickAll(true);
     } finally {

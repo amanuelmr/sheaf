@@ -20,9 +20,11 @@ import {
   type ArchiveVocabulary,
   type DocumentPatch,
   type DocumentRecord,
+  type DocumentTextBody,
   type HealthResponse,
   type ListResponse,
   type PutOutcome,
+  type SearchResponse,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import { interpretPutStatus } from './put.ts';
@@ -101,6 +103,29 @@ export class SheafClient {
 
   async patchDocument(sha256: string, patch: DocumentPatch): Promise<ApiResult<DocumentRecord>> {
     return this.#json<DocumentRecord>('PATCH', paths.document(sha256), JSON.stringify(patch));
+  }
+
+  /**
+   * Send text this device already recognised in a stored document (ADR 0009).
+   * Safe to repeat: the server keeps one copy per document and source.
+   */
+  async putText(sha256: string, body: DocumentTextBody): Promise<ApiResult<null>> {
+    const result = await this.#request('PUT', paths.documentText(sha256), {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return result.ok ? ok(null) : err(result.reason);
+  }
+
+  /** Full-text search of the documents this server holds, best match first. */
+  async searchDocuments(
+    text: string,
+    page: { readonly limit?: number; readonly offset?: number } = {},
+  ): Promise<ApiResult<SearchResponse>> {
+    const params = new URLSearchParams({ q: text });
+    if (page.limit !== undefined) params.set('limit', String(page.limit));
+    if (page.offset !== undefined) params.set('offset', String(page.offset));
+    return this.#json<SearchResponse>('GET', `${paths.search()}?${params.toString()}`);
   }
 
   async listDocuments(): Promise<ApiResult<readonly DocumentRecord[]>> {

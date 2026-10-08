@@ -177,6 +177,7 @@ class ForwardSim {
 
   private target(): ForwardTarget {
     return {
+      name: 'paperless',
       send: (document, bytes) => {
         this.sends += 1;
         if (sha256Hex(bytes) !== document.sha256) {

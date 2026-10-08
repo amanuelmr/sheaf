@@ -4,6 +4,7 @@ import type { EngineApi, UploadAccepted } from '@sheaf/engine';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok, joinUrl, type ApiResult, type FetchLike } from '@sheaf/http';
 import { pdfFile } from './files';
+import { OCR_ENGINE } from './ocr';
 
 export interface ServerConfig {
   readonly baseUrl: string;
@@ -104,6 +105,11 @@ export class SheafAdapter implements EngineApi {
   }
 
   /** Names in, names out. No vocabulary to look up, so nothing is dropped. */
+  /** Text this phone recognised, sent once the server holds the document (ADR 0009). */
+  async putText(state: DocState, text: string): Promise<ApiResult<null>> {
+    return this.#client.putText(state.sha256, { source: 'edge', engine: OCR_ENGINE, text });
+  }
+
   async patchDocument(remoteId: RemoteId, patch: MetadataPatch): Promise<ApiResult<null>> {
     const result = await this.#client.patchDocument(String(remoteId), {
       ...(patch.title === undefined ? {} : { title: patch.title }),

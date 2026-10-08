@@ -1,4 +1,9 @@
-import { describe as explainFailure, type CaptureEvent, type RemoteId } from '@sheaf/core';
+import {
+  describe as explainFailure,
+  type CaptureEvent,
+  type RemoteId,
+  type SideTask,
+} from '@sheaf/core';
 
 /**
  * The paper trail: the document's log, rendered.
@@ -85,18 +90,32 @@ function describeEvent(event: CaptureEvent): { text: string; notable: boolean } 
       return { text: 'You accepted the suggested details', notable: false };
     case 'MetadataPatched':
       return { text: 'Details saved to your server', notable: false };
-    case 'SideTaskFailed': {
-      const why = lowerFirst(explainFailure(event.reason).title);
-      return event.task === 'suggestions'
-        ? { text: `Couldn't get suggestions — ${why}`, notable: false }
-        : { text: `Couldn't save your details — ${why}`, notable: true };
-    }
+    case 'SideTaskFailed':
+      return describeSideFailure(event.task, lowerFirst(explainFailure(event.reason).title));
     case 'GaveUp':
       return { text: 'Stopped retrying — still saved on this device', notable: true };
     case 'RetryRequested':
       return { text: 'Retry requested', notable: false };
+    case 'TextRecognized':
+      return { text: 'Text recognised on this device', notable: false };
+    case 'TextUnavailable':
+      return { text: 'No text found on the page', notable: false };
+    case 'TextUploaded':
+      return { text: 'Recognised text sent to your server', notable: false };
     case 'LocalFilesReleased':
       return { text: 'Local copy released', notable: false };
+  }
+}
+
+/** Only details the user chose are notable; the rest is the app's own business. */
+function describeSideFailure(task: SideTask, why: string): { text: string; notable: boolean } {
+  switch (task) {
+    case 'suggestions':
+      return { text: `Couldn't get suggestions — ${why}`, notable: false };
+    case 'text':
+      return { text: `Couldn't send the recognised text — ${why}`, notable: false };
+    case 'metadata':
+      return { text: `Couldn't save your details — ${why}`, notable: true };
   }
 }
 

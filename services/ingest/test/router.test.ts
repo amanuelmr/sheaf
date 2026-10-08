@@ -13,6 +13,7 @@ import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
 import { handle, type IngestRequest } from '../src/router';
 import { Storage, sha256Hex } from '../src/storage';
@@ -237,7 +238,7 @@ suite('reading documents back', () => {
 
   it('tells apart a document it never had from one retention already freed', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -280,7 +281,7 @@ suite('suggestions', () => {
 
   it('serves whatever the fetcher cached, once there is something', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -354,7 +355,7 @@ suite('retention on /v1/health', () => {
 
   it('reports the configured days and how many documents have actually been released', async () => {
     await handle(req('PUT', paths.document(hashA), A), deps);
-    await deps.storage.recordForwardAttempt(hashA, {
+    await deps.storage.recordForwardAttempt(hashA, 'paperless', {
       state: 'done',
       attempts: 1,
       nextAt: null,
@@ -531,5 +532,146 @@ suite('the archive', () => {
     );
     expect(response.status).toBe(400);
     expect(fake.calls).toEqual([]);
+  });
+});
+
+suite('document text from the phone', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  const body = (text: string): Uint8Array => json({ source: 'edge', engine: 'apple-vision', text });
+
+  it('stores text for a document it holds, and storing it again changes nothing', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    expect(
+      (await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps)).status,
+    ).toBe(204);
+    expect(
+      (await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps)).status,
+    ).toBe(204);
+
+    const texts = await deps.storage.texts(hashA);
+    expect(texts).toEqual([
+      expect.objectContaining({ source: 'edge', engine: 'apple-vision', text: 'TOTAL 12.50' }),
+    ]);
+  });
+
+  it('leaves the stored text untouched, time included, when the same text is resent', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps);
+    const before = await deps.storage.texts(hashA);
+    await handle(req('PUT', paths.documentText(hashA), body('TOTAL 12.50')), deps);
+    expect(await deps.storage.texts(hashA)).toEqual(before);
+  });
+
+  it('replaces older text from the same source', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('first read')), deps);
+    await handle(req('PUT', paths.documentText(hashA), body('better read')), deps);
+    expect((await deps.storage.texts(hashA)).map((t) => t.text)).toEqual(['better read']);
+  });
+
+  it('refuses text for a document it does not hold', async () => {
+    const response = await handle(req('PUT', paths.documentText(hashA), body('x')), deps);
+    expect(response.status).toBe(404);
+  });
+
+  it.each([
+    ['not JSON', new Uint8Array(Buffer.from('TOTAL 12.50'))],
+    ['the wrong shape', json({ source: 'edge', text: 'no engine' })],
+    ['an empty body', new Uint8Array()],
+  ])('refuses %s', async (_, payload) => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const response = await handle(req('PUT', paths.documentText(hashA), payload), deps);
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses text over the limit', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    const huge = body('x'.repeat(1024 * 1024 + 1));
+    expect((await handle(req('PUT', paths.documentText(hashA), huge), deps)).status).toBe(413);
+  });
+
+  it('allows only PUT', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    expect((await handle(req('POST', paths.documentText(hashA), body('x')), deps)).status).toBe(
+      400,
+    );
+  });
+});
+
+suite('search', () => {
+  const textBody = (text: string): Uint8Array =>
+    new Uint8Array(Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text })));
+
+  beforeEach(async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.document(hashB), B), deps);
+    await handle(req('PUT', paths.documentText(hashA), textBody('CINEMA CITY total 12.50')), deps);
+  });
+
+  it('finds documents by their text, with a marked snippet', async () => {
+    const response = await handle(req('GET', `${paths.search()}?q=cinema`), deps);
+    expect(response.status).toBe(200);
+    const body = response.json as { hits: { sha256: string; snippet: string }[]; hasMore: boolean };
+    expect(body.hits.map((hit) => hit.sha256)).toEqual([hashA]);
+    expect(body.hits[0]!.snippet).toContain('«CINEMA»');
+    expect(body.hasMore).toBe(false);
+  });
+
+  it('answers a search that cannot fail with no results, never an error', async () => {
+    for (const q of ['', '%3A', 'total%3A%2012.50', '%22', 'NEAR(']) {
+      const response = await handle(req('GET', `${paths.search()}?q=${q}`), deps);
+      expect(response.status, q).toBe(200);
+    }
+    const none = await handle(req('GET', `${paths.search()}?q=%21%21`), deps);
+    expect(none.json).toEqual({ hits: [], hasMore: false });
+  });
+
+  it('pages with limit and offset', async () => {
+    await handle(req('PUT', paths.documentText(hashB), textBody('cinema popcorn')), deps);
+    const first = await handle(req('GET', `${paths.search()}?q=cinema&limit=1`), deps);
+    const second = await handle(req('GET', `${paths.search()}?q=cinema&limit=1&offset=1`), deps);
+    expect((first.json as { hasMore: boolean }).hasMore).toBe(true);
+    expect((second.json as { hasMore: boolean }).hasMore).toBe(false);
+  });
+
+  it.each(['limit=0', 'limit=101', 'limit=ten', 'offset=-1', 'offset=1.5'])(
+    'refuses %s',
+    async (param) => {
+      const response = await handle(req('GET', `${paths.search()}?q=cinema&${param}`), deps);
+      expect(response.status).toBe(400);
+    },
+  );
+
+  it('allows only GET', async () => {
+    expect((await handle(req('POST', paths.search()), deps)).status).toBe(400);
+  });
+});
+
+suite('the archive, served from this server', () => {
+  it('lists and searches stored documents, and refuses an edit naming an unknown tag', async () => {
+    const native = { ...deps, archive: nativeArchiveSource(deps.storage) };
+    await handle(req('PUT', paths.document(hashA), A), native);
+    await handle(
+      req(
+        'PUT',
+        paths.documentText(hashA),
+        new Uint8Array(
+          Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text: 'CINEMA' })),
+        ),
+      ),
+      native,
+    );
+
+    const found = await handle(req('GET', `${paths.archive()}?query=cinema`), native);
+    expect(found.status).toBe(200);
+    const body = found.json as { documents: { id: number }[]; count: number };
+    expect(body.count).toBe(1);
+
+    const id = body.documents[0]!.id;
+    const edit = await handle(
+      req('PATCH', paths.archiveDocument(id), new Uint8Array(Buffer.from('{"tagIds":[999]}'))),
+      native,
+    );
+    expect(edit.status).toBe(400);
   });
 });

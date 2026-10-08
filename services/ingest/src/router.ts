@@ -5,8 +5,12 @@ import {
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
+  MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
+  SEARCH_DEFAULT_LIMIT,
+  SEARCH_MAX_LIMIT,
   bearerToken,
+  isDocumentTextBody,
   isPaperlessId,
   isSha256,
   paths,
@@ -17,11 +21,13 @@ import {
   type HealthResponse,
   type ListResponse,
   type ReconciliationProbe,
+  type SearchResponse,
   type SuggestionsResponse,
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
+import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
-import { sha256Hex } from './storage.ts';
+import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 
 /**
  * Every route, as a pure function of a parsed request.
@@ -101,13 +107,18 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
         : {
             forwarding: {
               target: deps.forwardingTo,
-              counts: await deps.storage.forwardCounts(),
+              counts: await deps.storage.forwardCounts(PRIMARY_CONNECTOR),
               ...(reconciliation === null ? {} : { reconciliation }),
               ...(retention === null ? {} : { retention }),
             },
           }),
     };
     return { status: 200, json: health };
+  }
+
+  if (path === paths.search()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    return search(request.query, deps);
   }
 
   if (path === paths.documents()) {
@@ -123,6 +134,14 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
+
+  const textSuffix = '/text';
+  if (rest.endsWith(textSuffix)) {
+    const id = rest.slice(0, -textSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'PUT') return fail('bad_request', `${method} not allowed here`);
+    return putText(id, request, deps);
+  }
 
   const suggestionsSuffix = '/suggestions';
   if (rest.endsWith(suggestionsSuffix)) {
@@ -194,6 +213,45 @@ async function put(id: string, request: IngestRequest, deps: RouterDeps): Promis
   return { status: outcome === 'stored' ? 201 : 200, json: record };
 }
 
+async function search(query: string, deps: RouterDeps): Promise<IngestResponse> {
+  const params = new URLSearchParams(query);
+  const limit = whole(params.get('limit'), SEARCH_DEFAULT_LIMIT);
+  const offset = whole(params.get('offset'), 0);
+  if (limit === null || limit < 1 || limit > SEARCH_MAX_LIMIT) {
+    return fail(
+      'bad_request',
+      `limit must be a whole number from 1 to ${String(SEARCH_MAX_LIMIT)}`,
+    );
+  }
+  if (offset === null) return fail('bad_request', 'offset must be a whole number');
+
+  // Anything typed is searchable; text with no words in it simply matches nothing.
+  const match = toMatch(params.get('q') ?? '');
+  const response: SearchResponse =
+    match === null ? { hits: [], hasMore: false } : await deps.storage.search(match, limit, offset);
+  return { status: 200, json: response };
+}
+
+/** A non-negative integer from a query parameter, the fallback when absent, or null. */
+function whole(raw: string | null, fallback: number): number | null {
+  if (raw === null) return fallback;
+  return /^\d{1,9}$/.test(raw) ? Number(raw) : null;
+}
+
+async function putText(
+  id: string,
+  request: IngestRequest,
+  deps: RouterDeps,
+): Promise<IngestResponse> {
+  if (request.body.length > MAX_TEXT_BYTES) return fail('too_large');
+  const body = request.body.length === 0 ? null : parseJson<unknown>(request.body);
+  if (!isDocumentTextBody(body)) {
+    return fail('bad_request', 'body must be {"source": "edge", "engine": "...", "text": "..."}');
+  }
+  const outcome = await deps.storage.putText(id, body, deps.now());
+  return outcome === 'stored' ? { status: 204 } : fail('not_found');
+}
+
 /**
  * Everything under `/v1/archive`. One entry point rather than folding this into
  * the switch above: the identifiers here are Paperless's own ids, not the sha256
@@ -206,7 +264,7 @@ async function archive(
   deps: RouterDeps,
 ): Promise<IngestResponse> {
   if (deps.archive === undefined) {
-    return fail('archive_disabled', 'set PAPERLESS_URL to browse the archive from this server');
+    return fail('archive_disabled', 'the archive chosen by SHEAF_ARCHIVE_SOURCE is not available');
   }
   const source = deps.archive;
   const { method } = request;
@@ -280,6 +338,11 @@ async function archive(
  */
 function mapArchiveFailure(reason: FailureReason): IngestResponse {
   if (reason.kind === 'not_found') return fail('not_found');
+  // A request the archive refused as malformed, such as an edit naming a tag that
+  // does not exist, is the caller's to fix and says so.
+  if (reason.kind === 'rejected' && reason.status === 400) {
+    return fail('bad_request', reason.message);
+  }
   return fail('server_error', `the downstream system could not complete this: ${reason.kind}`);
 }
 

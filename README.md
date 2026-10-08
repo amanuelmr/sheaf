@@ -103,17 +103,19 @@ and the feature cost nothing, because it is one query against the log.
 
 ## Status
 
-Early. The sync engine and its tests exist; the app does not yet.
+What works today, and how each part is checked:
 
-|                      |                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| `packages/core`      | Event log, reducer, state machine, backoff, error mapping. Pure and fully tested. ✅ |
-| `packages/paperless` | Task interpretation and error classification. Client I/O still to come. 🚧           |
-| `packages/sim`       | Deterministic simulation primitives. Fault injector next. 🚧                         |
-| `apps/mobile`        | Not started. ⬜                                                                      |
-
-The engine is being built and proven _before_ the UI, because it is the part where
-being wrong is expensive.
+| Part                              | State                             | Checked by                                                                                 |
+| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| Capture and exactly-once delivery | Done                              | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated               |
+| Phone app (iOS)                   | Builds and boots in the Simulator | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                            |
+| Phone app (Android)               | Configured                        | **Not yet built**                                                                          |
+| Server as system of record        | Done                              | Job runner and connectors under fault simulation; migrations tested on a real old database |
+| Search                            | Done                              | FTS5; p95 16.7 ms over 10,000 documents                                                    |
+| On-device text sent to the server | Done                              | Engine tests and the simulator                                                             |
+| Server-side OCR (optional)        | Done                              | Sidecar tests against a stand-in; container not yet run end to end                         |
+| Paperless-ngx (optional)          | Done                              | Contract tests against a real 3.2.1, weekly in CI                                          |
+| AI extraction, pairing, web app   | Planned                           | See [the roadmap](docs/roadmap/README.md)                                                  |
 
 ## Architecture
 
@@ -158,21 +160,34 @@ pnpm test:watch
 To run the server the app talks to:
 
 ```bash
-{
-  echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-  echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")"
-} > .env
+echo "SHEAF_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
 docker compose up -d
 ```
 
-Neither has a default. A server holding your documents should not come up
+The token has no default. A server holding your documents should not come up
 guessable, so it would rather not come up at all.
 
-One command brings up both halves: `ingest` is the door the phone knocks on, and
-Paperless is what makes a stored document findable. The ingest server fetches its
-own Paperless token once that container has booted, so there is no manual step
-between `up` and scanning. `docker compose up ingest` runs the door alone if
-storage without search is all you want.
+That server is complete on its own: the phone delivers to it and it keeps every
+document. To also hand each one on to Paperless-ngx, add its password and its
+compose file:
+
+```bash
+echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")" >> .env
+docker compose -f compose.yml -f compose.paperless.yml up -d
+```
+
+The server fetches its own Paperless token once that container has booted, so
+there is no manual step between `up` and scanning.
+
+The phone reads the text on every page it scans and sends it along, so search works
+from the first document. For documents that arrive with no text, add server-side
+OCR (OCRmyPDF; a large image, so optional):
+
+```bash
+docker compose -f compose.yml -f compose.ocr.yml up -d
+```
+
+Add-on files combine: `-f compose.yml -f compose.paperless.yml -f compose.ocr.yml`.
 
 Node 20+ and pnpm. To run the app:
 

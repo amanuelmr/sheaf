@@ -40,10 +40,13 @@ export interface ServerCounters {
   /** HEAD requests: the client re-establishing ground truth after losing track. */
   headLookups: number;
   patches: number;
+  /** Accepted text uploads, including repeats of text already held. */
+  texts: number;
 }
 
 export class FakeSheaf {
   private readonly documents = new Map<string, StoredDocument>();
+  private readonly texts = new Map<string, string>();
 
   readonly counters: ServerCounters = {
     puts: 0,
@@ -51,6 +54,7 @@ export class FakeSheaf {
     duplicates: 0,
     headLookups: 0,
     patches: 0,
+    texts: 0,
   };
 
   /**
@@ -96,6 +100,18 @@ export class FakeSheaf {
     if (patch.documentType !== undefined) document.documentType = patch.documentType;
     if (patch.tags !== undefined) document.tags = patch.tags;
     return true;
+  }
+
+  /** `PUT /v1/documents/{sha256}/text`: refused for a document the server lacks. */
+  putText(sha256: string, text: string): boolean {
+    if (!this.documents.has(sha256)) return false;
+    this.counters.texts += 1;
+    this.texts.set(sha256, text);
+    return true;
+  }
+
+  textOf(sha256: string): string | undefined {
+    return this.texts.get(sha256);
   }
 
   get storedCount(): number {

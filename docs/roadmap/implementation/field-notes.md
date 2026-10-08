@@ -24,6 +24,23 @@ devices. This is the raw material for the write-up in step 4.5.
   so no client change was needed. Pinned the contract stack to 3.2.1; a weekly
   workflow also runs `latest` as an early warning. The image download took ~45
   minutes on this connection, which is worth knowing before a demo.
+- 2026-10-05 — Search benchmark (`pnpm bench:search`), 10,000 documents × 300 words
+  on this Mac: indexing 10.6 s, query p50 9.8 ms, p95 16.7 ms. Raw user input breaks
+  FTS5 five different ways (`total:`, an unmatched quote, `(((`, `*^`, a leading `-`),
+  so input is turned into quoted prefix terms and never parsed.
+- 2026-10-05 — The guide said to use `documents.rowid` as the native archive id. That
+  would have been a bug: `documents` has a text primary key, so SQLite may renumber
+  its rowids on `VACUUM`, and the phone caches archive ids. Ids now live in an
+  `archive_ids` table whose `INTEGER PRIMARY KEY` never moves; a test vacuums and
+  checks.
+- 2026-10-05 — OCR sidecar, real container (`ocrmypdf-alpine:v17.13.0`): an
+  image-only 300-dpi receipt came back word for word in about 1 s. Three things the
+  real run caught that tests had not: the base image already runs as uid 1000, so
+  the Dockerfile's `adduser` would have failed the build; the repo's page fixtures
+  (480×640) are too small for Tesseract to read at all, so they cannot be used to
+  test OCR; and Python's `HTTPServer` spent 35 s on a reverse-DNS lookup at bind.
+  Not yet run: the whole stack through compose, since this Mac already serves a
+  Sheaf on port 8787.
 - 2026-10-06 — Paperless-ngx **3.3.0** was published at 03:55Z, hours after the
   stack was pinned to 3.2.1 and verified against it. The pin stays at 3.2.1 on
   purpose: the weekly `latest` leg of the contract workflow is what tests a new

@@ -5,33 +5,17 @@ import { PaperlessClient } from '@sheaf/paperless';
 import type { ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
+import { JobRunner, type Step } from './jobs.ts';
+import { ocrStep } from './steps/ocr.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
+import { archiveFromEnv, retentionFromEnv } from './config.ts';
+import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
-import { Storage } from './storage.ts';
+import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
 import { SuggestionFetcher } from './suggestion-fetcher.ts';
-
-/**
- * Free disk space held by documents Paperless has confirmed it already has.
- *
- * Unset by default -- see retention.ts for why keeping every copy is the right
- * starting point. A number here is an explicit statement that Paperless is trusted
- * enough to be the only copy of documents older than this.
- */
-function retentionMsFromEnv(): number | null {
-  const raw = process.env['SHEAF_RETENTION_DAYS'];
-  if (raw === undefined || raw === '') return null;
-  const days = Number(raw);
-  if (!Number.isFinite(days) || days <= 0) {
-    console.error(
-      `SHEAF_RETENTION_DAYS must be a positive number of days, got "${raw}" — ignoring it.`,
-    );
-    return null;
-  }
-  return days * 24 * 60 * 60 * 1000;
-}
 
 /**
  * Entry point. Configuration is environment only — nothing about where documents
@@ -65,6 +49,24 @@ const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects'
  * become searchable text.
  */
 const paperlessUrl = process.env['PAPERLESS_URL'];
+
+// Checked before anything waits on Paperless, so a bad setting fails in seconds
+// rather than after a five-minute wait for a token. See config.ts.
+const retentionSetting = retentionFromEnv(
+  process.env,
+  paperlessUrl === undefined ? [] : [PRIMARY_CONNECTOR],
+);
+if (retentionSetting.kind === 'invalid') {
+  console.error(retentionSetting.message);
+  process.exit(1);
+}
+const retention = retentionSetting.kind === 'on' ? retentionSetting.config : null;
+
+const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
+if (archiveChoice.kind === 'invalid') {
+  console.error(archiveChoice.message);
+  process.exit(1);
+}
 
 /**
  * Get a token for the downstream system.
@@ -126,16 +128,21 @@ let reconciliationProbe: ReconciliationProbe | null = null;
 
 // The vocabulary cache is shared between everything that resolves an id to a
 // name -- suggestions and the archive both need it, and neither should pay for a
-// fetch the other already made. `archiveSource` follows the same "absent means
-// not configured" shape as `forwardingTo`: browsing needs somewhere to browse.
+// fetch the other already made.
 const vocabulary =
   paperlessClient === null ? null : paperlessVocabulary(paperlessClient, () => Date.now());
+// The phone's library browses our own catalog by default (ADR 0007). Paperless's
+// archive is used only when chosen, and is absent, so routes answer "disabled",
+// if its token could not be had.
 const archiveSource =
-  paperlessClient === null || vocabulary === null
-    ? null
-    : paperlessArchiveSource(paperlessClient, vocabulary);
-
-const retentionMs = retentionMsFromEnv();
+  archiveChoice.kind === 'native'
+    ? nativeArchiveSource(storage)
+    : paperlessClient === null || vocabulary === null
+      ? null
+      : paperlessArchiveSource(paperlessClient, vocabulary);
+console.log(
+  `archive: /v1/archive browses ${archiveChoice.kind === 'native' ? 'this server' : 'Paperless'}`,
+);
 
 const server = createIngestServer({
   storage,
@@ -144,7 +151,7 @@ const server = createIngestServer({
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
   ...(archiveSource === null ? {} : { archive: archiveSource }),
-  ...(retentionMs === null ? {} : { retentionDays: retentionMs / 86_400_000 }),
+  ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
 });
 
 if (paperlessClient !== null && vocabulary !== null) {
@@ -184,13 +191,15 @@ if (paperlessClient !== null && vocabulary !== null) {
       });
   }, 5_000);
 
-  if (retentionMs !== null) {
-    const retention = new Retention(storage, retentionMs, { now: () => Date.now() });
+  if (retention !== null) {
+    const sweeper = new Retention(storage, retention.ms, retention.connector, {
+      now: () => Date.now(),
+    });
     let releasing = false;
     setInterval(() => {
       if (releasing) return;
       releasing = true;
-      void retention
+      void sweeper
         .tick()
         .catch((error: unknown) => console.error('retention sweep failed:', String(error)))
         .finally(() => {
@@ -198,7 +207,7 @@ if (paperlessClient !== null && vocabulary !== null) {
         });
     }, 60_000);
     console.log(
-      `retention: freeing bytes ${String(retentionMs / 86_400_000)} day(s) after forwarding`,
+      `retention: freeing bytes ${String(retention.ms / 86_400_000)} day(s) after ${retention.connector} confirms`,
     );
   }
 
@@ -211,15 +220,58 @@ if (paperlessClient !== null && vocabulary !== null) {
   void paperlessClient.probeReconciliation().then((result) => {
     if (result.ok) reconciliationProbe = result.value;
   });
-
-  console.log('archive: browsing and searching the downstream system is available at /v1/archive');
 } else {
   console.log(
     paperlessUrl === undefined
-      ? 'forwarding disabled (no PAPERLESS_URL) — documents are stored but not searchable'
+      ? 'no connectors: documents are stored and searched here, and sent nowhere else'
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
   );
 }
+/**
+ * Work each stored document goes through after it is safe: reading its text,
+ * extracting its details. Empty until those steps exist; the loop only starts once
+ * there is something for it to do.
+ */
+const steps: Step[] = [];
+
+// Server-side OCR, only when the sidecar is there (compose.ocr.yml). ADR 0009.
+const ocrUrl = process.env['SHEAF_OCR_URL'];
+if (ocrUrl !== undefined && ocrUrl !== '') {
+  steps.push(
+    ocrStep(storage, {
+      url: ocrUrl,
+      // Generous: a long scan on a small machine takes minutes, and the sidecar
+      // gives up on its own at five.
+      fetch: (url, body) =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/pdf' },
+          body,
+          signal: AbortSignal.timeout(330_000),
+        }),
+      graceMs: 120_000,
+    }),
+  );
+}
+if (steps.length > 0) {
+  const jobs = new JobRunner(driver, storage, steps, {
+    now: () => Date.now(),
+    jitter: () => Math.random(),
+  });
+  let runningJobs = false;
+  setInterval(() => {
+    if (runningJobs) return;
+    runningJobs = true;
+    void jobs
+      .tick()
+      .catch((error: unknown) => console.error('a job crashed:', String(error)))
+      .finally(() => {
+        runningJobs = false;
+      });
+  }, 2_000);
+  console.log(`jobs: ${steps.map((step) => step.name).join(', ')}`);
+}
+
 server.listen(port, () => {
   console.log(`sheaf-ingest listening on http://localhost:${port}`);
   console.log(`documents: ${dataDir}`);

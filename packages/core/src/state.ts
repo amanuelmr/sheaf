@@ -34,6 +34,12 @@ export type DocStatus =
   /** Automatic retries are done. The document is still safely on this device. */
   | 'FAILED';
 
+/**
+ * Where on-device OCR text stands. `none` covers both "OCR found nothing" and a
+ * log from before OCR was tracked; either way there is nothing to send.
+ */
+export type TextState = 'none' | 'pending' | 'available' | 'uploaded';
+
 /** Retry budget for one piece of post-sync work. */
 export interface SideTaskState {
   readonly attempts: number;
@@ -62,6 +68,7 @@ export interface DocState {
   /** What the first page looks like. Null when unreadable or from an older log. */
   readonly pageHash: string | null;
   readonly localFilesPresent: boolean;
+  readonly text: TextState;
   readonly side: Readonly<Record<SideTask, SideTaskState>>;
   readonly createdAt: number;
   readonly updatedAt: number;

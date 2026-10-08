@@ -51,6 +51,16 @@ jobs:
       - name: Test
         run: pnpm run test:coverage
 
+      # Ten thousand documents take about ten seconds to index, which is too slow for
+      # every local test run but cheap enough to hold the bound on every push.
+      - name: Search benchmark
+        run: pnpm run bench:search
+
+      # The OCR sidecar is Python, tested against a stand-in ocrmypdf so neither
+      # Docker nor Tesseract is needed here.
+      - name: OCR sidecar tests
+        run: python3 -m unittest discover services/ocr/test
+
       # The app cannot be run here, so bundle it instead. Metro resolving every
       # workspace import and every screen is a far stronger signal than typecheck
       # alone -- and it is how the missing @expo/metro-runtime peer was found.

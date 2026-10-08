@@ -56,7 +56,7 @@ beforeEach(async () => {
 });
 
 async function markForwarded(remoteId = '4821'): Promise<void> {
-  await storage.recordForwardAttempt(hashA, {
+  await storage.recordForwardAttempt(hashA, 'paperless', {
     state: 'done',
     attempts: 1,
     nextAt: null,

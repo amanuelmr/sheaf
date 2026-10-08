@@ -124,6 +124,9 @@ export default function Shutter() {
         pages: collected.map((page) => page.ref),
         ...(preview === null ? {} : { thumbnailPath: preview.path }),
         ...(look === null ? {} : { pageHash: look }),
+        // OCR below reports back through `recordText`, so the engine knows to wait
+        // for it before releasing the local copy.
+        ...(driver === null ? {} : { ocrPending: true as const }),
       });
       setPages([]);
 
@@ -141,11 +144,15 @@ export default function Shutter() {
       // captured, and a slow or failed recognition must never hold up the
       // shutter. See `extractAndSaveText` for why this can only help, never hurt.
       if (driver !== null) {
+        const sync = service.sync;
         void extractAndSaveText(
           driver,
           result.sha256,
           collected.map((page) => page.ref),
-        ).catch(() => {});
+        )
+          .catch(() => false)
+          .then((found) => sync.recordText(result.sha256, found))
+          .catch(() => {});
       }
 
       const saved = offline
