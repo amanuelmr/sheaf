@@ -1,11 +1,11 @@
 # Sheaf
 
 **Offline-first document capture with a server that keeps, reads and searches your
-documents — and forwards copies to Paperless-ngx, a folder or S3 only if you ask.**
+documents — and forwards copies to Paperless-ngx only if you ask.**
 
 Scan a document; it is already safe. Everything after that is optional.
 
-[![CI](https://img.shields.io/badge/ci-passing-22c55e)](https://github.com/) [![TypeScript](https://img.shields.io/badge/typescript-strict-3178c6)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+[![CI](https://github.com/amanuelmr/sheaf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/amanuelmr/sheaf/actions/workflows/ci.yml) [![TypeScript](https://img.shields.io/badge/typescript-strict-3178c6)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 
 > Sheaf is an independent project. It is not affiliated with, endorsed by, or an
 > official part of [Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx).
@@ -15,7 +15,7 @@ Scan a document; it is already safe. Everything after that is optional.
 |                                    |                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **0** documents lost or duplicated | Across 3,644 simulated process kills, and a real 500-document load through 3 `SIGKILL`s           |
-| **728** tests                      | Every one run in CI; coverage floors enforced on the pure packages                                |
+| **735** tests                      | Every one run in CI; coverage floors enforced on the pure packages                                |
 | **84%** on the hardest field       | Total extracted at **$0.00 per document** by the default regex extractor — Claude/Ollama optional |
 
 **Looking for a specific kind of engineering?** [`docs/FOR-REVIEWERS.md`](docs/FOR-REVIEWERS.md)
@@ -59,7 +59,7 @@ date, sender, type and total. Paperless-ngx is no longer a dependency — it is 
 **connector**: a destination that receives a copy if you configure one.
 
 ```bash
-docker compose up -d                              # just Sheaf: capture, search, AI fields
+docker compose up -d                              # just Sheaf: capture, search, extracted fields
 docker compose -f compose.yml -f compose.paperless.yml up -d   # and Paperless too
 ```
 
@@ -147,7 +147,7 @@ What works today, and how each part is checked:
 | Pairing, metrics, observability                   | Done                                               | Router and registry tests; a real Prometheus + Grafana stack with a provisioned dashboard                           |
 | Server-side OCR (optional)                        | Done                                               | Sidecar tests against a stand-in; the real container read an image-only receipt word for word                       |
 | Paperless-ngx (optional connector)                | Done                                               | Contract tests against a real 3.2.1, weekly in CI                                                                   |
-| Chaos under load                                  | Done                                               | `pnpm chaos`: 20 phones × 25 documents, 3 `SIGKILL`s, 0 lost / 0 duplicated — green on three seeds                  |
+| Chaos under load                                  | Done                                               | `pnpm chaos`: 20 phones × 25 documents, 3 `SIGKILL`s, 0 lost / 0 duplicated — green on four seeds                   |
 | Inbox on the phone                                | Done (buttons; swipe pending)                      | Projection tests; typecheck and bundle. **Not yet tapped**                                                          |
 
 **Not done, stated plainly:** no physical-device run yet (the camera and permission
@@ -166,7 +166,7 @@ Phone (Expo)                          Server (Node, no runtime dependencies)
 └──────────────────────────┘ ───────► │             connector per destination       │
                                      └────────────────────────────────────────────┘
                                                     │ optional
-                                          Paperless-ngx · folder · S3
+                                Paperless-ngx (a folder and S3 are planned)
 ```
 
 `packages/core` has no clock, no randomness and no I/O — ESLint enforces this by
@@ -227,7 +227,7 @@ The other entry points: `pnpm test:contract` (a real Paperless-ngx),
 
 ## Verification
 
-728 tests, with coverage floors on the pure packages. What each layer is worth:
+735 tests, with coverage floors on the pure packages. What each layer is worth:
 
 | Layer         | What it proves                                                                                                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
