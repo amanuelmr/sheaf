@@ -97,6 +97,7 @@ export default function Outbox() {
       <FlatList
         data={filtered}
         keyExtractor={(row) => row.docId}
+        testID="outbox-list"
         contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.list}
         refreshControl={
           <RefreshControl
@@ -134,7 +135,7 @@ export default function Outbox() {
             accessibilityLabel={`${item.label}. ${pageLabel(item.pageCount)}. Captured ${timeAgo(item.createdAt, now)}.`}
             onPress={() => router.push({ pathname: '/document/[id]', params: { id: item.docId } })}
             style={styles.row}
-            testID="outbox-row"
+            testID={`outbox-row-${shortId(item.docId)}`}
           >
             {item.thumbnailPath === null ? (
               <View style={[styles.thumbFallback, { backgroundColor: palette.surfaceRaised }]}>
@@ -161,6 +162,7 @@ export default function Outbox() {
                 label={item.label}
                 tone={tone(item)}
                 palette={palette}
+                testID={`outbox-status-${shortId(item.docId)}`}
               />
               {item.detail === null ? null : (
                 <Text style={[styles.detail, { color: palette.textMuted }]}>{item.detail}</Text>

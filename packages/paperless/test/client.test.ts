@@ -56,7 +56,8 @@ suite('authentication', () => {
     const h = harness({ body: '{"results":[]}' });
     await clientFor(h).testConnection();
     expect(h.calls[0]!.init!.headers!['authorization']).toBe(`Token ${TOKEN}`);
-    expect(h.calls[0]!.init!.headers!['accept']).toBe('application/json');
+    // The version is asked for, never left to the server's default. See version.test.ts.
+    expect(h.calls[0]!.init!.headers!['accept']).toBe('application/json; version=9');
   });
 
   it('hits an authenticated endpoint, so a bad token fails at setup not at upload', async () => {
