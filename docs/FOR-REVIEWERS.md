@@ -23,15 +23,15 @@ Start with the [README](../README.md) (two minutes), then pick a row.
 
 ## The numbers, and how to re-check them
 
-| Claim                                                                | Where it comes from                                                                                                      | Re-run with                    |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| 728 tests, coverage floors on `core`, `engine`, `pdf`                | [`vitest.config.ts`](../vitest.config.ts)                                                                                | `pnpm verify`                  |
-| 0 lost, 0 duplicated across 3,644 process kills                      | [`packages/sim/test`](../packages/sim/test)                                                                              | `pnpm test` (part of `verify`) |
-| 500 documents, 0 lost/duplicated through 3 SIGKILLs, ×3 seeds        | [`scripts/chaos.ts`](../scripts/chaos.ts)                                                                                | `pnpm chaos --seed 1`          |
-| Search p95 16.7 ms at 10,000 documents                               | [`services/ingest/test/search-bench.test.ts`](../services/ingest/test/search-bench.test.ts)                              | `pnpm bench:search`            |
-| Extraction: date 98%, total 84%, correspondent 96% on held-out SROIE | [`packages/extract/eval/report.md`](../packages/extract/eval/report.md)                                                  | `pnpm eval`                    |
-| Extraction accuracy is gated in CI                                   | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)                                                                | push a change that breaks it   |
-| Contract tests pass against real Paperless-ngx 3.2.1, weekly         | [`packages/paperless/test/contract`](../packages/paperless/test/contract), [workflow](../.github/workflows/contract.yml) | `pnpm run test:contract`       |
+| Claim                                                                        | Where it comes from                                                                                                      | Re-run with                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| 735 tests, coverage floors on `core`, `engine`, `pdf`, extract's normalisers | [`vitest.config.ts`](../vitest.config.ts)                                                                                | `pnpm verify`                  |
+| 0 lost, 0 duplicated across 3,644 process kills                              | [`packages/sim/test`](../packages/sim/test)                                                                              | `pnpm test` (part of `verify`) |
+| 500 documents, 0 lost/duplicated through 3 SIGKILLs, ×4 seeds                | [`scripts/chaos.ts`](../scripts/chaos.ts)                                                                                | `pnpm chaos --seed 1`          |
+| Search p95 16.7 ms at 10,000 documents                                       | [`services/ingest/test/search-bench.test.ts`](../services/ingest/test/search-bench.test.ts)                              | `pnpm bench:search`            |
+| Extraction: date 98%, total 84%, correspondent 96% on held-out SROIE         | [`packages/extract/eval/report.md`](../packages/extract/eval/report.md)                                                  | `pnpm eval`                    |
+| Extraction accuracy is gated in CI                                           | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)                                                                | push a change that breaks it   |
+| Contract tests pass against real Paperless-ngx 3.2.1, weekly                 | [`packages/paperless/test/contract`](../packages/paperless/test/contract), [workflow](../.github/workflows/contract.yml) | `pnpm run test:contract`       |
 
 ## Things that are honestly not done
 

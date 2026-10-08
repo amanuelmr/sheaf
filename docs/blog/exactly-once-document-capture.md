@@ -279,7 +279,7 @@ acceptance triage swipe is unimplemented. Search is BM25, not semantic.
 
 I would rather say that plainly than let a green tick imply more than it does. The
 durability engine underneath is the part I have actually tested, and it is tested
-hard: 728 tests, 3,644 simulated process kills, a 500-document chaos run through
+hard: 735 tests, 3,644 simulated process kills, a 500-document chaos run through
 three real `SIGKILL`s, and every count checked afterwards.
 
 ---
