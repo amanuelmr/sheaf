@@ -66,6 +66,8 @@ interface JobRow {
 /** States that let the steps after this one go ahead. */
 const FINISHED: readonly JobState[] = ['done', 'skipped', 'given_up'];
 
+/** How often a waiting job is looked at again before its start time. */
+const RECHECK_MS = 5_000;
 const ENQUEUE_BATCH = 100;
 const RUN_BATCH = 20;
 
@@ -180,18 +182,23 @@ export class JobRunner {
       return 'given_up';
     }
 
-    const notBefore = step.notBefore?.(document);
-    if (notBefore !== undefined && now < notBefore) {
-      await this.#driver.run(
-        'UPDATE jobs SET next_at = ? WHERE sha256 = ? AND step = ? AND version = ?',
-        [notBefore, job.sha256, job.step, job.version],
-      );
-      return 'waiting';
-    }
-
+    // Whether the step applies is asked first: a step that stopped applying while it
+    // waited (OCR, once the phone's text arrives) is skipped at once, so whatever
+    // comes after it does not sit out the rest of its wait.
     if (!(await step.applies(document))) {
       await this.#finish(job, 'skipped', null);
       return 'skipped';
+    }
+
+    const notBefore = step.notBefore?.(document);
+    if (notBefore !== undefined && now < notBefore) {
+      // Looked at again every few seconds rather than only at its start time, so
+      // the question above gets asked again while it waits.
+      await this.#driver.run(
+        'UPDATE jobs SET next_at = ? WHERE sha256 = ? AND step = ? AND version = ?',
+        [Math.min(notBefore, now + RECHECK_MS), job.sha256, job.step, job.version],
+      );
+      return 'waiting';
     }
 
     await this.#driver.run(
