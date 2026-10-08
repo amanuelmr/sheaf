@@ -102,6 +102,7 @@ export default function Outbox() {
           palette={palette}
           onPress={() => router.push('/inbox')}
           style={styles.review}
+          testID="open-inbox"
         />
       )}
       <FlatList

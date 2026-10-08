@@ -48,7 +48,7 @@ export default function Inbox() {
         const review = item.review ?? {};
         const details = [review.correspondent, review.documentType, review.date].filter(Boolean);
         return (
-          <View style={styles.row} testID="inbox-row">
+          <View style={styles.row} testID={`inbox-row-${shortId(item.docId)}`}>
             {item.thumbnailPath === null ? (
               <View style={[styles.thumb, { backgroundColor: palette.surfaceRaised }]} />
             ) : (
@@ -79,6 +79,7 @@ export default function Inbox() {
                   palette={palette}
                   onPress={() => void acceptRow(item)}
                   style={styles.action}
+                  testID={`inbox-accept-${shortId(item.docId)}`}
                 />
                 <Button
                   label="Edit"
@@ -88,6 +89,7 @@ export default function Inbox() {
                     router.push({ pathname: '/document/[id]', params: { id: item.docId } })
                   }
                   style={styles.action}
+                  testID={`inbox-edit-${shortId(item.docId)}`}
                 />
               </View>
             </View>
