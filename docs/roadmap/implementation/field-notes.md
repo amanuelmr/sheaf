@@ -99,3 +99,15 @@ devices. This is the raw material for the write-up in step 4.5.
   missing, and not only for want of time: the e2e fixture page is 480×640, too small
   for on-device OCR to read, so a test build never produces suggestions to review.
   It needs a larger fixture first.
+- 2026-10-09 — Paperless-ngx **3.3.0** checked against the contract suite locally
+  (the GitHub token here cannot dispatch workflows, and the weekly run had not fired
+  yet). First run: 10/11, the full-text search missed a document it had just
+  consumed. A re-run passed, and so did 3.2.1 as a control, so it was a race, not an
+  incompatibility: Paperless updates its search index after consumption, not with it.
+  The test now waits for the index (up to 20 s); three further runs on 3.3.0 passed
+  11/11. The pin stays at 3.2.1 until someone moves it on purpose.
+- 2026-10-09 — The Claude and Ollama extractors have never been scored. The eval
+  report has heuristic numbers only, because no API key or Ollama was available and
+  there are no recordings. ADR 0010's argument is a comparison, so until a recorded
+  run exists that comparison is a design, not a result. Fifty receipts on
+  `claude-haiku-4-5` would cost on the order of $0.10.

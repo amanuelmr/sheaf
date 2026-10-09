@@ -47,6 +47,10 @@ Stated here so you do not have to find them:
   `react-native-gesture-handler` and therefore a device build to test. Buttons work.
 - **A suggested document date cannot be saved from the inbox** — protocol v1's
   `DocumentPatch` has no date field yet. Noted in the field notes.
+- **The Claude and Ollama extractors have never been scored.** The eval has numbers
+  for the default rules-based extractor only; the language-model columns need an API
+  key (or Ollama) and a recorded run. Their code is held to the same unit suite, but
+  "does a model beat the rules here" is still unanswered.
 - **Vectors/semantic search** are not implemented. Search is BM25 (FTS5); the plan
   for the hybrid path is in the research doc.
 
