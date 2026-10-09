@@ -4,6 +4,11 @@ import { classifyResponse, classifyThrown } from '../src/errors';
 suite('classifyResponse', () => {
   it('maps status codes onto remedies, not onto jargon', () => {
     expect(classifyResponse(401)).toEqual({ kind: 'auth', status: 401 });
+    expect(classifyResponse(401, '{"error":"device_revoked","detail":"pair it again"}')).toEqual({
+      kind: 'auth',
+      status: 401,
+      revoked: true,
+    });
     expect(classifyResponse(404)).toEqual({ kind: 'not_found' });
     expect(classifyResponse(413)).toEqual({ kind: 'too_large' });
     expect(classifyResponse(503)).toEqual({ kind: 'server_error', status: 503 });

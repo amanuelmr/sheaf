@@ -1,4 +1,4 @@
-import type { DocState, DocStatus, RemoteId } from '@sheaf/core';
+import type { DocState, DocStatus, RemoteId, Suggestions } from '@sheaf/core';
 import { describe as explainFailure, hasUnsavedDetails } from '@sheaf/core';
 
 /**
@@ -27,6 +27,11 @@ export interface OutboxRow {
   readonly nextAttemptAt: number | null;
   /** True when the user can do something useful about this row. */
   readonly actionable: boolean;
+  /**
+   * What the server read from the document, while it waits for someone to accept or
+   * edit it. Null once they have, and while there is nothing to suggest.
+   */
+  readonly review: Suggestions | null;
   readonly createdAt: number;
   readonly updatedAt: number;
 }
@@ -60,6 +65,7 @@ export function toOutboxRow(state: DocState): OutboxRow {
     title: state.metadata?.title ?? state.suggestions?.title ?? null,
     nextAttemptAt: state.nextAttemptAt,
     actionable,
+    review: needsReview(state) ? state.suggestions : null,
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
   };
@@ -74,6 +80,22 @@ export function projectOutbox(states: Iterable<DocState>): readonly OutboxRow[] 
         b.updatedAt - a.updatedAt ||
         a.docId.localeCompare(b.docId),
     );
+}
+
+function needsReview(state: DocState): boolean {
+  return (
+    state.status === 'SYNCED' &&
+    state.metadata === null &&
+    state.suggestions !== null &&
+    Object.values(state.suggestions).some((value) => value !== undefined)
+  );
+}
+
+/** The inbox: documents whose suggestions await a person, most recently read first. */
+export function awaitingReview(rows: readonly OutboxRow[]): readonly OutboxRow[] {
+  return rows
+    .filter((row) => row.review !== null)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.docId.localeCompare(b.docId));
 }
 
 /** How many documents are still on their way. Drives the count under the shutter. */

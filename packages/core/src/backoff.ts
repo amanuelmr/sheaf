@@ -11,6 +11,14 @@ const CAP_MS = 300_000;
 export const MAX_AUTO_ATTEMPTS = 5;
 
 /**
+ * Attempts at fetching suggestions before giving up. More than other work, because
+ * "not yet" is the normal first answer: the server reads a document after storing it,
+ * which a backlog or a slow model can stretch to minutes. With the ladder below this
+ * keeps asking for 13 to 26 minutes, depending on jitter.
+ */
+export const SUGGESTION_ATTEMPTS = 10;
+
+/**
  * Equal jitter: half the delay is fixed, half is spread. Prevents a fleet of
  * queued documents from thundering at a just-recovered server.
  *

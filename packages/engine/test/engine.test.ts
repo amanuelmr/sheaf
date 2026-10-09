@@ -1,4 +1,5 @@
 import { describe as suite, beforeEach, expect, it } from 'vitest';
+import { SUGGESTION_ATTEMPTS } from '@sheaf/core';
 import type { DocState, NetStatus, ServerOutcome, SyncPolicy } from '@sheaf/core';
 import { err, ok, type ApiResult } from '@sheaf/http';
 import { DocumentStore, MemoryEventLog } from '@sheaf/store';
@@ -330,7 +331,7 @@ suite('post-sync work is bounded', () => {
       h.r.now += 1_000_000; // jump past every backoff
       await h.engine.tick(DOC);
     }
-    expect(h.r.calls.filter((c) => c === 'getSuggestions').length).toBe(5);
+    expect(h.r.calls.filter((c) => c === 'getSuggestions').length).toBe(SUGGESTION_ATTEMPTS);
   });
 
   it('stops trying to save details the server keeps refusing', async () => {

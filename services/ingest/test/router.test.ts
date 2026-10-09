@@ -13,9 +13,11 @@ import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { Devices } from '../src/devices';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
-import { handle, type IngestRequest } from '../src/router';
+import { METRICS_PATH, handle, type IngestRequest } from '../src/router';
+import { ServerMetrics } from '../src/observability';
 import { Storage, sha256Hex } from '../src/storage';
 
 const TOKEN = 'a-token-of-at-least-16-chars';
@@ -673,5 +675,227 @@ suite('the archive, served from this server', () => {
       native,
     );
     expect(edit.status).toBe(400);
+  });
+});
+
+suite('pairing and devices', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  const as = (token: string, method: string, path: string, body?: Uint8Array): IngestRequest => ({
+    ...req(method, path, body),
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const anonymous = (method: string, path: string, body?: Uint8Array): IngestRequest => ({
+    ...req(method, path, body),
+    headers: {},
+    remoteAddress: '192.168.1.50',
+  });
+
+  let paired: { deps: typeof deps & { devices: Devices }; token: string; deviceId: string };
+
+  beforeEach(async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-pair-')),
+    });
+    const withDevices = { ...deps, storage, devices: new Devices(driver, { now: () => clock }) };
+    const created = await handle(req('POST', paths.pairingCodes()), withDevices);
+    const { code } = created.json as { code: string };
+    const response = await handle(
+      anonymous('POST', paths.pair(), json({ code, deviceName: 'Test phone' })),
+      withDevices,
+    );
+    const body = response.json as { token: string; deviceId: string };
+    paired = { deps: withDevices, token: body.token, deviceId: body.deviceId };
+  });
+
+  it('lets a paired phone upload, and records which phone it was', async () => {
+    const response = await handle(as(paired.token, 'PUT', paths.document(hashA), A), paired.deps);
+    expect(response.status).toBe(201);
+    expect(await paired.deps.storage.deviceOf(hashA)).toBe(paired.deviceId);
+  });
+
+  it('keeps device management to the admin token', async () => {
+    for (const [method, path] of [
+      ['POST', paths.pairingCodes()],
+      ['GET', paths.devices()],
+      ['DELETE', paths.device(paired.deviceId)],
+    ] as const) {
+      const response = await handle(as(paired.token, method, path), paired.deps);
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
+  it('lists devices for the admin, and revokes one', async () => {
+    const list = await handle(req('GET', paths.devices()), paired.deps);
+    expect((list.json as { devices: { name: string }[] }).devices.map((d) => d.name)).toEqual([
+      'Test phone',
+    ]);
+    expect((await handle(req('DELETE', paths.device(paired.deviceId)), paired.deps)).status).toBe(
+      204,
+    );
+    expect((await handle(req('DELETE', paths.device('nope')), paired.deps)).status).toBe(404);
+
+    const after = await handle(as(paired.token, 'GET', paths.health()), paired.deps);
+    expect(after.status).toBe(401);
+    expect((after.json as { error: string }).error).toBe('device_revoked');
+  });
+
+  it('refuses a code used twice, an unknown code, and a malformed request alike', async () => {
+    const created = await handle(req('POST', paths.pairingCodes()), paired.deps);
+    const { code } = created.json as { code: string };
+    const pair = (body: unknown) =>
+      handle(anonymous('POST', paths.pair(), json(body)), paired.deps);
+
+    expect((await pair({ code, deviceName: 'A' })).status).toBe(200);
+    for (const body of [
+      { code, deviceName: 'B' },
+      { code: 'ZZZZ', deviceName: 'C' },
+    ]) {
+      expect(((await pair(body)).json as { error: string }).error).toBe('pairing_invalid');
+    }
+    expect((await pair({ deviceName: 'no code' })).status).toBe(400);
+  });
+
+  it('slows down someone guessing codes', async () => {
+    let last = 0;
+    for (let i = 0; i < 12; i++) {
+      last = (
+        await handle(
+          anonymous('POST', paths.pair(), json({ code: 'X', deviceName: 'G' })),
+          paired.deps,
+        )
+      ).status;
+    }
+    expect(last).toBe(429);
+  });
+
+  it('never slows down pairing a whole household from one network', async () => {
+    for (let i = 0; i < 15; i++) {
+      const { code } = (await handle(req('POST', paths.pairingCodes()), paired.deps)).json as {
+        code: string;
+      };
+      const response = await handle(
+        anonymous('POST', paths.pair(), json({ code, deviceName: `Phone ${String(i)}` })),
+        paired.deps,
+      );
+      expect(response.status, `phone ${String(i)}`).toBe(200);
+    }
+  });
+
+  it('still accepts the admin token everywhere, so existing installs keep working', async () => {
+    expect((await handle(req('PUT', paths.document(hashB), B), paired.deps)).status).toBe(201);
+    expect(await paired.deps.storage.deviceOf(hashB)).toBeNull();
+  });
+});
+
+suite('what the web app reads', () => {
+  const text = (t: string): Uint8Array =>
+    new Uint8Array(Buffer.from(JSON.stringify({ source: 'edge', engine: 'mlkit', text: t })));
+  const save = (sha256: string) =>
+    deps.storage.saveExtraction(
+      sha256,
+      {
+        version: 1,
+        provider: 'heuristic',
+        model: 'heuristic-2',
+        fields: {
+          title: { value: 'Cinema City', confidence: 0.6 },
+          total: { value: { minor: 3657, currency: 'MYR' }, confidence: 0.85 },
+        },
+        usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        latencyMs: 1,
+      },
+      clock,
+    );
+
+  it('lists documents whose suggestions nobody has acted on yet', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.document(hashB), B), deps);
+    await save(hashA);
+    await save(hashB);
+    await handle(
+      req('PATCH', paths.document(hashB), new Uint8Array(Buffer.from('{"title":"Mine"}'))),
+      deps,
+    );
+
+    const inbox = await handle(req('GET', paths.inbox()), deps);
+    expect(inbox.status).toBe(200);
+    const body = inbox.json as { documents: { sha256: string; suggestions: unknown }[] };
+    expect(body.documents.map((d) => d.sha256)).toEqual([hashA]);
+    expect(body.documents[0]!.suggestions).toEqual({ title: 'Cinema City' });
+  });
+
+  it('shows each field with who set it and how sure the machine was', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await save(hashA);
+    const fields = await handle(req('GET', paths.documentFields(hashA)), deps);
+    expect((fields.json as { fields: { name: string; source: string }[] }).fields).toEqual([
+      expect.objectContaining({ name: 'title', source: 'machine', confidence: 0.6 }),
+      expect.objectContaining({ name: 'total', value: { minor: 3657, currency: 'MYR' } }),
+    ]);
+    expect((await handle(req('GET', paths.documentFields(hashB)), deps)).status).toBe(404);
+
+    const record = await handle(req('GET', paths.documentRecord(hashA)), deps);
+    expect(record.json).toMatchObject({ sha256: hashA, suggestions: { title: 'Cinema City' } });
+  });
+
+  it('tells a document’s history on the server, in order', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(req('PUT', paths.documentText(hashA), text('CINEMA')), deps);
+    await save(hashA);
+    await handle(
+      req('PATCH', paths.document(hashA), new Uint8Array(Buffer.from('{"title":"Mine"}'))),
+      deps,
+    );
+
+    const history = await handle(req('GET', paths.documentHistory(hashA)), deps);
+    const events = (history.json as { events: { at: number; text: string }[] }).events;
+    expect(events.map((e) => e.text)).toEqual([
+      'Received',
+      'Text from the phone (mlkit)',
+      'Details read by heuristic-2',
+      'You changed: title',
+    ]);
+    expect(events.map((e) => e.at)).toEqual([...events.map((e) => e.at)].sort((a, b) => a - b));
+  });
+});
+
+suite('metrics', () => {
+  it('serves Prometheus text to the admin token only', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-mx-')),
+    });
+    const devices = new Devices(driver, { now: () => clock });
+    const withMetrics = { ...deps, storage, devices, metrics: new ServerMetrics(driver) };
+
+    const response = await handle(req('GET', METRICS_PATH), withMetrics);
+    expect(response.status).toBe(200);
+    expect(response.headers?.['content-type']).toMatch(/^text\/plain/);
+    expect(Buffer.from(response.bytes!).toString()).toContain('# TYPE sheaf_documents gauge');
+
+    const { code } = (await handle(req('POST', paths.pairingCodes()), withMetrics)).json as {
+      code: string;
+    };
+    const paired = (
+      await handle(
+        {
+          ...req(
+            'POST',
+            paths.pair(),
+            new Uint8Array(Buffer.from(JSON.stringify({ code, deviceName: 'p' }))),
+          ),
+          headers: {},
+        },
+        withMetrics,
+      )
+    ).json as { token: string };
+    const asPhone = await handle(
+      { ...req('GET', METRICS_PATH), headers: { authorization: `Bearer ${paired.token}` } },
+      withMetrics,
+    );
+    expect(asPhone.status).toBe(403);
   });
 });

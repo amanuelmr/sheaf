@@ -61,7 +61,10 @@ function Shell() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="connect" options={{ title: 'Connect your server' }} />
+        <Stack.Screen name="pair" options={{ title: 'Pairing' }} />
+        <Stack.Screen name="scan-pairing" options={{ title: 'Scan pairing code' }} />
         <Stack.Screen name="outbox" options={{ title: 'Outbox' }} />
+        <Stack.Screen name="inbox" options={{ title: 'To review' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="document/[id]" options={{ title: 'Document' }} />
         <Stack.Screen name="library" options={{ title: 'Library' }} />

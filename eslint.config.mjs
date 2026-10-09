@@ -25,7 +25,7 @@ export default tseslint.config(
           // auto-discovery is concerned -- no project references wire the two
           // together -- so it falls back to the default project rather than going
           // unlinted, the same as the root's own *.mjs config files.
-          allowDefaultProject: ['*.mjs', 'apps/admin/vite.config.ts'],
+          allowDefaultProject: ['*.mjs', 'apps/web/vite.config.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -59,6 +59,31 @@ export default tseslint.config(
     },
   },
   {
+    // Extraction is scored by an eval that has to be reproducible (ADR 0010), so the
+    // rules that read text stay as pure as the core: "today" is a parameter.
+    files: ['packages/extract/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message: 'packages/extract must stay pure: take `today` as a parameter.',
+        },
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message: 'packages/extract must stay pure: `new Date()` reads the clock.',
+        },
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message: 'packages/extract must stay pure and deterministic.',
+        },
+      ],
+      // The server runs this by stripping types (see services/**), so no TypeScript
+      // that emits code.
+      '@typescript-eslint/parameter-properties': ['error', { prefer: 'class-property' }],
+    },
+  },
+  {
     // Node executes this service by stripping types, which cannot handle any
     // TypeScript that emits code. Parameter properties are the easy one to reach
     // for and they fail at startup, not at build time -- so they are banned here
@@ -79,7 +104,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/admin/**/*.ts', 'apps/admin/**/*.tsx'],
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
     rules: {
       '@typescript-eslint/no-unnecessary-condition': 'off',
     },

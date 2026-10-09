@@ -58,8 +58,29 @@ jobs:
 
       # The OCR sidecar is Python, tested against a stand-in ocrmypdf so neither
       # Docker nor Tesseract is needed here.
+      # Tests import packages through aliases, so they pass even when the server's own
+      # package.json forgets a dependency. Starting it the way a developer would is the
+      # only check that catches that; it once went unnoticed for a whole step.
+      - name: Start the server outside Docker
+        run: |
+          export SHEAF_TOKEN=ci-check-0123456789abcdef SHEAF_DATA_DIR=$(mktemp -d) PORT=8799
+          node --experimental-strip-types services/ingest/src/main.ts > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf -H "authorization: Bearer $SHEAF_TOKEN" localhost:8799/v1/health && exit 0
+            sleep 1
+          done
+          cat server.log
+          exit 1
+
       - name: OCR sidecar tests
         run: python3 -m unittest discover services/ocr/test
+
+      # Extraction accuracy is a number, and a change that lowers it fails the build
+      # (ADR 0010). Models answer from recordings, so no API key is needed here.
+      - name: Extraction eval
+        run: |
+          pnpm --filter @sheaf/extract eval:fetch
+          pnpm --filter @sheaf/extract eval -- --replay --check
 
       # The app cannot be run here, so bundle it instead. Metro resolving every
       # workspace import and every screen is a far stronger signal than typecheck
@@ -70,4 +91,4 @@ jobs:
       # Same reasoning as the mobile bundle above: a Vite production build resolves
       # every import for real, which typecheck alone does not.
       - name: Build the admin dashboard
-        run: pnpm run bundle:admin
+        run: pnpm run bundle:web

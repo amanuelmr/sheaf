@@ -9,7 +9,7 @@
 import { describe as suite, expect, it } from 'vitest';
 import { reduce } from '../src/reduce';
 import { next } from '../src/machine';
-import { MAX_AUTO_ATTEMPTS } from '../src/backoff';
+import { MAX_AUTO_ATTEMPTS, SUGGESTION_ATTEMPTS, backoffMs } from '../src/backoff';
 import type { CaptureEvent } from '../src/events';
 import { accepted, captured, confirmed, enqueued, started, DOC, ONLINE } from './helpers';
 
@@ -54,12 +54,27 @@ suite('suggestions that fail', () => {
 
   it('stops after the budget, however patient the network problem', () => {
     const events = [...synced];
-    for (let attempt = 1; attempt <= MAX_AUTO_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= SUGGESTION_ATTEMPTS; attempt++) {
       events.push(sideFailed('suggestions', attempt, 3_000 + attempt * 1_000));
     }
     const state = reduce(events);
     expect(state.side.suggestions.abandoned).toEqual({ kind: 'unreachable' });
     expect(next(state, { ...ONLINE, now: 9_999_999 }).type).toBe('idle');
+  });
+
+  it('keeps asking for at least ten minutes, long enough for the server to read the document', () => {
+    // Our own server answers "not yet" until extraction has run, which can sit
+    // behind a backlog or a slow model. Even with the shortest jitter, the phone
+    // must still be asking well after that.
+    let waited = 0;
+    for (let attempt = 1; attempt < SUGGESTION_ATTEMPTS; attempt++) waited += backoffMs(attempt, 0);
+    expect(waited).toBeGreaterThanOrEqual(10 * 60 * 1000);
+
+    const events = [...synced];
+    for (let attempt = 1; attempt < SUGGESTION_ATTEMPTS; attempt++) {
+      events.push(sideFailed('suggestions', attempt, 3_000 + attempt));
+    }
+    expect(reduce(events).side.suggestions.abandoned).toBeNull();
   });
 
   it('forgets the failures as soon as suggestions do arrive', () => {

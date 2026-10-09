@@ -249,7 +249,7 @@ cost of `expo-ocr-kit` being a much smaller, single-maintainer package --
 a supply-chain tradeoff accepted deliberately, and only after the alternative
 was shown to be broken rather than just less established.
 
-## `apps/admin`: a second client, reading the same server
+## `apps/web`: a second client, reading the same server
 
 The first browser client this project has had, and deliberately the smallest
 kind of thing it could be: it polls `GET /v1/health` and draws what comes back

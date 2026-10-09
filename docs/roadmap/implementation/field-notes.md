@@ -41,6 +41,39 @@ devices. This is the raw material for the write-up in step 4.5.
   test OCR; and Python's `HTTPServer` spent 35 s on a reverse-DNS lookup at bind.
   Not yet run: the whole stack through compose, since this Mac already serves a
   Sheaf on port 8787.
+- 2026-10-06 — Extraction eval, heuristic. First run on the 50-receipt test sample:
+  date 98%, total **52%**, sender 96%. The dev set (586 other receipts) disagreed
+  about the sender (79.5%), which is why rules are tuned on dev only. The total
+  misses were real receipt layout, not edge cases: a GST summary table whose own
+  "TOTAL" is the tax, amounts printed two lines below their label, "TOTAL INCL. GST"
+  rejected for mentioning GST, and cash tendered taken for the bill. Fixing those
+  as general rules: dev 61% → 82%, test 52% → **84%**, other fields unchanged.
+- 2026-10-06 — Inbox (3.4) built with Accept and Edit buttons; the swipe gesture is
+  left for the device session, since `react-native-gesture-handler` is a native
+  module that needs a rebuild to test. Two loose ends: (1) a suggested document date
+  is shown but cannot be saved, because protocol v1's `DocumentPatch` has no date;
+  (2) the inbox buttons need `testID`s once the step-1.4 branch (which added
+  `testID` to `Button`) is merged.
+- 2026-10-06 — Found by running the server for the pairing check: since step 3.2,
+  `pnpm --filter @sheaf/ingest start` crashed with "Cannot find package
+  '@sheaf/extract'". Every test passed, because Vitest resolves packages through
+  aliases, and the Docker image worked, because its Dockerfile links packages by hand.
+  Only the server's own `package.json` was wrong. CI now starts it outside Docker.
+- 2026-10-06 — Chaos run (`pnpm chaos`), 20 phones × 25 documents, three SIGKILLs:
+  seeds 1, 2 and 3 each stored exactly 500 documents with 0 lost and 0 duplicated,
+  through ~1,400 requests and ~100 replies lost after the server had stored the
+  document. Its first full run hung, and the cause was mine: the pairing rate limit
+  counted successes, so the eleventh phone paired from one address was refused for a
+  minute, and the script retried for ever. The limit now counts only failures.
+- 2026-10-06 — Chaos re-run on a seed not used while developing it (seed 7): 500
+  documents, 0 lost, 0 duplicated, 3 SIGKILLs, 1,434 requests, 103 replies lost after
+  the server had stored the document, 54 s. Four seeds green in total.
+- 2026-10-06 — `apps/web` had **no tests at all**, three weeks after it was written,
+  because nothing in it had failed and nothing was checking. The first test — routing,
+  since a hash is the only user-controlled value that reaches a request path —
+  immediately found a money formatter rendering a non-finite amount as "€NaN". The
+  lesson is not about `apps/web`: a test count is not coverage, and an app with only
+  `tsc --noEmit` can hide a defect indefinitely.
 - 2026-10-06 — Paperless-ngx **3.3.0** was published at 03:55Z, hours after the
   stack was pinned to 3.2.1 and verified against it. The pin stays at 3.2.1 on
   purpose: the weekly `latest` leg of the contract workflow is what tests a new
@@ -61,3 +94,20 @@ devices. This is the raw material for the write-up in step 4.5.
   its import is unconditional; only the branch that reads it is unreachable, since
   `EXPO_PUBLIC_*` is inlined at bundle time. The comment claimed the whole thing
   was dead code, which was half true.
+- 2026-10-08 — Review of the stacked PRs: the inbox's test ids (loose end 2 above)
+  are in, named per document like the outbox rows. A Maestro inbox flow is still
+  missing, and not only for want of time: the e2e fixture page is 480×640, too small
+  for on-device OCR to read, so a test build never produces suggestions to review.
+  It needs a larger fixture first.
+- 2026-10-09 — Paperless-ngx **3.3.0** checked against the contract suite locally
+  (the GitHub token here cannot dispatch workflows, and the weekly run had not fired
+  yet). First run: 10/11, the full-text search missed a document it had just
+  consumed. A re-run passed, and so did 3.2.1 as a control, so it was a race, not an
+  incompatibility: Paperless updates its search index after consumption, not with it.
+  The test now waits for the index (up to 20 s); three further runs on 3.3.0 passed
+  11/11. The pin stays at 3.2.1 until someone moves it on purpose.
+- 2026-10-09 — The Claude and Ollama extractors have never been scored. The eval
+  report has heuristic numbers only, because no API key or Ollama was available and
+  there are no recordings. ADR 0010's argument is a comparison, so until a recorded
+  run exists that comparison is a design, not a result. Fifty receipts on
+  `claude-haiku-4-5` would cost on the order of $0.10.

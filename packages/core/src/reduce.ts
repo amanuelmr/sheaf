@@ -1,4 +1,4 @@
-import { MAX_AUTO_ATTEMPTS, backoffMs } from './backoff.ts';
+import { MAX_AUTO_ATTEMPTS, SUGGESTION_ATTEMPTS, backoffMs } from './backoff.ts';
 import { isBlocking, isRetryable } from './errors.ts';
 import type { CaptureEvent, PageRef, ServerOutcome, SideTask } from './events.ts';
 import type { DocState, SideTaskState } from './state.ts';
@@ -29,7 +29,8 @@ function applySideFailure(
   jitter: number,
   at: number,
 ): DocState {
-  const giveUp = !isRetryable(reason) || attempt >= MAX_AUTO_ATTEMPTS;
+  const budget = task === 'suggestions' ? SUGGESTION_ATTEMPTS : MAX_AUTO_ATTEMPTS;
+  const giveUp = !isRetryable(reason) || attempt >= budget;
   const next: SideTaskState = {
     attempts: attempt,
     nextAttemptAt: giveUp ? null : at + backoffMs(attempt, jitter),

@@ -11,12 +11,15 @@ import { join } from 'node:path';
 import type {
   DocumentPatch,
   DocumentRecord,
+  HistoryEvent,
+  InboxEntry,
   PutOutcome,
   SearchHit,
   SearchResponse,
   Suggestions,
 } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
+import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
 
 /**
@@ -30,6 +33,25 @@ export interface StorageOptions {
 }
 
 export type NameKind = 'correspondent' | 'document_type' | 'tag';
+
+/** One run of an extractor over a document, as the extract step hands it over. */
+export interface ExtractionRecord {
+  readonly version: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly fields: ExtractedFields;
+  readonly usage: Usage;
+  readonly latencyMs: number;
+}
+
+/** A field's current value, and whether a machine or a person decided it. */
+export interface FieldRow {
+  readonly name: string;
+  readonly value: unknown;
+  readonly source: 'machine' | 'user';
+  readonly confidence: number;
+  readonly updatedAt: number;
+}
 
 /** A document as the archive lists it: its stable archive id and what is known. */
 export interface ArchiveRow {
@@ -116,6 +138,9 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['suggestions_next_at', 'INTEGER'],
   ['suggestions_json', 'TEXT'],
 ];
+
+/** Job steps whose result depends on a document's text, and so go stale with it. */
+const TEXT_READERS = ['extract'] as const;
 
 /**
  * The connector whose progress a v1 `DocumentRecord.forward` reports. Clients of
@@ -221,6 +246,8 @@ export class Storage {
     bytes: Uint8Array,
     now: number,
     pageCount: number | null,
+    /** The paired phone that sent it, or null for the admin token. */
+    deviceId: string | null = null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) return 'already-stored';
 
@@ -232,15 +259,24 @@ export class Storage {
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
-        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags)
-         VALUES (?, ?, ?, ?, '[]')
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id)
+         VALUES (?, ?, ?, ?, '[]', ?)
          ON CONFLICT(sha256) DO NOTHING`,
-        [sha256, bytes.length, pageCount, now],
+        [sha256, bytes.length, pageCount, now, deviceId],
       );
       await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
     });
     return 'stored';
+  }
+
+  /** Which paired phone first delivered a document; null for the admin token. */
+  async deviceOf(sha256: string): Promise<string | null> {
+    const rows = await this.#driver.all<{ device_id: string | null }>(
+      'SELECT device_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.device_id ?? null;
   }
 
   async has(sha256: string): Promise<boolean> {
@@ -290,6 +326,16 @@ export class Storage {
   ): Promise<'stored' | 'unknown-document'> {
     if (!(await this.has(sha256))) return 'unknown-document';
     await this.#driver.transaction(async () => {
+      // New or different text makes the document's extraction stale: clear it, and
+      // the job runner queues it again. Resending identical text clears nothing.
+      await this.#driver.run(
+        `DELETE FROM jobs
+          WHERE sha256 = ? AND step IN (${TEXT_READERS.map(() => '?').join(', ')})
+            AND NOT EXISTS (
+              SELECT 1 FROM document_text
+               WHERE sha256 = ? AND source = ? AND engine = ? AND text = ?)`,
+        [sha256, ...TEXT_READERS, sha256, body.source, body.engine, body.text],
+      );
       await this.#driver.run(
         `INSERT INTO document_text (sha256, source, engine, text, received_at)
          VALUES (?, ?, ?, ?, ?)
@@ -324,7 +370,11 @@ export class Storage {
   }
 
   /** Applies only the fields present. `null` clears; omitted leaves alone. */
-  async patch(sha256: string, patch: DocumentPatch): Promise<DocumentRecord | null> {
+  async patch(
+    sha256: string,
+    patch: DocumentPatch,
+    now: number = Date.now(),
+  ): Promise<DocumentRecord | null> {
     if (!(await this.has(sha256))) return null;
 
     const sets: string[] = [];
@@ -353,10 +403,204 @@ export class Storage {
           await this.#addName('document_type', patch.documentType);
         }
         for (const tag of patch.tags ?? []) await this.#addName('tag', tag);
+        await this.#recordUserFields(sha256, patch, now);
         await this.reindex(sha256);
       });
     }
     return this.record(sha256);
+  }
+
+  /**
+   * Keep one extraction: the run itself, each field it found where no person has
+   * set that field, and the suggestions the phone asks for. One transaction, so a
+   * crash never leaves fields without the run that produced them.
+   */
+  async saveExtraction(sha256: string, run: ExtractionRecord, now: number): Promise<void> {
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        `INSERT OR REPLACE INTO extractions
+           (sha256, version, provider, model, fields_json, input_tokens, output_tokens,
+            cost_usd, latency_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sha256,
+          run.version,
+          run.provider,
+          run.model,
+          JSON.stringify(run.fields),
+          run.usage.inputTokens,
+          run.usage.outputTokens,
+          run.usage.costUsd,
+          run.latencyMs,
+          now,
+        ],
+      );
+      for (const name of FIELD_NAMES) {
+        const field = run.fields[name];
+        if (field === undefined) continue;
+        await this.#driver.run(
+          `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
+           VALUES (?, ?, ?, 'machine', ?, ?)
+           ON CONFLICT (sha256, name) DO UPDATE SET
+             value_json = excluded.value_json,
+             confidence = excluded.confidence,
+             updated_at = excluded.updated_at
+           WHERE fields.source = 'machine'`,
+          [sha256, name, JSON.stringify(field.value), field.confidence, now],
+        );
+      }
+      const suggestions: Suggestions = {
+        ...(run.fields.title === undefined ? {} : { title: run.fields.title.value }),
+        ...(run.fields.date === undefined ? {} : { date: run.fields.date.value }),
+        ...(run.fields.correspondent === undefined
+          ? {}
+          : { correspondent: run.fields.correspondent.value }),
+        ...(run.fields.documentType === undefined
+          ? {}
+          : { documentType: run.fields.documentType.value }),
+        ...(run.fields.tags === undefined ? {} : { tags: run.fields.tags.value }),
+      };
+      await this.#driver.run(
+        `UPDATE documents SET suggestions_json = ?, suggestions_state = 'done' WHERE sha256 = ?`,
+        [JSON.stringify(suggestions), sha256],
+      );
+    });
+  }
+
+  /**
+   * Answer "nothing to suggest" for a document extraction gave up on or had no text
+   * for, so the phone stops asking. Never replaces a real answer.
+   */
+  async recordNoSuggestions(sha256: string): Promise<void> {
+    await this.#driver.run(
+      `UPDATE documents SET suggestions_json = '{}', suggestions_state = 'done'
+        WHERE sha256 = ? AND suggestions_json IS NULL`,
+      [sha256],
+    );
+  }
+
+  async fields(sha256: string): Promise<readonly FieldRow[]> {
+    const rows = await this.#driver.all<{
+      name: string;
+      value_json: string;
+      source: 'machine' | 'user';
+      confidence: number;
+      updated_at: number;
+    }>('SELECT * FROM fields WHERE sha256 = ? ORDER BY name', [sha256]);
+    return rows.map((row) => ({
+      name: row.name,
+      value: JSON.parse(row.value_json) as unknown,
+      source: row.source,
+      confidence: row.confidence,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async extractionCount(sha256: string): Promise<number> {
+    const rows = await this.#driver.all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM extractions WHERE sha256 = ?',
+      [sha256],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Mark each field a person set, cleared included, as theirs. Extraction then
+   * leaves it alone, however confident a later run is.
+   */
+  async #recordUserFields(sha256: string, patch: DocumentPatch, now: number): Promise<void> {
+    const chosen: [string, unknown][] = [
+      ['title', patch.title],
+      ['correspondent', patch.correspondent],
+      ['documentType', patch.documentType],
+      ['tags', patch.tags],
+    ];
+    for (const [name, value] of chosen) {
+      if (value === undefined) continue;
+      await this.#driver.run(
+        `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
+         VALUES (?, ?, ?, 'user', 1, ?)
+         ON CONFLICT (sha256, name) DO UPDATE SET
+           value_json = excluded.value_json, source = 'user', confidence = 1,
+           updated_at = excluded.updated_at`,
+        [sha256, name, JSON.stringify(value), now],
+      );
+    }
+  }
+
+  /** Documents with suggestions that no person has acted on, newest first. */
+  async inbox(limit = 100): Promise<readonly InboxEntry[]> {
+    const rows = await this.#driver.all<{
+      sha256: string;
+      received_at: number;
+      title: string | null;
+      suggestions_json: string;
+    }>(
+      `SELECT sha256, received_at, title, suggestions_json FROM documents d
+        WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
+          AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
+        ORDER BY received_at DESC, sha256
+        LIMIT ?`,
+      [limit],
+    );
+    return rows.map((row) => ({
+      sha256: row.sha256,
+      receivedAt: row.received_at,
+      title: row.title,
+      suggestions: JSON.parse(row.suggestions_json) as Suggestions,
+    }));
+  }
+
+  /**
+   * What happened to a document here, oldest first, built from timestamps already
+   * kept for other reasons: nothing extra is written to have a history.
+   */
+  async history(sha256: string): Promise<readonly HistoryEvent[]> {
+    const events: HistoryEvent[] = [];
+    const received = await this.#driver.all<{ received_at: number; device: string | null }>(
+      `SELECT d.received_at, v.name AS device FROM documents d
+         LEFT JOIN devices v ON v.id = d.device_id WHERE d.sha256 = ?`,
+      [sha256],
+    );
+    for (const row of received) {
+      events.push({
+        at: row.received_at,
+        text: row.device === null ? 'Received' : `Received from ${row.device}`,
+      });
+    }
+    for (const text of await this.texts(sha256)) {
+      events.push({
+        at: text.receivedAt,
+        text:
+          text.source === 'edge'
+            ? `Text from the phone (${text.engine})`
+            : `Text read on the server (${text.engine})`,
+      });
+    }
+    const runs = await this.#driver.all<{ created_at: number; model: string }>(
+      'SELECT created_at, model FROM extractions WHERE sha256 = ? ORDER BY created_at',
+      [sha256],
+    );
+    for (const run of runs)
+      events.push({ at: run.created_at, text: `Details read by ${run.model}` });
+    const deliveries = await this.#driver.all<{ connector: string; done_at: number }>(
+      'SELECT connector, done_at FROM deliveries WHERE sha256 = ? AND done_at IS NOT NULL',
+      [sha256],
+    );
+    for (const d of deliveries) events.push({ at: d.done_at, text: `Delivered to ${d.connector}` });
+    const given = await this.#driver.all<{ step: string; finished_at: number }>(
+      `SELECT step, finished_at FROM jobs WHERE sha256 = ? AND state = 'given_up'`,
+      [sha256],
+    );
+    for (const job of given) events.push({ at: job.finished_at, text: `Gave up on ${job.step}` });
+    const edits = await this.#driver.all<{ updated_at: number; names: string }>(
+      `SELECT updated_at, group_concat(name, ', ') AS names FROM fields
+        WHERE sha256 = ? AND source = 'user' GROUP BY updated_at`,
+      [sha256],
+    );
+    for (const edit of edits)
+      events.push({ at: edit.updated_at, text: `You changed: ${edit.names}` });
+    return events.sort((a, b) => a.at - b.at);
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {
@@ -499,8 +743,10 @@ export class Storage {
       tags: string;
       received_at: number;
       snippet: string;
+      suggested_title: string | null;
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              json_extract(d.suggestions_json, '$.title') AS suggested_title,
               snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
          FROM documents_fts f
          JOIN documents d ON d.sha256 = f.sha256
@@ -512,6 +758,7 @@ export class Storage {
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
       title: row.title,
+      suggestedTitle: row.suggested_title,
       correspondent: row.correspondent,
       documentType: row.document_type,
       tags: JSON.parse(row.tags) as string[],

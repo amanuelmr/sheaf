@@ -6,12 +6,16 @@ import type { ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
 import { JobRunner, type Step } from './jobs.ts';
+import { extractStep } from './steps/extract.ts';
 import { ocrStep } from './steps/ocr.ts';
 import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
-import { archiveFromEnv, retentionFromEnv } from './config.ts';
+import { Devices } from './devices.ts';
+import { log } from './log.ts';
+import { ServerMetrics } from './observability.ts';
+import { archiveFromEnv, extractionFromEnv, retentionFromEnv } from './config.ts';
 import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
 import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
@@ -25,10 +29,9 @@ const token = process.env['SHEAF_TOKEN'];
 if (token === undefined || token.length < 16) {
   // Refuse to start rather than come up with a guessable token: this server holds
   // documents, and a weak default would be the worst possible one.
-  console.error('SHEAF_TOKEN must be set to at least 16 characters.');
-  console.error(
-    "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
-  );
+  log.error('SHEAF_TOKEN must be set to at least 16 characters.', {
+    hint: "node -e \"log.info(require('crypto').randomBytes(32).toString('hex'))\"",
+  });
   process.exit(1);
 }
 
@@ -57,14 +60,22 @@ const retentionSetting = retentionFromEnv(
   paperlessUrl === undefined ? [] : [PRIMARY_CONNECTOR],
 );
 if (retentionSetting.kind === 'invalid') {
-  console.error(retentionSetting.message);
+  log.error(retentionSetting.message);
   process.exit(1);
 }
 const retention = retentionSetting.kind === 'on' ? retentionSetting.config : null;
 
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
 if (archiveChoice.kind === 'invalid') {
-  console.error(archiveChoice.message);
+  log.error(archiveChoice.message);
+  process.exit(1);
+}
+
+const extraction = extractionFromEnv(process.env, paperlessUrl !== undefined, (url, init) =>
+  fetch(url, { ...(init as RequestInit), signal: AbortSignal.timeout(120_000) }),
+);
+if (extraction.kind === 'invalid') {
+  log.error(extraction.message);
   process.exit(1);
 }
 
@@ -140,13 +151,16 @@ const archiveSource =
     : paperlessClient === null || vocabulary === null
       ? null
       : paperlessArchiveSource(paperlessClient, vocabulary);
-console.log(
+log.info(
   `archive: /v1/archive browses ${archiveChoice.kind === 'native' ? 'this server' : 'Paperless'}`,
 );
 
 const server = createIngestServer({
   storage,
   token,
+  // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
+  devices: new Devices(driver, { now: () => Date.now() }),
+  metrics: new ServerMetrics(driver),
   now: () => Date.now(),
   ...(forwardingTo === undefined ? {} : { forwardingTo }),
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
@@ -167,25 +181,28 @@ if (paperlessClient !== null && vocabulary !== null) {
     running = true;
     void forwarder
       .tick()
-      .catch((error: unknown) => console.error('forwarding failed:', String(error)))
+      .catch((error: unknown) => log.error('forwarding failed', { error: String(error) }))
       .finally(() => {
         running = false;
       });
   }, 5_000);
-  console.log(`forwarding to ${forwardingTo ?? 'unknown'}`);
+  log.info(`forwarding to ${forwardingTo ?? 'unknown'}`);
 
-  const suggestions = new SuggestionFetcher(
-    storage,
-    paperlessSuggestionSource(paperlessClient, vocabulary),
-    { now: () => Date.now(), jitter: () => Math.random() },
-  );
+  // Paperless's own suggestions, only when chosen instead of reading documents here.
+  const suggestions =
+    extraction.kind !== 'paperless'
+      ? null
+      : new SuggestionFetcher(storage, paperlessSuggestionSource(paperlessClient, vocabulary), {
+          now: () => Date.now(),
+          jitter: () => Math.random(),
+        });
   let fetchingSuggestions = false;
   setInterval(() => {
-    if (fetchingSuggestions) return;
+    if (suggestions === null || fetchingSuggestions) return;
     fetchingSuggestions = true;
     void suggestions
       .tick()
-      .catch((error: unknown) => console.error('fetching suggestions failed:', String(error)))
+      .catch((error: unknown) => log.error('fetching suggestions failed', { error: String(error) }))
       .finally(() => {
         fetchingSuggestions = false;
       });
@@ -201,12 +218,12 @@ if (paperlessClient !== null && vocabulary !== null) {
       releasing = true;
       void sweeper
         .tick()
-        .catch((error: unknown) => console.error('retention sweep failed:', String(error)))
+        .catch((error: unknown) => log.error('retention sweep failed', { error: String(error) }))
         .finally(() => {
           releasing = false;
         });
     }, 60_000);
-    console.log(
+    log.info(
       `retention: freeing bytes ${String(retention.ms / 86_400_000)} day(s) after ${retention.connector} confirms`,
     );
   }
@@ -221,7 +238,7 @@ if (paperlessClient !== null && vocabulary !== null) {
     if (result.ok) reconciliationProbe = result.value;
   });
 } else {
-  console.log(
+  log.info(
     paperlessUrl === undefined
       ? 'no connectors: documents are stored and searched here, and sent nowhere else'
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
@@ -233,6 +250,22 @@ if (paperlessClient !== null && vocabulary !== null) {
  * there is something for it to do.
  */
 const steps: Step[] = [];
+
+// Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
+if (extraction.kind === 'native') {
+  steps.push(
+    extractStep(storage, {
+      extractor: extraction.extractor,
+      dateOrder: extraction.dateOrder,
+      defaultCurrency: extraction.defaultCurrency,
+      graceMs: 120_000,
+    }),
+  );
+  log.info(
+    `extraction: ${extraction.extractor.name}` +
+      (extraction.sendsTextAway ? ' (document text is sent to the provider)' : ''),
+  );
+}
 
 // Server-side OCR, only when the sidecar is there (compose.ocr.yml). ADR 0009.
 const ocrUrl = process.env['SHEAF_OCR_URL'];
@@ -264,17 +297,17 @@ if (steps.length > 0) {
     runningJobs = true;
     void jobs
       .tick()
-      .catch((error: unknown) => console.error('a job crashed:', String(error)))
+      .catch((error: unknown) => log.error('a job crashed', { error: String(error) }))
       .finally(() => {
         runningJobs = false;
       });
   }, 2_000);
-  console.log(`jobs: ${steps.map((step) => step.name).join(', ')}`);
+  log.info(`jobs: ${steps.map((step) => step.name).join(', ')}`);
 }
 
 server.listen(port, () => {
-  console.log(`sheaf-ingest listening on http://localhost:${port}`);
-  console.log(`documents: ${dataDir}`);
+  log.info(`sheaf-ingest listening on http://localhost:${port}`);
+  log.info(`documents: ${dataDir}`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

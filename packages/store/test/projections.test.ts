@@ -2,7 +2,7 @@ import { describe as suite, expect, it } from 'vitest';
 import { reduce, type CaptureEvent, type DocState } from '@sheaf/core';
 import { DocumentStore } from '../src/store';
 import { MemoryEventLog } from '../src/memory-log';
-import { pendingCount, projectOutbox, toOutboxRow } from '../src/outbox';
+import { awaitingReview, pendingCount, projectOutbox, toOutboxRow } from '../src/outbox';
 import { paperTrail } from '../src/trail';
 import { DOC_A, DOC_B, fullLife, page } from './events';
 
@@ -121,6 +121,51 @@ suite('outbox rows', () => {
     ]);
     expect(pendingCount(rows)).toBe(2);
     expect(pendingCount([])).toBe(0);
+  });
+});
+
+suite('the inbox', () => {
+  const synced = (docId: string, suggestions?: Record<string, unknown>): CaptureEvent[] => [
+    ...base(docId),
+    { type: 'UploadStarted', docId, at: 2_000, attempt: 1 },
+    { type: 'ServerConfirmed', docId, at: 2_100, outcome: { kind: 'stored', remoteId: docId } },
+    ...(suggestions === undefined
+      ? []
+      : [{ type: 'SuggestionsReceived' as const, docId, at: 3_000, suggestions }]),
+  ];
+
+  it('holds documents the server has read, until someone accepts or edits them', () => {
+    const waiting = toOutboxRow(
+      stateFrom(synced(DOC_A, { title: 'Cinema City', date: '2026-10-05' })),
+    );
+    expect(waiting.review).toEqual({ title: 'Cinema City', date: '2026-10-05' });
+    expect(awaitingReview([waiting])).toEqual([waiting]);
+
+    const accepted = toOutboxRow(
+      stateFrom([
+        ...synced(DOC_A, { title: 'Cinema City' }),
+        { type: 'MetadataAccepted', docId: DOC_A, at: 4_000, patch: { title: 'Cinema City' } },
+      ]),
+    );
+    expect(accepted.review).toBeNull();
+    expect(awaitingReview([accepted])).toEqual([]);
+  });
+
+  it('leaves out documents with nothing to suggest, or not yet read', () => {
+    const empty = toOutboxRow(stateFrom(synced(DOC_A, {})));
+    const unread = toOutboxRow(stateFrom(synced(DOC_B)));
+    expect(awaitingReview([empty, unread])).toEqual([]);
+  });
+
+  it('puts the most recently read first', () => {
+    const older = toOutboxRow(stateFrom(synced(DOC_A, { title: 'A' })));
+    const newer = toOutboxRow(
+      stateFrom([
+        ...synced(DOC_B, { title: 'B' }).slice(0, -1),
+        { type: 'SuggestionsReceived', docId: DOC_B, at: 9_000, suggestions: { title: 'B' } },
+      ]),
+    );
+    expect(awaitingReview([older, newer]).map((row) => row.docId)).toEqual([DOC_B, DOC_A]);
   });
 });
 

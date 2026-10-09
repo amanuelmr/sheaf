@@ -151,6 +151,24 @@ suite('JobRunner', () => {
     expect(await stateOf('extract')).toBe('given_up');
   });
 
+  it('lets a step leave a final answer when it is given up on, once', async () => {
+    const givenUp: string[] = [];
+    const step = fakeStep('extract', {
+      budget: 2,
+      result: err({ kind: 'unreachable' }),
+      onGiveUp: (document) => {
+        givenUp.push(document.sha256);
+        return Promise.resolve();
+      },
+    });
+    const jobs = runner([step]);
+    for (let i = 0; i < 6; i++) {
+      await jobs.tick();
+      clock += 60 * 60 * 1000;
+    }
+    expect(givenUp).toEqual([hashA]);
+  });
+
   it('gives up on retryable failures only when the step has a budget and it is spent', async () => {
     const step = fakeStep('extract', { budget: 3, result: err({ kind: 'unreachable' }) });
     const jobs = runner([step]);

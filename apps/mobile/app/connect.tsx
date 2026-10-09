@@ -80,8 +80,17 @@ export default function Connect() {
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={[styles.lede, { color: palette.textMuted }]}>
-        Sheaf sends your documents straight to your own Paperless server. There is no account, and
-        nothing is stored anywhere else.
+        Sheaf sends your documents straight to your own server. There is no account, and nothing is
+        stored anywhere else.
+      </Text>
+
+      <Button
+        label="Scan pairing code"
+        palette={palette}
+        onPress={() => router.push('/scan-pairing')}
+      />
+      <Text style={[styles.lede, { color: palette.textMuted }]}>
+        Or connect by hand, with your server’s address and admin token:
       </Text>
 
       <Field

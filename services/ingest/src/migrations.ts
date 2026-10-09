@@ -131,6 +131,61 @@ export const MIGRATIONS: readonly Migration[] = [
        SELECT 'tag', t.value FROM documents d, json_each(d.tags) t`,
     ],
   },
+  {
+    // Extraction (ADR 0010). `extractions` keeps every run by version, so a new
+    // prompt or provider can be compared with the last. `fields` is what each field
+    // is now and who decided it: a person's choice is never overwritten by a machine.
+    id: 6,
+    name: 'extraction',
+    statements: [
+      `CREATE TABLE extractions (
+         sha256        TEXT    NOT NULL,
+         version       INTEGER NOT NULL,
+         provider      TEXT    NOT NULL,
+         model         TEXT    NOT NULL,
+         fields_json   TEXT    NOT NULL,
+         input_tokens  INTEGER NOT NULL,
+         output_tokens INTEGER NOT NULL,
+         cost_usd      REAL,
+         latency_ms    INTEGER NOT NULL,
+         created_at    INTEGER NOT NULL,
+         PRIMARY KEY (sha256, version)
+       )`,
+      `CREATE TABLE fields (
+         sha256     TEXT    NOT NULL,
+         name       TEXT    NOT NULL,
+         value_json TEXT    NOT NULL,
+         source     TEXT    NOT NULL CHECK (source IN ('machine', 'user')),
+         confidence REAL    NOT NULL,
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (sha256, name)
+       )`,
+    ],
+  },
+  {
+    // Device pairing (ADR 0008). Codes and tokens are kept only as SHA-256 hashes.
+    id: 7,
+    name: 'devices',
+    statements: [
+      `CREATE TABLE devices (
+         id         TEXT    PRIMARY KEY,
+         name       TEXT    NOT NULL,
+         token_hash TEXT    NOT NULL UNIQUE,
+         created_at INTEGER NOT NULL,
+         last_seen  INTEGER,
+         revoked_at INTEGER
+       )`,
+      `CREATE TABLE pairing_codes (
+         code_hash  TEXT    PRIMARY KEY,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER NOT NULL,
+         used_at    INTEGER
+       )`,
+      // Which phone first delivered each document. Null for the admin token, and for
+      // everything stored before pairing existed.
+      `ALTER TABLE documents ADD COLUMN device_id TEXT`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
