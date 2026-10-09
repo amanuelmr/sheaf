@@ -231,9 +231,18 @@ describeOrSkip('a real Paperless-ngx', () => {
     });
 
     it('finds the document with a full-text search on its own unique title', async () => {
-      const result = await client.listDocuments({ text });
-      expect(result.ok, JSON.stringify(result)).toBe(true);
-      if (result.ok) expect(result.value.results.some((row) => row.id === documentId)).toBe(true);
+      // The search index is updated after consumption finishes, not with it: on
+      // 3.3.0 a search straight after "stored" sometimes missed the document. So ask
+      // until it appears, and fail only if it never does.
+      let found = false;
+      let last: unknown = null;
+      for (let attempt = 0; attempt < 40 && !found; attempt++) {
+        const result = await client.listDocuments({ text });
+        last = result;
+        found = result.ok && result.value.results.some((row) => row.id === documentId);
+        if (!found) await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      expect(found, JSON.stringify(last)).toBe(true);
     });
 
     it('fetches the same document directly by id', async () => {
