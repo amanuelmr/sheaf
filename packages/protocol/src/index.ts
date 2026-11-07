@@ -1330,8 +1330,11 @@ export function isShareLinkBody(value: unknown): value is ShareLinkBody {
   );
 }
 
-/** When a workflow runs: as a new document is filed, or after a person edits one. */
-export const WORKFLOW_TRIGGERS = ['added', 'updated'] as const;
+/**
+ * When a workflow runs: as a new document is filed, after a person edits one, or
+ * once for each document as it reaches an age (`scheduled`, see `olderThanDays`).
+ */
+export const WORKFLOW_TRIGGERS = ['added', 'updated', 'scheduled'] as const;
 export type WorkflowTrigger = (typeof WORKFLOW_TRIGGERS)[number];
 
 /** Which documents a workflow is for. Every part given must hold. */
@@ -1343,6 +1346,10 @@ export interface WorkflowConditions {
   readonly documentType?: string;
   /** A rule over the document's text, as a label's (`none` is not allowed here). */
   readonly text?: MatchingRule;
+  /** Scheduled only: run once a document is this many days old. Required for `scheduled`. */
+  readonly olderThanDays?: number;
+  /** Scheduled only: counted from when it arrived (the default) or from its date. */
+  readonly dateField?: 'added' | 'created';
 }
 
 /** What a workflow does to each document it is for, in this order. */
@@ -1357,7 +1364,17 @@ export interface WorkflowActions {
   readonly customField?: { readonly field: number; readonly value: CustomFieldData | null };
   /** POSTed the document's record as JSON; a failure is logged, never retried. */
   readonly webhook?: string;
+  /** An email, with the same placeholders as titles; needs the server's SMTP settings. */
+  readonly email?: {
+    readonly to: readonly string[];
+    readonly subject: string;
+    readonly body: string;
+    /** Attach the PDF. */
+    readonly attach: boolean;
+  };
 }
+
+export const EMAIL_PATTERN = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
 
 export interface Workflow {
   readonly id: number;
@@ -1438,7 +1455,16 @@ export function workflowProblem(value: unknown): string | null {
     return 'conditions must be an object';
   }
   const c = conditions as Record<string, unknown>;
-  const conditionKeys = ['tags', 'anyTags', 'notTags', 'correspondent', 'documentType', 'text'];
+  const conditionKeys = [
+    'tags',
+    'anyTags',
+    'notTags',
+    'correspondent',
+    'documentType',
+    'text',
+    'olderThanDays',
+    'dateField',
+  ];
   const extraCondition = Object.keys(c).find((key) => !conditionKeys.includes(key));
   if (extraCondition !== undefined) return `unknown condition "${extraCondition}"`;
   for (const key of ['tags', 'anyTags', 'notTags']) {
@@ -1446,6 +1472,21 @@ export function workflowProblem(value: unknown): string | null {
   }
   for (const key of ['correspondent', 'documentType']) {
     if (c[key] !== undefined && !validLabelName(c[key])) return `${key} must be a name`;
+  }
+  const days = c['olderThanDays'];
+  if (body['trigger'] === 'scheduled') {
+    if (!(Number.isInteger(days) && (days as number) >= 0 && (days as number) <= 36_500)) {
+      return 'a scheduled workflow needs olderThanDays: a whole number of days';
+    }
+    if (
+      c['dateField'] !== undefined &&
+      c['dateField'] !== 'added' &&
+      c['dateField'] !== 'created'
+    ) {
+      return 'dateField must be added or created';
+    }
+  } else if (days !== undefined || c['dateField'] !== undefined) {
+    return 'olderThanDays and dateField are for scheduled workflows';
   }
   if (c['text'] !== undefined) {
     const problem = matchingRuleProblem(c['text']);
@@ -1467,6 +1508,7 @@ export function workflowProblem(value: unknown): string | null {
     'documentType',
     'customField',
     'webhook',
+    'email',
   ];
   const extraAction = Object.keys(a).find((key) => !actionKeys.includes(key));
   if (extraAction !== undefined) return `unknown action "${extraAction}"`;
@@ -1492,6 +1534,27 @@ export function workflowProblem(value: unknown): string | null {
     ) {
       return 'customField must be {field: <id>, value}';
     }
+  }
+  const email = a['email'];
+  if (email !== undefined) {
+    if (typeof email !== 'object' || email === null)
+      return 'email must be {to, subject, body, attach}';
+    const e = email as Record<string, unknown>;
+    const to = e['to'];
+    if (
+      !Array.isArray(to) ||
+      to.length === 0 ||
+      to.length > 20 ||
+      !to.every((address) => typeof address === 'string' && EMAIL_PATTERN.test(address))
+    ) {
+      return 'email.to must be one to twenty email addresses';
+    }
+    for (const key of ['subject', 'body']) {
+      if (typeof e[key] !== 'string') return `email.${key} must be a template`;
+      const problem = templateProblem(e[key]);
+      if (problem !== null) return `email.${key}: ${problem}`;
+    }
+    if (typeof e['attach'] !== 'boolean') return 'email.attach must be true or false';
   }
   const webhook = a['webhook'];
   if (webhook !== undefined) {

@@ -10,6 +10,7 @@ import type { SqlDriver } from '@sheaf/store';
 import type { CustomFields } from './custom-fields.ts';
 import { fillTemplate } from './filename.ts';
 import { matches } from './matching.ts';
+import type { OutgoingMail } from './smtp.ts';
 import type { Storage } from './storage.ts';
 
 interface WorkflowRow {
@@ -27,7 +28,13 @@ export interface WorkflowPorts {
   fetch(url: string, init: RequestInit): Promise<{ ok: boolean; status: number }>;
   /** Something a person running the server should hear about. */
   warn(message: string): void;
+  /** Sends an email; absent when the server has no SMTP settings. */
+  readonly sendMail?: (mail: OutgoingMail) => Promise<void>;
 }
+
+const DAY_MS = 86_400_000;
+/** Documents a scheduled workflow looks at in one pass, so a large archive is spread out. */
+const SCHEDULED_BATCH = 200;
 
 const MAX_TITLE = 300;
 const WEBHOOK_TIMEOUT_MS = 10_000;
@@ -118,6 +125,7 @@ export class Workflows {
   async remove(id: number): Promise<boolean> {
     if ((await this.get(id)) === null) return false;
     await this.#driver.run('DELETE FROM workflows WHERE id = ?', [id]);
+    await this.#driver.run('DELETE FROM workflow_runs WHERE workflow_id = ?', [id]);
     return true;
   }
 
@@ -152,6 +160,54 @@ export class Workflows {
       }
     }
     return ran;
+  }
+
+  /**
+   * One pass of the scheduled workflows: each looks once at every document that has
+   * reached its age, and acts on those its other conditions hold for. Answers how
+   * many documents a workflow acted on.
+   */
+  async runScheduled(now: number): Promise<number> {
+    let acted = 0;
+    const scheduled = (await this.list()).filter((w) => w.enabled && w.trigger === 'scheduled');
+    for (const workflow of scheduled) {
+      const days = workflow.conditions.olderThanDays ?? 0;
+      const byCreated = workflow.conditions.dateField === 'created';
+      const cutoff = now - days * DAY_MS;
+      const due = await this.#driver.all<{ sha256: string }>(
+        `SELECT d.sha256 FROM documents d
+          WHERE d.trashed_at IS NULL
+            AND ${byCreated ? 'd.created IS NOT NULL AND d.created <= ?' : 'd.received_at <= ?'}
+            AND NOT EXISTS (SELECT 1 FROM workflow_runs r
+                             WHERE r.workflow_id = ? AND r.sha256 = d.sha256)
+          ORDER BY d.received_at LIMIT ?`,
+        [
+          byCreated ? new Date(cutoff).toISOString().slice(0, 10) : cutoff,
+          workflow.id,
+          SCHEDULED_BATCH,
+        ],
+      );
+      for (const { sha256 } of due) {
+        await this.#driver.run(
+          'INSERT OR IGNORE INTO workflow_runs (workflow_id, sha256, at) VALUES (?, ?, ?)',
+          [workflow.id, sha256, now],
+        );
+        try {
+          const record = await this.#storage.record(sha256);
+          if (record === null) continue;
+          const text =
+            workflow.conditions.text === undefined
+              ? ''
+              : (await this.#storage.texts(sha256)).map((t) => t.text).join('\n\n');
+          if (!applies(workflow.conditions, record, text)) continue;
+          await this.#act(workflow, record, now);
+          acted++;
+        } catch (error) {
+          this.#ports.warn(`workflow "${workflow.name}" failed on ${sha256}: ${String(error)}`);
+        }
+      }
+    }
+    return acted;
   }
 
   async #act(workflow: Workflow, record: DocumentRecord, now: number): Promise<void> {
@@ -191,6 +247,33 @@ export class Workflows {
         this.#ports.warn(
           `workflow "${workflow.name}": custom field not set (${result.kind === 'not_found' ? 'missing' : result.message})`,
         );
+      }
+    }
+
+    if (actions.email !== undefined) {
+      const after = (await this.#storage.record(record.sha256)) ?? record;
+      const send = this.#ports.sendMail;
+      if (send === undefined) {
+        this.#ports.warn(`workflow "${workflow.name}": no SMTP settings, so no email was sent`);
+      } else {
+        const bytes = actions.email.attach ? this.#storage.bytes(record.sha256) : null;
+        try {
+          await send({
+            to: actions.email.to,
+            subject: fillTemplate(actions.email.subject, after),
+            body: fillTemplate(actions.email.body, after),
+            ...(bytes === null
+              ? {}
+              : {
+                  attachment: {
+                    filename: `${fillTemplate('{{title}}', after).slice(0, 100)}.pdf`,
+                    bytes,
+                  },
+                }),
+          });
+        } catch (error) {
+          this.#ports.warn(`workflow "${workflow.name}": email failed: ${String(error)}`);
+        }
       }
     }
 

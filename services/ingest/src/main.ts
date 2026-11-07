@@ -21,6 +21,10 @@ import { MailFetcher } from './mail.ts';
 import { connect as tlsConnect } from 'node:tls';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
+import { sendMail, type OutgoingMail } from './smtp.ts';
+import { EMAIL_PATTERN } from '@sheaf/protocol';
+import { connect as netConnect } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { Users } from './users.ts';
 import { AuditLog } from './audit.ts';
 import { DocumentEdits } from './document-edits.ts';
@@ -64,10 +68,75 @@ const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects'
 const rules = new Rules(driver, storage);
 const customFields = new CustomFields(driver, storage);
 const edits = new DocumentEdits(storage, driver);
+// Email for workflows, when SHEAF_SMTP_HOST is set: STARTTLS on 587 by default,
+// TLS from the start with SHEAF_SMTP_SECURITY=tls (465).
+const smtpHost = process.env['SHEAF_SMTP_HOST'];
+const smtp =
+  smtpHost === undefined || smtpHost === ''
+    ? null
+    : (() => {
+        const security = process.env['SHEAF_SMTP_SECURITY'] ?? 'starttls';
+        const smtpPort = Number(process.env['SHEAF_SMTP_PORT'] ?? (security === 'tls' ? 465 : 587));
+        const from = process.env['SHEAF_SMTP_FROM'] ?? '';
+        if ((security !== 'tls' && security !== 'starttls') || !EMAIL_PATTERN.test(from)) {
+          log.error(
+            'smtp: SHEAF_SMTP_FROM must be an address, and SHEAF_SMTP_SECURITY tls or starttls',
+          );
+          process.exit(1);
+        }
+        return {
+          from,
+          user: process.env['SHEAF_SMTP_USER'] ?? null,
+          password: process.env['SHEAF_SMTP_PASSWORD'] ?? null,
+          hostname: 'sheaf.local',
+          connect: (): Promise<Duplex> =>
+            new Promise((resolve, reject) => {
+              const socket =
+                security === 'tls'
+                  ? tlsConnect({ host: smtpHost, port: smtpPort, servername: smtpHost }, () =>
+                      resolve(socket),
+                    )
+                  : netConnect(smtpPort, smtpHost, () => resolve(socket));
+              socket.once('error', reject);
+            }),
+          ...(security === 'starttls'
+            ? {
+                upgrade: (plain: Duplex): Promise<Duplex> =>
+                  new Promise((resolve, reject) => {
+                    const secure = tlsConnect(
+                      { socket: plain, servername: smtpHost },
+                      () => resolve(secure),
+                    );
+                    secure.once('error', reject);
+                  }),
+              }
+            : {}),
+        };
+      })();
 const workflows = new Workflows(driver, storage, customFields, {
   fetch: (url, init) => fetch(url, init),
   warn: (message) => log.error(message),
+  ...(smtp === null ? {} : { sendMail: (mail: OutgoingMail) => sendMail(smtp, mail) }),
 });
+if (smtp !== null) log.info(`smtp: workflows send email through ${smtpHost} as ${smtp.from}`);
+
+// Scheduled workflows look at documents that reached their age, every hour.
+let schedulingWorkflows = false;
+const runScheduledWorkflows = () => {
+  if (schedulingWorkflows) return;
+  schedulingWorkflows = true;
+  void workflows
+    .runScheduled(Date.now())
+    .then((acted) => {
+      if (acted > 0) log.info(`workflows: scheduled ones acted on ${String(acted)} document(s)`);
+    })
+    .catch((error: unknown) => log.error('scheduled workflows failed', { error: String(error) }))
+    .finally(() => {
+      schedulingWorkflows = false;
+    });
+};
+setTimeout(runScheduledWorkflows, 60_000);
+setInterval(runScheduledWorkflows, 60 * 60_000);
 
 /**
  * Forwarding is opt-in. Without it this server stores documents and nothing more,

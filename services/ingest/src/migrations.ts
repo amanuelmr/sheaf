@@ -440,6 +440,19 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'nested_tags',
     statements: ['ALTER TABLE names ADD COLUMN parent_id INTEGER'],
   },
+  {
+    // Which documents each scheduled workflow has looked at: each one once.
+    id: 24,
+    name: 'workflow_runs',
+    statements: [
+      `CREATE TABLE workflow_runs (
+         workflow_id INTEGER NOT NULL,
+         sha256      TEXT    NOT NULL,
+         at          INTEGER NOT NULL,
+         PRIMARY KEY (workflow_id, sha256)
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
