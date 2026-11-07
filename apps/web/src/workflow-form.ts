@@ -34,6 +34,14 @@ export interface WorkflowForm {
   readonly field: string;
   readonly fieldValue: string;
   readonly webhook: string;
+  /** Scheduled only: days, as typed. */
+  readonly olderThanDays: string;
+  readonly dateField: 'added' | 'created';
+  /** Comma-separated addresses; empty for no email. */
+  readonly emailTo: string;
+  readonly emailSubject: string;
+  readonly emailBody: string;
+  readonly emailAttach: boolean;
 }
 
 export const EMPTY_FORM: WorkflowForm = {
@@ -57,6 +65,12 @@ export const EMPTY_FORM: WorkflowForm = {
   field: '',
   fieldValue: '',
   webhook: '',
+  olderThanDays: '30',
+  dateField: 'added',
+  emailTo: '',
+  emailSubject: 'Sheaf: {{title}}',
+  emailBody: '{{title}} from {{correspondent}}, dated {{created}}.',
+  emailAttach: false,
 };
 
 const names = (text: string): string[] => [
@@ -119,6 +133,22 @@ export function toBody(
     actions['customField'] = { field: field.id, value };
   }
   if (form.webhook.trim() !== '') actions['webhook'] = form.webhook.trim();
+  const recipients = names(form.emailTo);
+  if (recipients.length > 0) {
+    actions['email'] = {
+      to: recipients,
+      subject: form.emailSubject,
+      body: form.emailBody,
+      attach: form.emailAttach,
+    };
+  }
+  if (form.trigger === 'scheduled') {
+    if (!/^\d{1,5}$/.test(form.olderThanDays.trim())) {
+      return { ok: false, problem: 'Say after how many days it runs.' };
+    }
+    conditions['olderThanDays'] = Number(form.olderThanDays.trim());
+    if (form.dateField === 'created') conditions['dateField'] = 'created';
+  }
 
   if (form.name.trim() === '') return { ok: false, problem: 'Give it a name.' };
   if (Object.keys(actions).length === 0)
@@ -166,13 +196,24 @@ export function toForm(workflow: Workflow, fields: readonly CustomField[]): Work
         ? ''
         : toInput(field.type, a.customField.value),
     webhook: a.webhook ?? '',
+    olderThanDays:
+      c.olderThanDays === undefined ? EMPTY_FORM.olderThanDays : String(c.olderThanDays),
+    dateField: c.dateField ?? 'added',
+    emailTo: (a.email?.to ?? []).join(', '),
+    emailSubject: a.email?.subject ?? EMPTY_FORM.emailSubject,
+    emailBody: a.email?.body ?? EMPTY_FORM.emailBody,
+    emailAttach: a.email?.attach ?? false,
   };
 }
 
 /** A workflow in one line, for the list. */
 export function describeWorkflow(workflow: Workflow): string {
   const when =
-    workflow.trigger === 'added' ? 'When a document is added' : 'When a person edits a document';
+    workflow.trigger === 'added'
+      ? 'When a document is added'
+      : workflow.trigger === 'updated'
+        ? 'When a person edits a document'
+        : `Once a document is ${String(workflow.conditions.olderThanDays ?? 0)} days past its ${workflow.conditions.dateField === 'created' ? 'date' : 'arrival'}`;
   const c = workflow.conditions;
   const ifs = [
     ...(c.tags ?? []).map((t) => `tagged ${t}`),
@@ -199,6 +240,7 @@ export function describeWorkflow(workflow: Workflow): string {
         : `set type ${a.documentType}`,
     a.customField === undefined ? null : 'set a custom field',
     a.webhook === undefined ? null : 'call a webhook',
+    a.email === undefined ? null : `email ${a.email.to.join(', ')}`,
   ].filter((part): part is string => part !== null);
   return `${when}${ifs.length === 0 ? '' : `, if ${ifs.join(' and ')}`}: ${dos.join(', ')}.`;
 }

@@ -203,9 +203,26 @@ function Editor({
           >
             <option value="added">A document is added</option>
             <option value="updated">A person edits a document</option>
+            <option value="scheduled">A document reaches an age</option>
           </select>
         </div>
       </div>
+      {form.trigger === 'scheduled' ? (
+        <div className="filter-row">
+          {text('olderThanDays', 'Days old')}
+          <div>
+            <label htmlFor="wf-dateField">Counted from</label>
+            <select
+              id="wf-dateField"
+              value={form.dateField}
+              onChange={(event) => set({ dateField: event.target.value as 'added' | 'created' })}
+            >
+              <option value="added">When it arrived</option>
+              <option value="created">The date on the document</option>
+            </select>
+          </div>
+        </div>
+      ) : null}
       <label className="check">
         <input
           type="checkbox"
@@ -278,6 +295,21 @@ function Editor({
         {form.field === '' ? null : text('fieldValue', 'To (empty: no value)')}
       </div>
       {text('webhook', 'Call a webhook', 'https://…')}
+      {text('emailTo', 'Send an email to', 'me@example.com, partner@example.com')}
+      {form.emailTo.trim() === '' ? null : (
+        <>
+          {text('emailSubject', 'Subject')}
+          {text('emailBody', 'Message')}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={form.emailAttach}
+              onChange={(event) => set({ emailAttach: event.target.checked })}
+            />{' '}
+            Attach the PDF
+          </label>
+        </>
+      )}
       <p className="actions">
         <button type="submit">{isNew ? 'Add workflow' : 'Save workflow'}</button>
         <button type="button" className="secondary" onClick={onCancel}>

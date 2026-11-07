@@ -6,6 +6,38 @@ import { EMPTY_FORM, describeWorkflow, toBody, toForm } from '../src/workflow-fo
 const fields: CustomField[] = [{ id: 4, name: 'Due', type: 'date', options: [], documentCount: 0 }];
 
 suite('the workflow form', () => {
+  it('makes a scheduled workflow that emails, and reads it back', () => {
+    const made = toBody(
+      {
+        ...EMPTY_FORM,
+        name: 'Overdue',
+        trigger: 'scheduled',
+        olderThanDays: '30',
+        dateField: 'created',
+        emailTo: 'me@example.com',
+        emailAttach: true,
+      },
+      fields,
+    );
+    expect(made.ok && made.body.conditions).toEqual({ olderThanDays: 30, dateField: 'created' });
+    expect(made.ok && made.body.actions.email?.attach).toBe(true);
+    if (!made.ok) throw new Error('not made');
+    const workflow = { ...made.body, id: 1, position: 1 } as Workflow;
+    expect(toForm(workflow, fields)).toMatchObject({
+      olderThanDays: '30',
+      emailTo: 'me@example.com',
+    });
+    expect(describeWorkflow(workflow)).toMatch(
+      /^Once a document is 30 days past its date: email me@example.com/,
+    );
+    expect(
+      toBody(
+        { ...EMPTY_FORM, name: 'x', trigger: 'scheduled', olderThanDays: '', addTags: 'a' },
+        fields,
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
   it('makes a body from what was typed, leaving out what was left empty', () => {
     const made = toBody(
       {
