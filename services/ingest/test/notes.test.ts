@@ -72,6 +72,12 @@ suite('notes on a document', () => {
     expect(await storage.notes(hashA)).toEqual([]);
   });
 
+  it('snippets a note on a document with no text yet without a stray line break', async () => {
+    await storage.addNote(hashA, 'warranty until 2028', null, NOW);
+    const [hit] = (await storage.search(toMatch('warranty')!, 20, 0)).hits;
+    expect(hit?.snippet).toBe('«warranty» until 2028');
+  });
+
   it('keeps the recognised text searchable alongside the notes', async () => {
     await storage.putText(hashA, { source: 'edge', engine: 'mlkit', text: 'CINEMA CITY' }, NOW);
     await storage.addNote(hashA, 'date night', null, NOW);

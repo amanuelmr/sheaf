@@ -763,10 +763,12 @@ export class Storage {
       `INSERT INTO documents_fts (sha256, title, correspondent, document_type, tags, body)
        SELECT d.sha256, COALESCE(d.title, ''), COALESCE(d.correspondent, ''),
               COALESCE(d.document_type, ''), d.tags,
-              COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
-                         WHERE t.sha256 = d.sha256), '')
-                || COALESCE((SELECT char(10) || group_concat(n.text, char(10)) FROM notes n
-                              WHERE n.sha256 = d.sha256), '')
+              ltrim(
+                COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
+                           WHERE t.sha256 = d.sha256), '')
+                  || COALESCE((SELECT char(10) || group_concat(n.text, char(10)) FROM notes n
+                                WHERE n.sha256 = d.sha256), ''),
+                char(10))
          FROM documents d
         WHERE d.sha256 = ?`,
       [sha256],
