@@ -1065,7 +1065,12 @@ export interface Label {
   readonly matching: MatchingRule;
   /** Tags only: put on every new document, to mark it as not yet looked at. */
   readonly inbox: boolean;
+  /** Tags only: the tag this one sits inside, whose name every document with this one also has. */
+  readonly parent: number | null;
 }
+
+/** How deep tags may nest: a tag, its parent, and so on, five in all. */
+export const MAX_TAG_DEPTH = 5;
 
 export interface LabelsResponse {
   /** By name. */
@@ -1079,6 +1084,8 @@ export interface LabelBody {
   readonly matching?: MatchingRule;
   /** Tags only. */
   readonly inbox?: boolean;
+  /** Tags only: a parent tag's id. */
+  readonly parent?: number | null;
 }
 
 /**
@@ -1090,6 +1097,8 @@ export interface LabelPatch {
   readonly colour?: string | null;
   readonly matching?: MatchingRule;
   readonly inbox?: boolean;
+  /** Tags only: a parent tag's id, or null for none. */
+  readonly parent?: number | null;
 }
 
 /** `POST /v1/labels/apply`. Leaving out `documents` means every document. */
@@ -1155,12 +1164,15 @@ function validColour(colour: unknown): colour is string {
   return typeof colour === 'string' && LABEL_COLOUR_PATTERN.test(colour);
 }
 
-const LABEL_KEYS = ['name', 'colour', 'matching', 'inbox'];
+const LABEL_KEYS = ['name', 'colour', 'matching', 'inbox', 'parent'];
 
 function validExtras(body: Record<string, unknown>): boolean {
   return (
     (body['matching'] === undefined || matchingRuleProblem(body['matching']) === null) &&
-    (body['inbox'] === undefined || typeof body['inbox'] === 'boolean')
+    (body['inbox'] === undefined || typeof body['inbox'] === 'boolean') &&
+    (body['parent'] === undefined ||
+      body['parent'] === null ||
+      (Number.isSafeInteger(body['parent']) && (body['parent'] as number) > 0))
   );
 }
 

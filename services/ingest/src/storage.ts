@@ -443,7 +443,7 @@ export class Storage {
     }
     if (patch.tags !== undefined) {
       sets.push('tags = ?');
-      values.push(JSON.stringify(patch.tags));
+      values.push(JSON.stringify(await this.withAncestors(patch.tags)));
     }
     if (patch.asn !== undefined && patch.asn !== null) {
       const holder = await this.#driver.all<{ sha256: string }>(
@@ -1067,7 +1067,7 @@ export class Storage {
     }
     if (change.tags !== undefined) {
       sets.push('tags = ?');
-      values.push(JSON.stringify(change.tags));
+      values.push(JSON.stringify(await this.withAncestors(change.tags)));
     }
     if (sets.length === 0) return;
     await this.#driver.transaction(async () => {
@@ -1093,7 +1093,7 @@ export class Storage {
   async addTags(sha256: string, tags: readonly string[]): Promise<readonly string[] | null> {
     const record = await this.record(sha256);
     if (record === null) return null;
-    const next = [...new Set([...record.tags, ...tags])];
+    const next = await this.withAncestors([...record.tags, ...tags]);
     if (next.length === record.tags.length) return record.tags;
     await this.#driver.transaction(async () => {
       await this.#driver.run('UPDATE documents SET tags = ? WHERE sha256 = ?', [
@@ -1119,6 +1119,52 @@ export class Storage {
       [asn, sha256, asn],
     );
     return changed.length > 0;
+  }
+
+  /**
+   * The tags, each followed by the tags it sits inside that are not there yet: a
+   * document filed under a tag is filed under its parents too. Unknown tags are
+   * kept as they are.
+   */
+  async withAncestors(tags: readonly string[]): Promise<string[]> {
+    const unique = [...new Set(tags)];
+    if (unique.length === 0) return unique;
+    const rows = await this.#driver.all<{ child: string; ancestor: string; depth: number }>(
+      `WITH RECURSIVE up(child, id, depth) AS (
+         SELECT name, parent_id, 1 FROM names
+          WHERE kind = 'tag' AND parent_id IS NOT NULL AND name IN (${unique.map(() => '?').join(', ')})
+         UNION ALL
+         SELECT up.child, n.parent_id, up.depth + 1 FROM up JOIN names n ON n.id = up.id
+          WHERE n.parent_id IS NOT NULL AND up.depth < 10
+       )
+       SELECT up.child, n.name AS ancestor, up.depth FROM up JOIN names n ON n.id = up.id
+        ORDER BY up.depth`,
+      unique,
+    );
+    const out: string[] = [];
+    for (const tag of unique) {
+      out.push(tag);
+      for (const row of rows) if (row.child === tag) out.push(row.ancestor);
+    }
+    return [...new Set(out)];
+  }
+
+  /** Put a tag's parents on every document that has it, after the tag was given a parent. */
+  async fillInAncestors(tag: string): Promise<void> {
+    const rows = await this.#driver.all<{ sha256: string; tags: string }>(
+      `SELECT sha256, tags FROM documents d WHERE EXISTS (SELECT 1 FROM json_each(d.tags) WHERE value = ?)`,
+      [tag],
+    );
+    for (const row of rows) {
+      const tags = JSON.parse(row.tags) as string[];
+      const next = await this.withAncestors(tags);
+      if (next.length === tags.length) continue;
+      await this.#driver.run('UPDATE documents SET tags = ? WHERE sha256 = ?', [
+        JSON.stringify(next),
+        row.sha256,
+      ]);
+      await this.reindex(row.sha256);
+    }
   }
 
   /** One more than the highest archive serial number in use, trash included. */

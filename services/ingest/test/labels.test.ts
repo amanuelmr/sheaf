@@ -239,3 +239,54 @@ suite('matching rules and the inbox tag', () => {
     });
   });
 });
+
+suite('nested tags', () => {
+  it('files a document under a tag’s parents too, however the tag got there', async () => {
+    const home = await byName('tag', 'home');
+    const made = await labels.create('tag', { name: 'insurance', parent: home.id });
+    if (!made.ok) throw new Error('not made');
+    const car = await labels.create('tag', { name: 'car', parent: made.value.id });
+    if (!car.ok) throw new Error('not made');
+    expect(car.value.parent).toBe(made.value.id);
+
+    await storage.patch(hashB, { tags: ['car'] }, NOW);
+    expect((await storage.record(hashB))?.tags).toEqual(['car', 'insurance', 'home']);
+    await storage.addTags(hashC, ['insurance']);
+    expect((await storage.record(hashC))?.tags).toEqual(['home', 'tax', 'insurance']);
+  });
+
+  it('puts a new parent on documents already tagged, and refuses cycles and depth past five', async () => {
+    const bills = await byName('tag', 'bills');
+    const tax = await byName('tag', 'tax');
+    expect((await labels.update('tag', tax.id, { parent: bills.id })).ok).toBe(true);
+    expect((await storage.record(hashC))?.tags).toEqual(['home', 'tax', 'bills']);
+    expect(await labels.update('tag', bills.id, { parent: tax.id })).toMatchObject({
+      kind: 'invalid',
+      message: expect.stringMatching(/inside itself/) as unknown,
+    });
+
+    let parent = tax.id;
+    for (const name of ['l3', 'l4', 'l5']) {
+      const made = await labels.create('tag', { name, parent });
+      if (!made.ok) throw new Error(name);
+      parent = made.value.id;
+    }
+    expect(await labels.create('tag', { name: 'l6', parent })).toMatchObject({ kind: 'invalid' });
+    const acme = await byName('correspondent', 'ACME');
+    expect(await labels.update('correspondent', acme.id, { parent: tax.id })).toMatchObject({
+      kind: 'invalid',
+    });
+  });
+
+  it('moves children up a level when their parent is deleted, and over when it is merged', async () => {
+    const home = await byName('tag', 'home');
+    const bills = await byName('tag', 'bills');
+    const child = await labels.create('tag', { name: 'garden', parent: home.id });
+    const other = await labels.create('tag', { name: 'shed', parent: home.id });
+    if (!child.ok || !other.ok) throw new Error('not made');
+    await labels.merge('tag', home.id, bills.id);
+    expect((await labels.get('tag', child.value.id))?.parent).toBe(bills.id);
+    await labels.remove('tag', bills.id);
+    expect((await labels.get('tag', other.value.id))?.parent).toBeNull();
+  });
+});

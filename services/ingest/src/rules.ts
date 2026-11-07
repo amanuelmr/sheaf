@@ -97,7 +97,7 @@ export class Rules {
         [
           correspondent ?? null,
           documentType ?? null,
-          JSON.stringify([...record.tags, ...tags]),
+          JSON.stringify(await this.#storage.withAncestors([...record.tags, ...tags])),
           sha256,
         ],
       );

@@ -434,6 +434,12 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Tags inside tags. A document with a tag has its parents too.
+    id: 23,
+    name: 'nested_tags',
+    statements: ['ALTER TABLE names ADD COLUMN parent_id INTEGER'],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
