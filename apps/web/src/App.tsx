@@ -12,6 +12,7 @@ import { Fields } from './pages/Fields';
 import { Document } from './pages/Document';
 import { INBOX_CHANGED, Inbox } from './pages/Inbox';
 import { Labels } from './pages/Labels';
+import { Workflows } from './pages/Workflows';
 import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { Trash } from './pages/Trash';
@@ -90,6 +91,7 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'devices' }, label: 'Phones' },
   { route: { page: 'labels' }, label: 'Labels' },
   { route: { page: 'fields' }, label: 'Fields' },
+  { route: { page: 'workflows' }, label: 'Workflows' },
   { route: { page: 'trash' }, label: 'Trash' },
   { route: { page: 'system' }, label: 'System' },
 ];
@@ -143,6 +145,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
         {route.page === 'trash' ? <Trash api={api} /> : null}
         {route.page === 'labels' ? <Labels api={api} /> : null}
         {route.page === 'fields' ? <Fields api={api} /> : null}
+        {route.page === 'workflows' ? <Workflows api={api} /> : null}
         {route.page === 'system' ? <System api={api} /> : null}
       </main>
     </div>

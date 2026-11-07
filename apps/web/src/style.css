@@ -788,3 +788,16 @@ h2 .count {
   flex: 1;
   margin-bottom: 0;
 }
+
+.workflow-editor h3 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+}
+
+.badge.neutral {
+  margin-left: 8px;
+}
+
+nav {
+  flex-wrap: wrap;
+}

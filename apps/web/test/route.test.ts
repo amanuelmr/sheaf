@@ -20,6 +20,7 @@ suite('parse', () => {
     expect(parse('#/trash')).toEqual({ page: 'trash' });
     expect(parse('#/fields')).toEqual({ page: 'fields' });
     expect(parse('#/labels')).toEqual({ page: 'labels' });
+    expect(parse('#/workflows')).toEqual({ page: 'workflows' });
     expect(parse('#/system')).toEqual({ page: 'system' });
     expect(parse(`#/doc/${SHA}`)).toEqual({ page: 'document', sha256: SHA });
   });

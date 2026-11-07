@@ -21,6 +21,9 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type Workflow,
+  type WorkflowBody,
+  type WorkflowsResponse,
   type ShareLink,
   type ShareLinksResponse,
   type NextAsnResponse,
@@ -96,6 +99,11 @@ export function api(connection: Connection) {
     revokeShareLink: (id: number) => call<undefined>('DELETE', paths.shareLink(id)),
     /** The address to hand someone: on the server, since that is what opens it. */
     shareUrl: (slug: string) => url(paths.shared(slug)),
+    workflows: () => call<WorkflowsResponse>('GET', paths.workflows()),
+    createWorkflow: (body: WorkflowBody) => call<Workflow>('POST', paths.workflows(), body),
+    replaceWorkflow: (id: number, body: WorkflowBody) =>
+      call<Workflow>('PUT', paths.workflow(id), body),
+    deleteWorkflow: (id: number) => call<undefined>('DELETE', paths.workflow(id)),
     nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),

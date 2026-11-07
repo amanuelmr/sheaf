@@ -9,6 +9,7 @@ export type Route =
   | { readonly page: 'trash' }
   | { readonly page: 'fields' }
   | { readonly page: 'labels' }
+  | { readonly page: 'workflows' }
   | { readonly page: 'system' };
 
 /**
@@ -34,6 +35,7 @@ export function parse(hash: string): Route {
     page === 'trash' ||
     page === 'fields' ||
     page === 'labels' ||
+    page === 'workflows' ||
     page === 'system'
   ) {
     return { page };
