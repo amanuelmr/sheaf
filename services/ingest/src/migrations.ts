@@ -405,6 +405,22 @@ export const MIGRATIONS: readonly Migration[] = [
       'CREATE INDEX audit_log_by_document ON audit_log (sha256, at)',
     ],
   },
+  {
+    // Earlier files of an edited document. The document itself moves to each new
+    // file's hash; the file it had stays on disk under its own, listed here.
+    id: 21,
+    name: 'document_versions',
+    statements: [
+      `CREATE TABLE document_versions (
+         document_sha256 TEXT    NOT NULL,
+         version_sha256  TEXT    NOT NULL,
+         bytes           INTEGER NOT NULL,
+         page_count      INTEGER,
+         created_at      INTEGER NOT NULL,
+         PRIMARY KEY (document_sha256, version_sha256)
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

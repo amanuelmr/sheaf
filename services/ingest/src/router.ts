@@ -19,6 +19,9 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isMergeBody,
+  isPagesBody,
+  isSplitBody,
   isSessionBody,
   isUserBody,
   isUserPatch,
@@ -51,6 +54,9 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type NewDocumentsResponse,
+  type PageCountResponse,
+  type VersionsResponse,
   type AuditResponse,
   type Me,
   type SessionResponse,
@@ -80,6 +86,7 @@ import type { ShareLinks } from './share-links.ts';
 import type { Workflows } from './workflows.ts';
 import type { Users } from './users.ts';
 import type { Actor, AuditLog } from './audit.ts';
+import type { DocumentEdits, EditRefusal } from './document-edits.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -154,6 +161,8 @@ export interface RouterDeps {
   readonly users?: Users;
   /** Where changes are written down. Absent, nothing is. */
   readonly audit?: AuditLog;
+  /** Page edits, splits, merges and versions. Absent, those routes answer 404. */
+  readonly edits?: DocumentEdits;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -496,6 +505,21 @@ async function authenticated(
     return { status: 200, json: response };
   }
 
+  if (path === paths.mergeDocuments()) {
+    if (deps.edits === undefined) return fail('not_found');
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isMergeBody(body)) {
+      return fail(
+        'bad_request',
+        'body must be {"documents": [two or more sha256s], "keepOriginals"?: true}',
+      );
+    }
+    const merged = await deps.edits.merge(body.documents, body.keepOriginals === true, deps.now());
+    if (!merged.ok) return editRefusal(merged);
+    return { status: 201, json: await deps.storage.record(merged.sha256) };
+  }
+
   if (path === paths.bulkEdit()) {
     if (deps.bulk === undefined) return fail('not_found');
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
@@ -525,6 +549,17 @@ async function authenticated(
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
+
+  const [docId, area, versionId, versionAction, ...extra] = rest.split('/');
+  if (
+    deps.edits !== undefined &&
+    docId !== undefined &&
+    isSha256(docId) &&
+    (area === 'pages' || area === 'split' || area === 'versions') &&
+    extra.length === 0
+  ) {
+    return editRoutes(request, deps, deps.edits, docId, area, versionId, versionAction);
+  }
 
   for (const [suffix, read] of [
     ['/record', readRecord],
@@ -986,6 +1021,83 @@ function ruleProblemOf(body: unknown): string | null {
   if (typeof body !== 'object' || body === null) return null;
   const rule = (body as Record<string, unknown>)['matching'];
   return rule === undefined ? null : matchingRuleProblem(rule);
+}
+
+/** Page edits, splits and versions of one document. */
+async function editRoutes(
+  request: IngestRequest,
+  deps: RouterDeps,
+  edits: DocumentEdits,
+  sha256: string,
+  area: 'pages' | 'split' | 'versions',
+  version: string | undefined,
+  action: string | undefined,
+): Promise<IngestResponse> {
+  const { method } = request;
+  if (area === 'pages' && version === undefined) {
+    if (method === 'GET') {
+      const pages = await edits.pages(sha256);
+      if (pages === null) return fail('not_found');
+      const response: PageCountResponse = { pages };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isPagesBody(body)) {
+      return fail('bad_request', 'body must be {"pages": [{"page": 1, "rotate"?: 90}, ...]}');
+    }
+    const edited = await edits.editPages(sha256, body.pages, deps.now());
+    if (!edited.ok) return editRefusal(edited);
+    return { status: 200, json: await deps.storage.record(edited.sha256) };
+  }
+  if (area === 'split' && version === undefined) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isSplitBody(body)) {
+      return fail('bad_request', 'body must be {"parts": [[1, 2], [3]], "keepOriginal"?: true}');
+    }
+    const split = await edits.split(sha256, body.parts, body.keepOriginal === true, deps.now());
+    if (!split.ok) return editRefusal(split);
+    const response: NewDocumentsResponse = { documents: split.documents };
+    return { status: 201, json: response };
+  }
+  if (area === 'versions') {
+    if (version === undefined) {
+      if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+      if (!(await deps.storage.has(sha256))) return fail('not_found');
+      const response: VersionsResponse = { versions: await deps.storage.versions(sha256) };
+      return { status: 200, json: response };
+    }
+    if (!isSha256(version)) return fail('malformed_id', 'versions are named by their sha256');
+    if (action === undefined) {
+      if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+      const bytes = await deps.storage.versionBytes(sha256, version);
+      return bytes === null
+        ? fail('not_found')
+        : { status: 200, headers: { 'content-type': DOCUMENT_CONTENT_TYPE }, bytes };
+    }
+    if (action === 'restore') {
+      if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+      const restored = await deps.storage.restoreVersion(sha256, version, deps.now());
+      if (restored.kind === 'not_found') return fail('not_found');
+      if (restored.kind === 'exists') {
+        return fail('conflict', 'that file is a document of its own now');
+      }
+      return { status: 200, json: await deps.storage.record(restored.sha256) };
+    }
+  }
+  return fail('not_found');
+}
+
+function editRefusal(refusal: EditRefusal): IngestResponse {
+  switch (refusal.kind) {
+    case 'not_found':
+      return fail('not_found');
+    case 'invalid':
+      return fail('bad_request', refusal.message);
+    case 'conflict':
+      return fail('conflict', refusal.message);
+  }
 }
 
 function labelRefusal(reason: LabelRefusal): IngestResponse {

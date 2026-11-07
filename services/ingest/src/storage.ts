@@ -193,6 +193,22 @@ interface Row {
   asn: number | null;
 }
 
+/** What became of a request to give a document a new file. */
+export type ReplaceOutcome =
+  | { readonly kind: 'replaced'; readonly sha256: string }
+  | { readonly kind: 'unchanged'; readonly sha256: string }
+  | { readonly kind: 'exists'; readonly sha256: string }
+  | { readonly kind: 'not_found' };
+
+/** An earlier file of a document. */
+export interface DocumentVersion {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly pageCount: number | null;
+  /** When the document moved on from it. */
+  readonly replacedAt: number;
+}
+
 /** Another document already has the archive serial number a patch asked for. */
 export class AsnTaken extends Error {
   readonly asn: number;
@@ -285,11 +301,7 @@ export class Storage {
       return 'already-stored';
     }
 
-    const target = this.pathFor(sha256);
-    mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
-    const temp = `${target}.${process.pid}.tmp`;
-    writeFileSync(temp, bytes);
-    renameSync(temp, target);
+    this.#writeObject(sha256, bytes);
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
@@ -786,6 +798,7 @@ export class Storage {
   }
 
   async #purge(sha256: string): Promise<boolean> {
+    const versionFiles: string[] = [];
     const deleted = await this.#driver.transaction(async () => {
       const trashed = await this.#driver.all<{ n: number }>(
         'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND trashed_at IS NOT NULL',
@@ -818,19 +831,154 @@ export class Storage {
                          WHERE j.value = ?)`,
         [sha256, sha256],
       );
+      for (const version of await this.versions(sha256)) versionFiles.push(version.sha256);
+      await this.#driver.run('DELETE FROM document_versions WHERE document_sha256 = ?', [sha256]);
       return true;
     });
     // After the rows: a crash between the two leaves an orphaned file, which costs
     // disk space, never a row that points at a missing file. An upload of the same
     // document cannot slip in between: `put` waits on the same lock.
     if (deleted) {
-      try {
-        unlinkSync(this.pathFor(sha256));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // Its earlier files go too, unless one has since become a document of its own.
+      const keep = await Promise.all(versionFiles.map((version) => this.has(version)));
+      for (const path of [sha256, ...versionFiles.filter((_, i) => !keep[i])].map((s) =>
+        this.pathFor(s),
+      )) {
+        try {
+          unlinkSync(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
       }
     }
     return deleted;
+  }
+
+  /**
+   * Give a document a new file, keeping the one it had as an earlier version.
+   *
+   * Documents are named by their bytes, so the document moves to the new file's
+   * hash: its details, text, notes, fields, history, share links and archive id all
+   * go with it, and links from other documents follow. It is sent on again, being a
+   * different file. Answers the new hash, or why not.
+   */
+  async replaceFile(
+    sha256: string,
+    bytes: Uint8Array,
+    pageCount: number | null,
+    now: number,
+  ): Promise<ReplaceOutcome> {
+    return this.#exclusive(sha256, async () => {
+      const record = await this.record(sha256);
+      if (record === null || record.trashedAt !== undefined) return { kind: 'not_found' };
+      const next = sha256Hex(bytes);
+      if (next === sha256) return { kind: 'unchanged', sha256 };
+      if (await this.has(next)) return { kind: 'exists', sha256: next };
+      this.#writeObject(next, bytes);
+      await this.#driver.transaction(async () => {
+        await this.#driver.run(
+          `INSERT OR REPLACE INTO document_versions
+             (document_sha256, version_sha256, bytes, page_count, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [next, sha256, record.bytes, record.pageCount, now],
+        );
+        await this.#rekey(sha256, next, bytes.length, pageCount);
+      });
+      return { kind: 'replaced', sha256: next };
+    });
+  }
+
+  /** A document's earlier files, newest first. */
+  async versions(sha256: string): Promise<readonly DocumentVersion[]> {
+    const rows = await this.#driver.all<{
+      version_sha256: string;
+      bytes: number;
+      page_count: number | null;
+      created_at: number;
+    }>(
+      `SELECT version_sha256, bytes, page_count, created_at FROM document_versions
+        WHERE document_sha256 = ? ORDER BY created_at DESC, rowid DESC`,
+      [sha256],
+    );
+    return rows.map((row) => ({
+      sha256: row.version_sha256,
+      bytes: row.bytes,
+      pageCount: row.page_count,
+      replacedAt: row.created_at,
+    }));
+  }
+
+  /** The bytes of one earlier version of a document, or null when it has no such version. */
+  async versionBytes(sha256: string, version: string): Promise<Uint8Array | null> {
+    if (!(await this.versions(sha256)).some((v) => v.sha256 === version)) return null;
+    const path = this.pathFor(version);
+    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+  }
+
+  /** Make an earlier version the document's file again; the current one becomes a version. */
+  async restoreVersion(sha256: string, version: string, now: number): Promise<ReplaceOutcome> {
+    const bytes = await this.versionBytes(sha256, version);
+    if (bytes === null) return { kind: 'not_found' };
+    const outcome = await this.replaceFile(
+      sha256,
+      bytes,
+      (await this.versions(sha256)).find((v) => v.sha256 === version)?.pageCount ?? null,
+      now,
+    );
+    if (outcome.kind === 'replaced') {
+      // It is the document again, not one of its earlier files.
+      await this.#driver.run(
+        'DELETE FROM document_versions WHERE document_sha256 = ? AND version_sha256 = ?',
+        [version, version],
+      );
+    }
+    return outcome;
+  }
+
+  /** Every row about `from` becomes about `to`, the new file's size and pages included. */
+  async #rekey(from: string, to: string, bytes: number, pageCount: number | null): Promise<void> {
+    for (const table of [
+      'documents',
+      'document_text',
+      'notes',
+      'custom_field_values',
+      'fields',
+      'extractions',
+      'jobs',
+      'share_links',
+      'archive_ids',
+      'audit_log',
+    ]) {
+      await this.#driver.run(`UPDATE ${table} SET sha256 = ? WHERE sha256 = ?`, [to, from]);
+    }
+    await this.#driver.run(
+      'UPDATE document_versions SET document_sha256 = ? WHERE document_sha256 = ?',
+      [to, from],
+    );
+    await this.#driver.run(
+      'UPDATE documents SET bytes = ?, page_count = ?, bytes_released = 0 WHERE sha256 = ?',
+      [bytes, pageCount, to],
+    );
+    // A different file: whatever was sent on before was the old one.
+    await this.#driver.run('DELETE FROM deliveries WHERE sha256 = ?', [from]);
+    await this.#driver.run(
+      `UPDATE custom_field_values
+          SET value_json = (SELECT json_group_array(CASE WHEN j.value = ? THEN ? ELSE j.value END)
+                              FROM json_each(custom_field_values.value_json) j)
+        WHERE field_id IN (SELECT id FROM custom_fields WHERE data_type = 'documentLink')
+          AND EXISTS (SELECT 1 FROM json_each(custom_field_values.value_json) j WHERE j.value = ?)`,
+      [from, to, from],
+    );
+    await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [from]);
+    await this.reindex(to);
+  }
+
+  #writeObject(sha256: string, bytes: Uint8Array): void {
+    const target = this.pathFor(sha256);
+    mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
+    const temp = `${target}.${process.pid}.tmp`;
+    writeFileSync(temp, bytes);
+    renameSync(temp, target);
   }
 
   /**
@@ -902,12 +1050,14 @@ export class Storage {
       readonly correspondent?: string | null;
       readonly documentType?: string | null;
       readonly tags?: readonly string[];
+      readonly created?: string | null;
     },
   ): Promise<void> {
     const sets: string[] = [];
     const values: Array<string | null> = [];
     for (const [column, value] of [
       ['title', change.title],
+      ['created', change.created],
       ['correspondent', change.correspondent],
       ['document_type', change.documentType],
     ] as const) {

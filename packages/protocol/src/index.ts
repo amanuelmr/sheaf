@@ -97,6 +97,20 @@ export const paths = {
   workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
   /** `GET` the lowest archive serial number above every one in use. */
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
+  /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
+  documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
+  /** `POST` a `SplitBody`: one new document per part. */
+  documentSplit: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/split`,
+  /** `POST` a `MergeBody`: one new document of all their pages. */
+  mergeDocuments: () => `/${PROTOCOL_VERSION}/documents/merge`,
+  /** `GET` a document's earlier files. */
+  documentVersions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/versions`,
+  /** `GET` one earlier file as a PDF. */
+  documentVersion: (sha256: string, version: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}`,
+  /** `POST`: make that earlier file the document's again. */
+  restoreVersion: (sha256: string, version: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}/restore`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
   bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
   /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
@@ -1591,6 +1605,131 @@ export interface AuditEntry {
 export interface AuditResponse {
   /** Newest first. Ask again with `before` set to the last id for older ones. */
   readonly entries: readonly AuditEntry[];
+}
+
+/** A page of an edited document: which page it was (from 1), and how far to turn it clockwise. */
+export interface PageSpec {
+  readonly page: number;
+  readonly rotate?: 0 | 90 | 180 | 270;
+}
+
+export const MAX_PAGES = 2_000;
+
+/**
+ * `POST /v1/documents/{sha256}/pages`: the pages the document should have, in
+ * order. Leaving a page out removes it. The answer is the document, now under the
+ * new file's hash; the old file is kept as an earlier version.
+ */
+export interface PagesBody {
+  readonly pages: readonly PageSpec[];
+}
+
+export interface PageCountResponse {
+  readonly pages: number;
+}
+
+/** `POST /v1/documents/{sha256}/split`. By default the original goes to the trash. */
+export interface SplitBody {
+  readonly parts: readonly (readonly number[])[];
+  readonly keepOriginal?: boolean;
+}
+
+/** `POST /v1/documents/merge`, in reading order. By default the originals go to the trash. */
+export interface MergeBody {
+  readonly documents: readonly string[];
+  readonly keepOriginals?: boolean;
+}
+
+export interface NewDocumentsResponse {
+  readonly documents: readonly string[];
+}
+
+export interface DocumentVersion {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly pageCount: number | null;
+  /** When the document moved on from this file. */
+  readonly replacedAt: number;
+}
+
+export interface VersionsResponse {
+  /** Newest first. */
+  readonly versions: readonly DocumentVersion[];
+}
+
+function isPageNumber(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_PAGES;
+}
+
+export function isPagesBody(value: unknown): value is PagesBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const pages = (value as Record<string, unknown>)['pages'];
+  return (
+    Array.isArray(pages) &&
+    pages.length > 0 &&
+    pages.length <= MAX_PAGES &&
+    pages.every((spec: unknown) => {
+      if (typeof spec !== 'object' || spec === null) return false;
+      const s = spec as Record<string, unknown>;
+      return (
+        Object.keys(s).every((key) => key === 'page' || key === 'rotate') &&
+        isPageNumber(s['page']) &&
+        (s['rotate'] === undefined || [0, 90, 180, 270].includes(s['rotate'] as number))
+      );
+    })
+  );
+}
+
+export function isSplitBody(value: unknown): value is SplitBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const parts = body['parts'];
+  return (
+    Object.keys(body).every((key) => key === 'parts' || key === 'keepOriginal') &&
+    Array.isArray(parts) &&
+    parts.length >= 1 &&
+    parts.length <= 200 &&
+    parts.every(
+      (part: unknown) => Array.isArray(part) && part.length > 0 && part.every(isPageNumber),
+    ) &&
+    (body['keepOriginal'] === undefined || typeof body['keepOriginal'] === 'boolean')
+  );
+}
+
+export function isMergeBody(value: unknown): value is MergeBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const documents = body['documents'];
+  return (
+    Object.keys(body).every((key) => key === 'documents' || key === 'keepOriginals') &&
+    Array.isArray(documents) &&
+    documents.length >= 2 &&
+    documents.length <= 100 &&
+    new Set(documents).size === documents.length &&
+    documents.every((id) => typeof id === 'string' && isSha256(id)) &&
+    (body['keepOriginals'] === undefined || typeof body['keepOriginals'] === 'boolean')
+  );
+}
+
+/** "1-3, 5" as pages [1, 2, 3, 5]; null for anything else. */
+export function parsePageList(text: string): number[] | null {
+  const pages: number[] = [];
+  for (const piece of text
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p !== '')) {
+    const range = /^(\d+)\s*-\s*(\d+)$/.exec(piece);
+    if (range !== null) {
+      const [from, to] = [Number(range[1]), Number(range[2])];
+      if (from < 1 || to < from || to - from > MAX_PAGES) return null;
+      for (let page = from; page <= to; page++) pages.push(page);
+    } else if (/^\d+$/.test(piece) && Number(piece) >= 1) {
+      pages.push(Number(piece));
+    } else {
+      return null;
+    }
+  }
+  return pages.length === 0 ? null : pages;
 }
 
 export interface ErrorBody {
