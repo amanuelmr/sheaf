@@ -13,6 +13,7 @@ import { describe as suite, beforeEach, expect, it } from 'vitest';
 import { authorization, paths } from '@sheaf/protocol';
 import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
+import { CustomFields } from '../src/custom-fields';
 import { Devices } from '../src/devices';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
@@ -1064,5 +1065,144 @@ suite('the trash', () => {
     const empty = asPhone('POST', paths.trashEmpty(), json({}));
     expect((await handle(empty, withDevices)).status).toBe(403);
     expect(await storage.has(hashA)).toBe(true);
+  });
+});
+
+suite('custom fields', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  let withFields: typeof deps & { customFields: CustomFields };
+
+  beforeEach(async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-cf-r-')),
+    });
+    withFields = { ...deps, storage, customFields: new CustomFields(driver, storage) };
+  });
+
+  it('defines a field, sets it on a document, and reads it back', async () => {
+    const created = await handle(
+      req('POST', paths.customFields(), json({ name: 'Invoice', type: 'text' })),
+      withFields,
+    );
+    expect(created.status).toBe(201);
+    const field = created.json as { id: number };
+
+    await handle(req('PUT', paths.document(hashA), A), withFields);
+    const put = await handle(
+      req(
+        'PUT',
+        paths.documentCustomFields(hashA),
+        json({ values: [{ field: field.id, value: 'INV-9' }] }),
+      ),
+      withFields,
+    );
+    expect(put.status).toBe(200);
+    const read = await handle(req('GET', paths.documentCustomFields(hashA)), withFields);
+    expect(read.json).toEqual({
+      values: [{ field: field.id, name: 'Invoice', type: 'text', value: 'INV-9' }],
+    });
+
+    const listed = (await handle(req('GET', paths.customFields()), withFields)).json as {
+      fields: { documentCount: number }[];
+    };
+    expect(listed.fields[0]?.documentCount).toBe(1);
+  });
+
+  it('answers 409 for a name already taken, and 400 for a bad definition', async () => {
+    const body = json({ name: 'Due', type: 'date' });
+    await handle(req('POST', paths.customFields(), body), withFields);
+    expect((await handle(req('POST', paths.customFields(), body), withFields)).status).toBe(409);
+    const bad = json({ name: 'X', type: 'select' });
+    expect((await handle(req('POST', paths.customFields(), bad), withFields)).status).toBe(400);
+  });
+
+  it('refuses a value of the wrong type with a reason', async () => {
+    const field = (
+      await handle(
+        req('POST', paths.customFields(), json({ name: 'Count', type: 'integer' })),
+        withFields,
+      )
+    ).json as { id: number };
+    await handle(req('PUT', paths.document(hashA), A), withFields);
+    const response = await handle(
+      req(
+        'PUT',
+        paths.documentCustomFields(hashA),
+        json({ values: [{ field: field.id, value: 'many' }] }),
+      ),
+      withFields,
+    );
+    expect(response.status).toBe(400);
+    expect((response.json as { detail: string }).detail).toBe('Count must be a whole number');
+  });
+
+  it('renames and deletes a field by id', async () => {
+    const field = (
+      await handle(
+        req('POST', paths.customFields(), json({ name: 'Old', type: 'text' })),
+        withFields,
+      )
+    ).json as { id: number };
+    const renamed = await handle(
+      req('PATCH', paths.customField(field.id), json({ name: 'New' })),
+      withFields,
+    );
+    expect((renamed.json as { name: string }).name).toBe('New');
+    expect((await handle(req('DELETE', paths.customField(field.id)), withFields)).status).toBe(204);
+    expect((await handle(req('GET', paths.customField(field.id)), withFields)).status).toBe(404);
+  });
+
+  it('rejects malformed ids and unknown documents', async () => {
+    expect((await handle(req('GET', `${paths.customFields()}/abc`), withFields)).status).toBe(400);
+    expect((await handle(req('GET', paths.documentCustomFields(hashA)), withFields)).status).toBe(
+      404,
+    );
+    expect(
+      (await handle(req('GET', '/v1/documents/nothex/custom-fields'), withFields)).status,
+    ).toBe(400);
+  });
+
+  it('answers 404 when the server has no custom fields configured', async () => {
+    expect((await handle(req('GET', paths.customFields()), deps)).status).toBe(404);
+  });
+
+  it('lets a paired phone set values but not define fields', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-cf-p-')),
+    });
+    const devices = new Devices(driver, { now: () => clock });
+    const all = { ...deps, storage, devices, customFields: new CustomFields(driver, storage) };
+    const { code } = (await handle(req('POST', paths.pairingCodes()), all)).json as {
+      code: string;
+    };
+    const { token } = (
+      await handle(
+        { ...req('POST', paths.pair(), json({ code, deviceName: 'p' })), headers: {} },
+        all,
+      )
+    ).json as { token: string };
+    const asPhone = (method: string, path: string, body?: Uint8Array) => ({
+      ...req(method, path, body),
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    const define = asPhone('POST', paths.customFields(), json({ name: 'X', type: 'text' }));
+    expect((await handle(define, all)).status).toBe(403);
+
+    const field = (
+      await handle(req('POST', paths.customFields(), json({ name: 'X', type: 'text' })), all)
+    ).json as { id: number };
+    await handle(req('PUT', paths.document(hashA), A), all);
+    const set = asPhone(
+      'PUT',
+      paths.documentCustomFields(hashA),
+      json({ values: [{ field: field.id, value: 'y' }] }),
+    );
+    expect((await handle(set, all)).status).toBe(200);
+    expect((await handle(asPhone('DELETE', paths.customField(field.id)), all)).status).toBe(403);
   });
 });

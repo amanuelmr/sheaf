@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FailureReason } from '@sheaf/core';
 import type { ArchivePatch, DocumentQuery } from '@sheaf/paperless';
 import {
+  CUSTOM_FIELD_TYPES,
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
@@ -11,6 +12,9 @@ import {
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
   bearerToken,
+  isCustomFieldBody,
+  isCustomFieldPatch,
+  isCustomFieldValuesBody,
   isDocumentTextBody,
   isNoteBody,
   isTrashActionBody,
@@ -19,6 +23,8 @@ import {
   paths,
   type ArchiveSearchResponse,
   type ArchiveVocabulary,
+  type CustomFieldsResponse,
+  type DocumentCustomFieldsResponse,
   type DocumentPatch,
   type DocumentRecord,
   type ErrorCode,
@@ -38,6 +44,7 @@ import {
   type TrashActionResponse,
   type TrashResponse,
 } from '@sheaf/protocol';
+import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -93,6 +100,8 @@ export interface RouterDeps {
   readonly metrics?: ServerMetrics;
   /** Days a trashed document is kept; see SHEAF_TRASH_DAYS. Absent means the default. */
   readonly trashDays?: number;
+  /** Custom field definitions and values. Absent, those routes answer 404. */
+  readonly customFields?: CustomFields;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -253,6 +262,11 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return search(request.query, deps);
   }
 
+  if (path === paths.customFields() || path.startsWith(`${paths.customFields()}/`)) {
+    if (deps.customFields === undefined) return fail('not_found');
+    return customFieldDefinitions(request, deps, deps.customFields, principal);
+  }
+
   if (path === paths.trash() || path.startsWith(`${paths.trash()}/`)) {
     return trash(request, deps, principal);
   }
@@ -282,6 +296,14 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     if (!(await deps.storage.has(id))) return fail('not_found');
     return { status: 200, json: await read(id, deps) };
+  }
+
+  const customFieldsSuffix = '/custom-fields';
+  if (rest.endsWith(customFieldsSuffix)) {
+    const id = rest.slice(0, -customFieldsSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (deps.customFields === undefined) return fail('not_found');
+    return documentCustomFields(id, request, deps, deps.customFields);
   }
 
   const notesMatch = /^([^/]+)\/notes(?:\/([^/]+))?$/.exec(rest);
@@ -381,6 +403,89 @@ async function put(
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+/** Defining custom fields is the admin's; anyone may read the definitions. */
+async function customFieldDefinitions(
+  request: IngestRequest,
+  deps: RouterDeps,
+  fields: CustomFields,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  const now = deps.now();
+  if (path === paths.customFields()) {
+    if (method === 'GET') {
+      const response: CustomFieldsResponse = { fields: await fields.list() };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token defines fields');
+    const body = parseJson<unknown>(request.body);
+    if (!isCustomFieldBody(body)) {
+      return fail(
+        'bad_request',
+        `body must be {"name": "...", "type": one of ${CUSTOM_FIELD_TYPES.join(', ')}}, with "options" for a select`,
+      );
+    }
+    const created = await fields.create(body, now);
+    return created.ok ? { status: 201, json: created.value } : refusal(created);
+  }
+
+  const idPart = path.slice(paths.customFields().length + 1);
+  if (!/^[1-9][0-9]{0,15}$/.test(idPart)) {
+    return fail('malformed_id', 'custom field ids are positive integers');
+  }
+  const id = Number(idPart);
+  if (method === 'GET') {
+    const field = await fields.get(id);
+    return field === null ? fail('not_found') : { status: 200, json: field };
+  }
+  if (method !== 'PATCH' && method !== 'DELETE') {
+    return fail('bad_request', `${method} not allowed here`);
+  }
+  if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token changes fields');
+  if (method === 'DELETE') return (await fields.remove(id)) ? { status: 204 } : fail('not_found');
+  const patch = parseJson<unknown>(request.body);
+  if (!isCustomFieldPatch(patch)) {
+    return fail('bad_request', 'body may hold only "name" and, for a select, "options"');
+  }
+  const updated = await fields.update(id, patch, now);
+  return updated.ok ? { status: 200, json: updated.value } : refusal(updated);
+}
+
+/** One document's custom field values: read them, or replace the whole set. */
+async function documentCustomFields(
+  sha256: string,
+  request: IngestRequest,
+  deps: RouterDeps,
+  fields: CustomFields,
+): Promise<IngestResponse> {
+  if (request.method === 'GET') {
+    if (!(await deps.storage.has(sha256))) return fail('not_found');
+    const response: DocumentCustomFieldsResponse = { values: await fields.valuesOf(sha256) };
+    return { status: 200, json: response };
+  }
+  if (request.method !== 'PUT') return fail('bad_request', `${request.method} not allowed here`);
+  const body = parseJson<unknown>(request.body);
+  if (!isCustomFieldValuesBody(body)) {
+    return fail('bad_request', 'body must be {"values": [{"field": <id>, "value": ...}, ...]}');
+  }
+  const result = await fields.setValues(sha256, body.values, deps.now());
+  if (!result.ok) return refusal(result);
+  const response: DocumentCustomFieldsResponse = { values: result.value };
+  return { status: 200, json: response };
+}
+
+function refusal(reason: CustomFieldRefusal): IngestResponse {
+  switch (reason.kind) {
+    case 'not_found':
+      return fail('not_found');
+    case 'conflict':
+      return fail('conflict', reason.message);
+    case 'invalid':
+      return fail('bad_request', reason.message);
+  }
 }
 
 /** Listing, restoring and emptying the trash. Emptying is the admin's alone. */
