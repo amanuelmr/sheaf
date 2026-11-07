@@ -2,6 +2,7 @@ import type { Step } from '../jobs.ts';
 import type { Rules } from '../rules.ts';
 import type { Storage } from '../storage.ts';
 import type { Workflows } from '../workflows.ts';
+import { runPostConsume } from '../post-consume.ts';
 
 /**
  * Files each new document by the labels' rules, puts the inbox tags on it, then
@@ -15,7 +16,12 @@ import type { Workflows } from '../workflows.ts';
 export function matchStep(
   storage: Storage,
   rules: Rules,
-  options: { graceMs: number; workflows?: Workflows },
+  options: {
+    graceMs: number;
+    workflows?: Workflows;
+    /** An executable to run once each new document is filed. */
+    postConsume?: { script: string; warn(message: string): void };
+  },
 ): Step {
   return {
     name: 'match',
@@ -34,6 +40,14 @@ export function matchStep(
       await rules.apply(document.sha256, { inbox: true });
       // Workflows for new documents see it filed by the rules first.
       await options.workflows?.run('added', document.sha256, context.now);
+      // Last, so the script sees the document as filed. Its failing is reported, not
+      // retried: running the step again would run the workflows again too.
+      const post = options.postConsume;
+      const record = post === undefined ? null : await storage.record(document.sha256);
+      if (post !== undefined && record !== null && record.trashedAt === undefined) {
+        const result = await runPostConsume(post.script, record, storage.pathFor(document.sha256));
+        if (!result.ok) post.warn(`post-consume script on ${document.sha256}: ${result.detail}`);
+      }
       return { ok: true, value: null };
     },
   };

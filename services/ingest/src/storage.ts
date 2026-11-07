@@ -1460,7 +1460,8 @@ export class Storage {
     }
   }
 
-  private pathFor(sha256: string): string {
+  /** Where a document's file is on disk, whether or not it is there. */
+  pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
   }

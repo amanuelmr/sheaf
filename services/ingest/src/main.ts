@@ -398,7 +398,21 @@ if (paperlessClient !== null && vocabulary !== null) {
 const steps: Step[] = [];
 
 // Filing each new document by the labels' own rules, once its text is in.
-steps.push(matchStep(storage, rules, { graceMs: 120_000, workflows }));
+const postConsumeScript = process.env['SHEAF_POST_CONSUME_SCRIPT'];
+steps.push(
+  matchStep(storage, rules, {
+    graceMs: 120_000,
+    workflows,
+    ...(postConsumeScript === undefined || postConsumeScript === ''
+      ? {}
+      : {
+          postConsume: { script: postConsumeScript, warn: (message: string) => log.error(message) },
+        }),
+  }),
+);
+if (postConsumeScript !== undefined && postConsumeScript !== '') {
+  log.info(`post-consume: running ${postConsumeScript} for each new document`);
+}
 
 // Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
 if (extraction.kind === 'native') {
