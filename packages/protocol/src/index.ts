@@ -89,6 +89,8 @@ export const paths = {
   users: () => `/${PROTOCOL_VERSION}/users`,
   /** Admin: `PATCH` a `UserPatch`, or `DELETE` the user and their sessions. */
   user: (id: number) => `/${PROTOCOL_VERSION}/users/${String(id)}`,
+  /** Admin: `GET ?limit=&before=` the newest changes made through the API. */
+  audit: () => `/${PROTOCOL_VERSION}/audit`,
   /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
   /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
@@ -1572,6 +1574,23 @@ export function isSessionBody(value: unknown): value is SessionBody {
     typeof body['password'] === 'string' &&
     body['password'].length <= 1024
   );
+}
+
+/** One change someone made through the API. */
+export interface AuditEntry {
+  readonly id: number;
+  readonly at: number;
+  /** A username, a phone's name, or "admin token". */
+  readonly who: string;
+  /** What was done, in a few words. */
+  readonly what: string;
+  /** The document it was done to, when there was one. */
+  readonly sha256: string | null;
+}
+
+export interface AuditResponse {
+  /** Newest first. Ask again with `before` set to the last id for older ones. */
+  readonly entries: readonly AuditEntry[];
 }
 
 export interface ErrorBody {

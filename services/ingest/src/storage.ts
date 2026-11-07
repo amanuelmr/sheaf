@@ -23,6 +23,7 @@ import type {
 import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
+import { describe as describeChange } from './audit.ts';
 
 /**
  * Content-addressed storage, the same idea the client uses on the phone: bytes live
@@ -668,6 +669,27 @@ export class Storage {
       events.push({
         at: note.createdAt,
         text: note.author === null ? 'Note added' : `Note added from ${note.author}`,
+      });
+    }
+    // Who made each change, from the audit log: a named person or phone, when known.
+    const changes = await this.#driver.all<{
+      at: number;
+      actor_kind: string;
+      actor_name: string | null;
+      device_name: string | null;
+      method: string;
+      path: string;
+    }>(
+      `SELECT a.at, a.actor_kind, a.actor_name, d.name AS device_name, a.method, a.path
+         FROM audit_log a LEFT JOIN devices d ON a.actor_kind = 'device' AND d.id = a.actor_id
+        WHERE a.sha256 = ? AND a.actor_kind <> 'admin'`,
+      [sha256],
+    );
+    for (const change of changes) {
+      const who = change.actor_name ?? change.device_name ?? 'a phone';
+      events.push({
+        at: change.at,
+        text: `${describeChange(change.method, change.path)} (${who})`,
       });
     }
     return events.sort((a, b) => a.at - b.at);

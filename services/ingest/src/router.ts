@@ -51,6 +51,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type AuditResponse,
   type Me,
   type SessionResponse,
   type UsersResponse,
@@ -78,6 +79,7 @@ import type { BulkEditor } from './bulk.ts';
 import type { ShareLinks } from './share-links.ts';
 import type { Workflows } from './workflows.ts';
 import type { Users } from './users.ts';
+import type { Actor, AuditLog } from './audit.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -150,6 +152,8 @@ export interface RouterDeps {
   readonly workflows?: Workflows;
   /** People who sign in with a password. Absent, only tokens are accepted. */
   readonly users?: Users;
+  /** Where changes are written down. Absent, nothing is. */
+  readonly audit?: AuditLog;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -305,6 +309,33 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   }
   if (principal === null) return fail('unauthenticated');
 
+  const response = await authenticated(request, deps, principal);
+  // A change that went through is written down, with who made it.
+  if (deps.audit !== undefined && method !== 'GET' && response.status < 400) {
+    await deps.audit.record(actorOf(principal), method, path, response.status, deps.now());
+  }
+  return response;
+}
+
+function actorOf(principal: Principal): Actor {
+  switch (principal.kind) {
+    case 'admin':
+      return { kind: 'admin' };
+    case 'device':
+      return { kind: 'device', id: principal.id };
+    case 'user':
+      return { kind: 'user', id: principal.id, name: principal.username };
+  }
+}
+
+/** Every route that needs a token, once it is known whose token it is. */
+async function authenticated(
+  request: IngestRequest,
+  deps: RouterDeps,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+
   if (path === paths.currentSession()) {
     if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
     if (principal.kind === 'user' && deps.users !== undefined) {
@@ -327,6 +358,27 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
           ? { kind: 'device', role: 'editor', name: null }
           : { kind: 'user', role: principal.role, name: principal.username };
     return { status: 200, json: me };
+  }
+
+  if (path === paths.audit()) {
+    if (deps.audit === undefined) return fail('not_found');
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin reads the audit log');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const params = new URLSearchParams(request.query);
+    const limit = whole(params.get('limit'), 100);
+    const before = params.get('before');
+    if (limit === null || limit < 1 || limit > 500)
+      return fail('bad_request', 'limit must be 1 to 500');
+    if (before !== null && !/^[1-9][0-9]{0,15}$/.test(before)) {
+      return fail('bad_request', 'before must be an entry id');
+    }
+    const response: AuditResponse = {
+      entries: await deps.audit.list({
+        limit,
+        ...(before === null ? {} : { before: Number(before) }),
+      }),
+    };
+    return { status: 200, json: response };
   }
 
   if (path === paths.users() || path.startsWith(`${paths.users()}/`)) {

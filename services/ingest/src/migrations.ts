@@ -386,6 +386,25 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Who changed what, through the API: every change that succeeded.
+    id: 20,
+    name: 'audit_log',
+    statements: [
+      `CREATE TABLE audit_log (
+         id         INTEGER PRIMARY KEY,
+         at         INTEGER NOT NULL,
+         actor_kind TEXT    NOT NULL CHECK (actor_kind IN ('admin', 'user', 'device')),
+         actor_id   TEXT,
+         actor_name TEXT,
+         method     TEXT    NOT NULL,
+         path       TEXT    NOT NULL,
+         sha256     TEXT,
+         status     INTEGER NOT NULL
+       )`,
+      'CREATE INDEX audit_log_by_document ON audit_log (sha256, at)',
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

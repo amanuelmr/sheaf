@@ -22,6 +22,7 @@ import { connect as tlsConnect } from 'node:tls';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
 import { Users } from './users.ts';
+import { AuditLog } from './audit.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -201,6 +202,7 @@ const server = createIngestServer({
   shareLinks: new ShareLinks(driver, storage),
   workflows,
   users: new Users(driver),
+  audit: new AuditLog(driver),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
