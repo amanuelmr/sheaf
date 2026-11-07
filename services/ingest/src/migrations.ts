@@ -293,6 +293,18 @@ export const MIGRATIONS: readonly Migration[] = [
       'ALTER TABLE names ADD COLUMN inbox INTEGER NOT NULL DEFAULT 0',
     ],
   },
+  {
+    // Rules and the inbox tag are for documents that arrive from now on. Count the
+    // matching step (`steps/match.ts`, version 1) as done for everything already
+    // here, so an inbox tag made while a backlog drains is not put on old documents.
+    // Applying rules to those is a separate, deliberate request.
+    id: 14,
+    name: 'match_existing_done',
+    statements: [
+      `INSERT OR IGNORE INTO jobs (sha256, step, version, state, attempts, created_at)
+       SELECT sha256, 'match', 1, 'done', 0, received_at FROM documents`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

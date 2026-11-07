@@ -165,3 +165,16 @@ suite('migration 11: amounts in ISO 4217 minor units', () => {
     });
   });
 });
+
+suite('migration 14: rules are for new documents', () => {
+  it('counts the matching step as done for every document already stored', async () => {
+    const driver = await storageDriver();
+    await driver.run(
+      `INSERT INTO documents (sha256, bytes, page_count, received_at, tags) VALUES ('old', 1, 1, 5, '[]')`,
+    );
+    const migration = MIGRATIONS.find((m) => m.id === 14)!;
+    for (const statement of migration.statements) await driver.exec(statement);
+    const rows = await driver.all('SELECT sha256, step, version, state FROM jobs');
+    expect(rows).toEqual([{ sha256: 'old', step: 'match', version: 1, state: 'done' }]);
+  });
+});
