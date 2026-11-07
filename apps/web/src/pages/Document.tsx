@@ -7,6 +7,7 @@ import { INBOX_CHANGED } from './Inbox';
 import { DocumentFields } from './DocumentFields';
 import { DocumentDetails } from './DocumentDetails';
 import { Notes } from './Notes';
+import { Share } from './Share';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -166,6 +167,8 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             })
           }
         />
+
+        {record.trashedAt === undefined ? <Share api={api} sha256={sha256} /> : null}
 
         <h2>History</h2>
         <ol className="timeline">

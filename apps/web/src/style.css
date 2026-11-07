@@ -768,3 +768,23 @@ h2 .count {
 .details-form > .asn-input {
   margin-bottom: 8px;
 }
+
+.share-links li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.share-links input {
+  flex: 1;
+  min-width: 12em;
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
+.asn-input select {
+  flex: 1;
+  margin-bottom: 0;
+}

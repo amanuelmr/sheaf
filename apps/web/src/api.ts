@@ -21,6 +21,8 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type ShareLink,
+  type ShareLinksResponse,
   type NextAsnResponse,
   type BulkAction,
   type BulkEditResponse,
@@ -87,6 +89,13 @@ export function api(connection: Connection) {
     },
     bulkEdit: (documents: readonly string[], action: BulkAction) =>
       call<BulkEditResponse>('POST', paths.bulkEdit(), { documents, action }),
+    shareLinks: (sha256: string) =>
+      call<ShareLinksResponse>('GET', paths.documentShareLinks(sha256)),
+    createShareLink: (sha256: string, expiresInDays: number | null) =>
+      call<ShareLink>('POST', paths.documentShareLinks(sha256), { expiresInDays }),
+    revokeShareLink: (id: number) => call<undefined>('DELETE', paths.shareLink(id)),
+    /** The address to hand someone: on the server, since that is what opens it. */
+    shareUrl: (slug: string) => url(paths.shared(slug)),
     nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
