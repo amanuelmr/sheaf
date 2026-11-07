@@ -136,6 +136,13 @@ suite('deleting for good', () => {
     expect(await storage.purge(hashA)).toBe(false);
   });
 
+  it('never deletes the file of an upload that arrives while it purges', async () => {
+    await storage.trash(hashA, NOW + 10);
+    await Promise.all([storage.purge(hashA), storage.put(hashA, A, NOW + 20, 1)]);
+    expect(await storage.has(hashA)).toBe(true);
+    expect(storage.bytes(hashA)).not.toBeNull();
+  });
+
   it('keeps the archive id, so it never comes to name another document', async () => {
     const id = await storage.archiveIdFor(hashA);
     await storage.trash(hashA, NOW + 10);

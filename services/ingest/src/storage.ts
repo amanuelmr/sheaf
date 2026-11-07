@@ -197,6 +197,8 @@ export class Storage {
   // emits code. Anything not erasable fails at startup rather than at build time.
   readonly #driver: SqlDriver;
   readonly #objectsDir: string;
+  /** The last operation queued on each document's file; see `#exclusive`. */
+  readonly #fileLocks = new Map<string, Promise<unknown>>();
 
   private constructor(driver: SqlDriver, objectsDir: string) {
     this.#driver = driver;
@@ -250,6 +252,16 @@ export class Storage {
     pageCount: number | null,
     /** The paired phone that sent it, or null for the admin token. */
     deviceId: string | null = null,
+  ): Promise<PutOutcome> {
+    return this.#exclusive(sha256, () => this.#put(sha256, bytes, now, pageCount, deviceId));
+  }
+
+  async #put(
+    sha256: string,
+    bytes: Uint8Array,
+    now: number,
+    pageCount: number | null,
+    deviceId: string | null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) {
       // Sending a document again is asking to keep it. One in the trash comes back
@@ -710,6 +722,10 @@ export class Storage {
    * name a different document.
    */
   async purge(sha256: string): Promise<boolean> {
+    return this.#exclusive(sha256, () => this.#purge(sha256));
+  }
+
+  async #purge(sha256: string): Promise<boolean> {
     const deleted = await this.#driver.transaction(async () => {
       const trashed = await this.#driver.all<{ n: number }>(
         'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND trashed_at IS NOT NULL',
@@ -732,7 +748,8 @@ export class Storage {
       return true;
     });
     // After the rows: a crash between the two leaves an orphaned file, which costs
-    // disk space, never a row that points at a missing file.
+    // disk space, never a row that points at a missing file. An upload of the same
+    // document cannot slip in between: `put` waits on the same lock.
     if (deleted) {
       try {
         unlinkSync(this.pathFor(sha256));
@@ -1168,6 +1185,24 @@ export class Storage {
         sha256,
       ],
     );
+  }
+
+  /**
+   * Run `work` once every earlier operation on this document's file has finished.
+   * Uploading and purging both write the file and its row in two steps; without
+   * this, an upload landing between a purge's two steps would lose its file.
+   * In-process only, which is enough: one server process owns the data directory.
+   */
+  async #exclusive<T>(sha256: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.#fileLocks.get(sha256) ?? Promise.resolve();
+    const result = previous.then(work);
+    const settled = result.catch(() => undefined);
+    this.#fileLocks.set(sha256, settled);
+    try {
+      return await result;
+    } finally {
+      if (this.#fileLocks.get(sha256) === settled) this.#fileLocks.delete(sha256);
+    }
   }
 
   private pathFor(sha256: string): string {
