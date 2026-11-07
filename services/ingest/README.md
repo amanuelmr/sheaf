@@ -28,12 +28,14 @@ iOS will not talk to a plain-HTTP address on a local network without two things 
 `NSLocalNetworkUsageDescription` so the permission prompt can explain itself. A
 missing prompt fails silently, and looks exactly like a server that is down.
 
-| Variable               | Default         |                                                                                                     |
-| ---------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `SHEAF_TOKEN`          | —               | Required. At least 16 characters; the server refuses to start without it.                           |
-| `SHEAF_DATA_DIR`       | `./.sheaf-data` | Documents and the metadata database.                                                                |
-| `PORT`                 | `8787`          |                                                                                                     |
-| `SHEAF_RETENTION_DAYS` | unset           | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever. |
+| Variable                | Default                                        |                                                                                                     |
+| ----------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `SHEAF_TOKEN`           | —                                              | Required. At least 16 characters; the server refuses to start without it.                           |
+| `SHEAF_DATA_DIR`        | `./.sheaf-data`                                | Documents and the metadata database.                                                                |
+| `PORT`                  | `8787`                                         |                                                                                                     |
+| `SHEAF_RETENTION_DAYS`  | unset                                          | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever. |
+| `SHEAF_TRASH_DAYS`      | `30`                                           | Days a deleted document waits in the trash before it is deleted for good. At least 1.               |
+| `SHEAF_FILENAME_FORMAT` | `{{created_year}}/{{correspondent}}/{{title}}` | How exported files are named; see "Export and import".                                              |
 
 There is no default token on purpose. A server holding someone's documents should
 not come up guessable, so it would rather not come up at all.
@@ -94,6 +96,35 @@ once it lands:
 
 Absent from the response until the probe answers, and diagnostic only --
 correctness never depends on what it finds.
+
+## Export and import
+
+```sh
+pnpm --filter @sheaf/ingest export ~/sheaf-backup   # every document, plus manifest.json
+pnpm --filter @sheaf/ingest import ~/sheaf-backup   # into this server's SHEAF_DATA_DIR
+```
+
+Stop the server first. The export holds every document outside the trash and a
+`manifest.json` with everything else a person put in:
+
+- titles, correspondents, types, tags, dates and serial numbers;
+- recognised text and notes;
+- custom fields and their values;
+- labels with their colours, rules and inbox flag;
+- saved views.
+
+Ids are left out. Custom fields match by name and documents by hash, so an export
+imports into a server that already holds other things. Import checks every file
+against its hash and reports anything it could not bring in. Running it twice
+changes nothing.
+
+Files are named by `SHEAF_FILENAME_FORMAT`. These placeholders are available:
+`{{title}}`, `{{correspondent}}`, `{{document_type}}`, `{{tag_list}}`, `{{created}}`,
+`{{created_year}}`, `{{created_month}}`, `{{created_day}}`, `{{added}}`,
+`{{added_year}}`, `{{asn}}` and `{{sha256}}`.
+
+Each value is made safe for a file name, and only the format's own `/` makes
+folders. Names that collide get ` (2)`, ` (3)` and so on.
 
 ## Browsing the archive
 

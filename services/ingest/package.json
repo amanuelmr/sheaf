@@ -10,7 +10,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "node --experimental-strip-types src/main.ts"
+    "start": "node --experimental-strip-types src/main.ts",
+    "export": "node --experimental-strip-types src/backup-cli.ts export",
+    "import": "node --experimental-strip-types src/backup-cli.ts import"
   },
   "dependencies": {
     "@sheaf/core": "workspace:*",
