@@ -34,11 +34,14 @@ export function DocumentFields({
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    // A reply for a document this form has moved on from must not fill it in.
+    let current = true;
     void (async () => {
       const [defs, values] = await Promise.all([
         api.customFields(),
         api.documentCustomFields(sha256),
       ]);
+      if (!current) return;
       if (!defs.ok || !values.ok) {
         setError(!defs.ok ? defs.message : !values.ok ? values.message : null);
         return;
@@ -46,6 +49,9 @@ export function DocumentFields({
       setDefinitions(defs.value.fields);
       setDrafts(toDrafts(defs.value.fields, values.value.values));
     })();
+    return () => {
+      current = false;
+    };
   }, [api, sha256]);
 
   const update = (field: number, change: Partial<Draft>) => {

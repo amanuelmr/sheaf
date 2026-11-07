@@ -19,11 +19,16 @@ export function Notes({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let current = true;
     void (async () => {
       const result = await api.notes(sha256);
+      if (!current) return;
       if (result.ok) setNotes(result.value.notes);
       else setError(result.message);
     })();
+    return () => {
+      current = false;
+    };
   }, [api, sha256]);
 
   const add = async (event: React.FormEvent) => {

@@ -123,7 +123,11 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
       </header>
       <main>
         {route.page === 'search' ? <Search api={api} /> : null}
-        {route.page === 'document' ? <Document api={api} sha256={route.sha256} /> : null}
+        {route.page === 'document' ? (
+          // Keyed, so moving to another document starts with nothing left over from
+          // the last one: no drafts, notes or half-confirmed delete.
+          <Document key={route.sha256} api={api} sha256={route.sha256} />
+        ) : null}
         {route.page === 'inbox' ? <Inbox api={api} /> : null}
         {route.page === 'devices' ? <Devices api={api} serverUrl={connection.baseUrl} /> : null}
         {route.page === 'trash' ? <Trash api={api} /> : null}
