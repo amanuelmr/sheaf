@@ -255,3 +255,32 @@ suite('a backlog behind a slow first step', () => {
     expect(extract.runs).toEqual([hashA]);
   });
 });
+
+suite('JobRunner and the trash', () => {
+  it('queues nothing for a document already in the trash', async () => {
+    await storage.trash(hashA, clock);
+    const step = fakeStep('extract');
+    await runner([step]).tick();
+    expect(step.runs).toEqual([]);
+    expect(await stateOf('extract')).toBeUndefined();
+  });
+
+  it('leaves queued work waiting while trashed, and runs it once restored', async () => {
+    const startAt = clock + 10_000;
+    const step = fakeStep('extract', { notBefore: () => startAt });
+    const jobs = runner([step]);
+    await jobs.tick();
+    expect(await stateOf('extract')).toBe('pending');
+
+    await storage.trash(hashA, clock);
+    clock += 20_000;
+    await jobs.tick();
+    expect(step.runs).toEqual([]);
+    expect(await stateOf('extract')).toBe('pending');
+
+    await storage.restore([hashA]);
+    await jobs.tick();
+    expect(step.runs).toEqual([hashA]);
+    expect(await stateOf('extract')).toBe('done');
+  });
+});

@@ -203,6 +203,16 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX notes_by_document ON notes (sha256, created_at)`,
     ],
   },
+  {
+    // The trash. Deleting a document only sets this; it is removed for good later,
+    // so a mistaken delete is a restore away rather than gone.
+    id: 9,
+    name: 'trash',
+    statements: [
+      `ALTER TABLE documents ADD COLUMN trashed_at INTEGER`,
+      `CREATE INDEX documents_by_trashed ON documents (trashed_at)`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

@@ -47,6 +47,12 @@ export const paths = {
   /** `DELETE` one note. */
   documentNote: (sha256: string, id: number) =>
     `/${PROTOCOL_VERSION}/documents/${sha256}/notes/${String(id)}`,
+  /** `GET` lists trashed documents. (`DELETE` on a document moves it here.) */
+  trash: () => `/${PROTOCOL_VERSION}/trash`,
+  /** `POST` a `TrashActionBody`: put documents back. */
+  trashRestore: () => `/${PROTOCOL_VERSION}/trash/restore`,
+  /** Admin: `POST` a `TrashActionBody` to delete for good; no `documents` empties it all. */
+  trashEmpty: () => `/${PROTOCOL_VERSION}/trash/empty`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -181,6 +187,52 @@ export interface DocumentRecord {
    * makes sense for the first, and not for the second.
    */
   readonly suggestions: Suggestions | null;
+  /**
+   * When it was moved to the trash; present only while it is there. A trashed
+   * document is left out of lists, search and forwarding, and is deleted for good
+   * once the trash keeps it longer than the server's `TrashResponse.purgeAfterDays`.
+   */
+  readonly trashedAt?: number;
+}
+
+/** One document in the trash. */
+export interface TrashEntry {
+  readonly sha256: string;
+  readonly title: string | null;
+  /** What extraction suggested, for naming a document nobody titled. */
+  readonly suggestedTitle: string | null;
+  readonly receivedAt: number;
+  readonly trashedAt: number;
+  /** When the server will delete it for good unless it is restored first. */
+  readonly purgeAt: number;
+}
+
+export interface TrashResponse {
+  /** Most recently trashed first. */
+  readonly documents: readonly TrashEntry[];
+  readonly purgeAfterDays: number;
+}
+
+/** `POST /v1/trash/restore` and `/v1/trash/empty`. */
+export interface TrashActionBody {
+  /** Which documents. Required to restore; leaving it out of an empty means all of them. */
+  readonly documents?: readonly string[];
+}
+
+export function isTrashActionBody(value: unknown): value is TrashActionBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const documents = (value as Record<string, unknown>)['documents'];
+  return (
+    documents === undefined ||
+    (Array.isArray(documents) &&
+      documents.length <= 1_000 &&
+      documents.every((id) => typeof id === 'string' && isSha256(id)))
+  );
+}
+
+/** How many documents a trash action changed. */
+export interface TrashActionResponse {
+  readonly count: number;
 }
 
 export interface SuggestionsResponse {

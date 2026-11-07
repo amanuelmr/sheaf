@@ -73,6 +73,8 @@ const FINISHED: readonly JobState[] = ['done', 'skipped', 'given_up'];
 
 /** How often a waiting job is looked at again before its start time. */
 const RECHECK_MS = 5_000;
+/** How long a job for a trashed document waits before it is looked at again. */
+const TRASHED_RECHECK_MS = 60 * 60 * 1000;
 const ENQUEUE_BATCH = 100;
 const RUN_BATCH = 20;
 
@@ -133,7 +135,8 @@ export class JobRunner {
         `INSERT OR IGNORE INTO jobs (sha256, step, version, state, attempts, created_at)
          SELECT d.sha256, ?, ?, 'pending', 0, ?
            FROM documents d
-          WHERE NOT EXISTS (
+          WHERE d.trashed_at IS NULL
+            AND NOT EXISTS (
                   SELECT 1 FROM jobs j
                    WHERE j.sha256 = d.sha256 AND j.step = ? AND j.version = ?)
           ORDER BY d.received_at ASC
@@ -185,6 +188,15 @@ export class JobRunner {
     if (document === null) {
       await this.#finish(job, 'given_up', 'the document is no longer stored');
       return 'given_up';
+    }
+    // In the trash: left pending, not run and not given up, so a restore picks it
+    // up again where it was. Restoring clears the wait (`Storage.restore`).
+    if (document.trashedAt !== undefined) {
+      await this.#driver.run(
+        'UPDATE jobs SET next_at = ? WHERE sha256 = ? AND step = ? AND version = ?',
+        [now + TRASHED_RECHECK_MS, job.sha256, job.step, job.version],
+      );
+      return 'waiting';
     }
 
     // Whether the step applies is asked first: a step that stopped applying while it
