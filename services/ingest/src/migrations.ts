@@ -222,7 +222,7 @@ export const MIGRATIONS: readonly Migration[] = [
     statements: [
       `CREATE TABLE custom_fields (
          id           INTEGER PRIMARY KEY,
-         name         TEXT    NOT NULL UNIQUE,
+         name         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
          data_type    TEXT    NOT NULL,
          options_json TEXT    NOT NULL DEFAULT '[]',
          created_at   INTEGER NOT NULL

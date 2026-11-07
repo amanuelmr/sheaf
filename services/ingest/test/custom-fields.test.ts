@@ -71,6 +71,16 @@ suite('defining fields', () => {
     expect(!again.ok && again.kind).toBe('conflict');
   });
 
+  it('answers conflict, not a crash, when two requests create the same name at once', async () => {
+    const results = await Promise.all([
+      fields.create({ name: 'Due', type: 'date' }, NOW),
+      fields.create({ name: 'due', type: 'text' }, NOW),
+    ]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.map((r) => (r.ok ? 'created' : r.kind)).sort()).toEqual(['conflict', 'created']);
+    expect(await fields.list()).toHaveLength(1);
+  });
+
   it('renames a field, but not onto another field’s name', async () => {
     const a = await make('A', 'text');
     await make('B', 'text');

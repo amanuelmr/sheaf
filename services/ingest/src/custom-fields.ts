@@ -61,13 +61,22 @@ export class CustomFields {
 
   async create(body: CustomFieldBody, now: number): Promise<Outcome<CustomField>> {
     const name = body.name.trim();
-    if (await this.#nameTaken(name, null)) {
-      return { ok: false, kind: 'conflict', message: `a field named "${name}" already exists` };
+    const taken = {
+      ok: false,
+      kind: 'conflict',
+      message: `a field named "${name}" already exists`,
+    } as const;
+    if (await this.#nameTaken(name, null)) return taken;
+    try {
+      await this.#driver.run(
+        'INSERT INTO custom_fields (name, data_type, options_json, created_at) VALUES (?, ?, ?, ?)',
+        [name, body.type, JSON.stringify(body.options ?? []), now],
+      );
+    } catch (error) {
+      // Another request took the name between the check and the insert.
+      if (isUniqueViolation(error)) return taken;
+      throw error;
     }
-    await this.#driver.run(
-      'INSERT INTO custom_fields (name, data_type, options_json, created_at) VALUES (?, ?, ?, ?)',
-      [name, body.type, JSON.stringify(body.options ?? []), now],
-    );
     const rows = await this.#driver.all<{ id: number }>(
       'SELECT id FROM custom_fields WHERE name = ?',
       [name],
@@ -89,6 +98,23 @@ export class CustomFields {
     if (name !== undefined && (await this.#nameTaken(name, id))) {
       return { ok: false, kind: 'conflict', message: `a field named "${name}" already exists` };
     }
+    try {
+      await this.#rename(id, name, patch, now);
+    } catch (error) {
+      if (name !== undefined && isUniqueViolation(error)) {
+        return { ok: false, kind: 'conflict', message: `a field named "${name}" already exists` };
+      }
+      throw error;
+    }
+    return { ok: true, value: (await this.get(id))! };
+  }
+
+  async #rename(
+    id: number,
+    name: string | undefined,
+    patch: CustomFieldPatch,
+    now: number,
+  ): Promise<void> {
     await this.#driver.transaction(async () => {
       if (name !== undefined) {
         await this.#driver.run('UPDATE custom_fields SET name = ? WHERE id = ?', [name, id]);
@@ -107,7 +133,6 @@ export class CustomFields {
       }
       for (const sha256 of await this.#documentsWith(id)) await this.#storage.reindex(sha256);
     });
-    return { ok: true, value: (await this.get(id))! };
   }
 
   /** Delete a field and every document's value of it. */
@@ -287,6 +312,11 @@ export class CustomFields {
     );
     return rows.some((row) => row.id !== except);
   }
+}
+
+/** SQLite refusing a write because a UNIQUE constraint would be broken. */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && /UNIQUE constraint failed/.test(error.message);
 }
 
 function asLinks(value: unknown): readonly string[] {
