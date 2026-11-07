@@ -103,9 +103,8 @@ const smtp =
             ? {
                 upgrade: (plain: Duplex): Promise<Duplex> =>
                   new Promise((resolve, reject) => {
-                    const secure = tlsConnect(
-                      { socket: plain, servername: smtpHost },
-                      () => resolve(secure),
+                    const secure = tlsConnect({ socket: plain, servername: smtpHost }, () =>
+                      resolve(secure),
                     );
                     secure.once('error', reject);
                   }),
