@@ -745,6 +745,18 @@ export class Storage {
       ]) {
         await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);
       }
+      // Links to it from other documents go too. Left in place they would come back
+      // to life, one-sided, if the same file were ever uploaded again.
+      await this.#driver.run(
+        `UPDATE custom_field_values
+            SET value_json = (SELECT json_group_array(j.value)
+                                FROM json_each(custom_field_values.value_json) j
+                               WHERE j.value <> ?)
+          WHERE field_id IN (SELECT id FROM custom_fields WHERE data_type = 'documentLink')
+            AND EXISTS (SELECT 1 FROM json_each(custom_field_values.value_json) j
+                         WHERE j.value = ?)`,
+        [sha256, sha256],
+      );
       return true;
     });
     // After the rows: a crash between the two leaves an orphaned file, which costs

@@ -181,6 +181,24 @@ suite('document links', () => {
     expect(missing.ok).toBe(false);
   });
 
+  it('removes links to a purged document from the documents that held them', async () => {
+    const related = await make('Related', 'documentLink');
+    await fields.setValues(hashA, [{ field: related.id, value: [hashB, hashC] }], NOW);
+    await storage.trash(hashB, NOW);
+    await storage.purge(hashB);
+
+    const stored = await driver.all<{ value_json: string }>(
+      'SELECT value_json FROM custom_field_values WHERE sha256 = ? AND field_id = ?',
+      [hashA, related.id],
+    );
+    expect(JSON.parse(stored[0]!.value_json)).toEqual([hashC]);
+
+    // The same document uploaded again is a new document, linked to nothing.
+    await storage.put(hashB, B, NOW + 1, 1);
+    expect((await fields.valuesOf(hashA))[0]?.value).toEqual([hashC]);
+    expect(await fields.valuesOf(hashB)).toEqual([]);
+  });
+
   it('drops a link to a document deleted for good', async () => {
     const related = await make('Related', 'documentLink');
     await fields.setValues(hashA, [{ field: related.id, value: [hashB] }], NOW);
