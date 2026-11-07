@@ -331,6 +331,21 @@ export const MIGRATIONS: readonly Migration[] = [
       'CREATE UNIQUE INDEX documents_by_asn ON documents (asn) WHERE asn IS NOT NULL',
     ],
   },
+  {
+    // Links that open one document without a token. The slug is the secret.
+    id: 17,
+    name: 'share_links',
+    statements: [
+      `CREATE TABLE share_links (
+         id         INTEGER PRIMARY KEY,
+         slug       TEXT    NOT NULL UNIQUE,
+         sha256     TEXT    NOT NULL,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER
+       )`,
+      'CREATE INDEX share_links_by_document ON share_links (sha256)',
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

@@ -19,6 +19,7 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isShareLinkBody,
   isBulkEditBody,
   isSavedViewBody,
   isSavedViewPatch,
@@ -46,6 +47,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type ShareLinksResponse,
   type NextAsnResponse,
   type BulkEditResponse,
   type SavedViewsResponse,
@@ -64,6 +66,7 @@ import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
 import type { BulkEditor } from './bulk.ts';
+import type { ShareLinks } from './share-links.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -130,6 +133,8 @@ export interface RouterDeps {
   readonly views?: SavedViews;
   /** One change to many documents. Absent, the route answers 404. */
   readonly bulk?: BulkEditor;
+  /** Links that open a document without a token. Absent, those routes answer 404. */
+  readonly shareLinks?: ShareLinks;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -224,6 +229,25 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.pair() && deps.devices !== undefined) {
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
     return pair(request, deps.devices, deps.now());
+  }
+
+  // A share link: whoever holds it may read that one document, and nothing else.
+  if (path.startsWith('/share/') && deps.shareLinks !== undefined) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const sha256 = await deps.shareLinks.resolve(path.slice('/share/'.length), deps.now());
+    const bytes = sha256 === null ? null : deps.storage.bytes(sha256);
+    if (bytes === null) return fail('not_found', 'this link does not work, or no longer does');
+    return {
+      status: 200,
+      headers: {
+        'content-type': DOCUMENT_CONTENT_TYPE,
+        'content-disposition': 'inline',
+        'cache-control': 'private, no-store',
+        'referrer-policy': 'no-referrer',
+        'x-robots-tag': 'noindex, nofollow',
+      },
+      bytes,
+    };
   }
 
   const principal = await authenticate(request, deps);
@@ -321,6 +345,16 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return trash(request, deps, principal);
   }
 
+  if (path.startsWith(`/${PROTOCOL_VERSION}/share-links/`)) {
+    if (deps.shareLinks === undefined) return fail('not_found');
+    if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token revokes links');
+    const idPart = path.slice(`/${PROTOCOL_VERSION}/share-links/`.length);
+    if (!/^[1-9][0-9]{0,15}$/.test(idPart))
+      return fail('malformed_id', 'link ids are positive integers');
+    return (await deps.shareLinks.revoke(Number(idPart))) ? { status: 204 } : fail('not_found');
+  }
+
   if (path === paths.nextAsn()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const response: NextAsnResponse = { asn: await deps.storage.nextAsn() };
@@ -368,6 +402,27 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     if (!(await deps.storage.has(id))) return fail('not_found');
     return { status: 200, json: await read(id, deps) };
+  }
+
+  const shareSuffix = '/share-links';
+  if (rest.endsWith(shareSuffix)) {
+    const id = rest.slice(0, -shareSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (deps.shareLinks === undefined) return fail('not_found');
+    if (method === 'GET') {
+      if (!(await deps.storage.has(id))) return fail('not_found');
+      const response: ShareLinksResponse = { links: await deps.shareLinks.list(id) };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin')
+      return fail('forbidden', 'only the admin token shares documents');
+    const body = request.body.length === 0 ? {} : parseJson<unknown>(request.body);
+    if (!isShareLinkBody(body)) {
+      return fail('bad_request', 'body may hold "expiresInDays": a whole number of days, or null');
+    }
+    const link = await deps.shareLinks.create(id, body.expiresInDays ?? null, deps.now());
+    return link === null ? fail('not_found') : { status: 201, json: link };
   }
 
   const customFieldsSuffix = '/custom-fields';

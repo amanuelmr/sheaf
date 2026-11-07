@@ -779,6 +779,7 @@ export class Storage {
         'extractions',
         'jobs',
         'deliveries',
+        'share_links',
         'documents',
       ]) {
         await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);

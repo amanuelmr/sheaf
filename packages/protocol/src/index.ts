@@ -70,6 +70,15 @@ export const paths = {
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
   /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
   labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
+  /** `GET` a document's share links; admin `POST`s a `ShareLinkBody` to make one. */
+  documentShareLinks: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/share-links`,
+  /** Admin: `DELETE` stops a share link working. */
+  shareLink: (id: number) => `/${PROTOCOL_VERSION}/share-links/${String(id)}`,
+  /**
+   * The document behind a share link, for anyone holding it: no token. Outside the
+   * versioned protocol, because it is a link people open, not an API call.
+   */
+  shared: (slug: string) => `/share/${slug}`,
   /** `GET` the lowest archive serial number above every one in use. */
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
@@ -1237,6 +1246,43 @@ export function isBulkEditBody(value: unknown): value is BulkEditBody {
     documents.length <= MAX_BULK_DOCUMENTS &&
     documents.every((id) => typeof id === 'string' && isSha256(id)) &&
     isBulkAction(body['action'])
+  );
+}
+
+/** A share link's secret part: 32 URL-safe characters, 192 random bits. */
+export const SHARE_SLUG_PATTERN = /^[A-Za-z0-9_-]{32}$/;
+
+export const MAX_SHARE_DAYS = 3650;
+
+/** A link that opens one document without a token, until it expires or is revoked. */
+export interface ShareLink {
+  readonly id: number;
+  readonly sha256: string;
+  readonly slug: string;
+  readonly createdAt: number;
+  /** Null: until revoked. */
+  readonly expiresAt: number | null;
+}
+
+export interface ShareLinksResponse {
+  /** Newest first. */
+  readonly links: readonly ShareLink[];
+}
+
+/** `POST /v1/documents/{sha256}/share-links`. No `expiresInDays`: until revoked. */
+export interface ShareLinkBody {
+  readonly expiresInDays?: number | null;
+}
+
+export function isShareLinkBody(value: unknown): value is ShareLinkBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'expiresInDays')) return false;
+  const days = body['expiresInDays'];
+  return (
+    days === undefined ||
+    days === null ||
+    (Number.isSafeInteger(days) && (days as number) >= 1 && (days as number) <= MAX_SHARE_DAYS)
   );
 }
 

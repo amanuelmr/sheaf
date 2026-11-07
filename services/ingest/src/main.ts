@@ -16,6 +16,7 @@ import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
 import { Rules } from './rules.ts';
 import { BulkEditor } from './bulk.ts';
+import { ShareLinks } from './share-links.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -188,6 +189,7 @@ const server = createIngestServer({
   rules,
   views: new SavedViews(driver),
   bulk: new BulkEditor(storage, customFields, rules),
+  shareLinks: new ShareLinks(driver, storage),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
