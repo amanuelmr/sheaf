@@ -19,6 +19,7 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  workflowProblem,
   isShareLinkBody,
   isBulkEditBody,
   isSavedViewBody,
@@ -47,6 +48,8 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type WorkflowBody,
+  type WorkflowsResponse,
   type ShareLinksResponse,
   type NextAsnResponse,
   type BulkEditResponse,
@@ -67,6 +70,7 @@ import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
 import type { BulkEditor } from './bulk.ts';
 import type { ShareLinks } from './share-links.ts';
+import type { Workflows } from './workflows.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -135,6 +139,8 @@ export interface RouterDeps {
   readonly bulk?: BulkEditor;
   /** Links that open a document without a token. Absent, those routes answer 404. */
   readonly shareLinks?: ShareLinks;
+  /** "When this, do that". Absent, those routes answer 404 and nothing runs. */
+  readonly workflows?: Workflows;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -355,6 +361,11 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return (await deps.shareLinks.revoke(Number(idPart))) ? { status: 204 } : fail('not_found');
   }
 
+  if (path === paths.workflows() || path.startsWith(`${paths.workflows()}/`)) {
+    if (deps.workflows === undefined) return fail('not_found');
+    return workflowRoutes(request, deps, deps.workflows, principal);
+  }
+
   if (path === paths.nextAsn()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const response: NextAsnResponse = { asn: await deps.storage.nextAsn() };
@@ -492,7 +503,12 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       if (problem !== null) return fail('bad_request', problem);
       try {
         const record = await deps.storage.patch(id, patch!, deps.now());
-        return record === null ? fail('not_found') : { status: 200, json: record };
+        if (record === null) return fail('not_found');
+        if (deps.workflows === undefined) return { status: 200, json: record };
+        // A person edited it: workflows for updated documents run, and the answer
+        // shows what they did too.
+        await deps.workflows.run('updated', id, deps.now());
+        return { status: 200, json: await deps.storage.record(id) };
       } catch (error) {
         if (error instanceof AsnTaken) return fail('conflict', error.message);
         throw error;
@@ -693,6 +709,54 @@ async function labelRoutes(
   }
   const updated = await labels.update(kind, id, patch);
   return updated.ok ? { status: 200, json: updated.value } : labelRefusal(updated);
+}
+
+/** Workflows: anyone may read them; only the admin token changes them. */
+async function workflowRoutes(
+  request: IngestRequest,
+  deps: RouterDeps,
+  workflows: Workflows,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  const body = (): WorkflowBody | IngestResponse => {
+    const parsed = parseJson<unknown>(request.body);
+    const problem = workflowProblem(parsed);
+    return problem === null ? (parsed as WorkflowBody) : fail('bad_request', problem);
+  };
+  const isBody = (value: WorkflowBody | IngestResponse): value is WorkflowBody =>
+    'trigger' in value;
+
+  if (path === paths.workflows()) {
+    if (method === 'GET') {
+      const response: WorkflowsResponse = { workflows: await workflows.list() };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin')
+      return fail('forbidden', 'only the admin token changes workflows');
+    const parsed = body();
+    if (!isBody(parsed)) return parsed;
+    return { status: 201, json: await workflows.create(parsed, deps.now()) };
+  }
+  const idPart = path.slice(paths.workflows().length + 1);
+  if (!/^[1-9][0-9]{0,15}$/.test(idPart))
+    return fail('malformed_id', 'workflow ids are positive integers');
+  const id = Number(idPart);
+  if (method === 'GET') {
+    const workflow = await workflows.get(id);
+    return workflow === null ? fail('not_found') : { status: 200, json: workflow };
+  }
+  if (method !== 'PUT' && method !== 'DELETE')
+    return fail('bad_request', `${method} not allowed here`);
+  if (principal.kind !== 'admin')
+    return fail('forbidden', 'only the admin token changes workflows');
+  if (method === 'DELETE')
+    return (await workflows.remove(id)) ? { status: 204 } : fail('not_found');
+  const parsed = body();
+  if (!isBody(parsed)) return parsed;
+  const replaced = await workflows.replace(id, parsed);
+  return replaced === null ? fail('not_found') : { status: 200, json: replaced };
 }
 
 /** Saved views: anyone with a token keeps their own shortcuts here. */

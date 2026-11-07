@@ -79,6 +79,10 @@ export const paths = {
    * versioned protocol, because it is a link people open, not an API call.
    */
   shared: (slug: string) => `/share/${slug}`,
+  /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
+  workflows: () => `/${PROTOCOL_VERSION}/workflows`,
+  /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
+  workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
   /** `GET` the lowest archive serial number above every one in use. */
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
@@ -1284,6 +1288,183 @@ export function isShareLinkBody(value: unknown): value is ShareLinkBody {
     days === null ||
     (Number.isSafeInteger(days) && (days as number) >= 1 && (days as number) <= MAX_SHARE_DAYS)
   );
+}
+
+/** When a workflow runs: as a new document is filed, or after a person edits one. */
+export const WORKFLOW_TRIGGERS = ['added', 'updated'] as const;
+export type WorkflowTrigger = (typeof WORKFLOW_TRIGGERS)[number];
+
+/** Which documents a workflow is for. Every part given must hold. */
+export interface WorkflowConditions {
+  readonly tags?: readonly string[];
+  readonly anyTags?: readonly string[];
+  readonly notTags?: readonly string[];
+  readonly correspondent?: string;
+  readonly documentType?: string;
+  /** A rule over the document's text, as a label's (`none` is not allowed here). */
+  readonly text?: MatchingRule;
+}
+
+/** What a workflow does to each document it is for, in this order. */
+export interface WorkflowActions {
+  /** The same placeholders as file names, e.g. `{{correspondent}} {{created}}`. */
+  readonly title?: string;
+  readonly addTags?: readonly string[];
+  readonly removeTags?: readonly string[];
+  /** `null` clears it. */
+  readonly correspondent?: string | null;
+  readonly documentType?: string | null;
+  readonly customField?: { readonly field: number; readonly value: CustomFieldData | null };
+  /** POSTed the document's record as JSON; a failure is logged, never retried. */
+  readonly webhook?: string;
+}
+
+export interface Workflow {
+  readonly id: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly trigger: WorkflowTrigger;
+  readonly conditions: WorkflowConditions;
+  readonly actions: WorkflowActions;
+  /** Smaller runs first. */
+  readonly position: number;
+}
+
+export interface WorkflowsResponse {
+  readonly workflows: readonly Workflow[];
+}
+
+export interface WorkflowBody {
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly trigger: WorkflowTrigger;
+  readonly conditions: WorkflowConditions;
+  readonly actions: WorkflowActions;
+  readonly position?: number;
+}
+
+/** Placeholders a title template or file name may use. */
+export const TEMPLATE_PLACEHOLDERS = [
+  'title',
+  'correspondent',
+  'document_type',
+  'tag_list',
+  'created',
+  'created_year',
+  'created_month',
+  'created_day',
+  'added',
+  'added_year',
+  'asn',
+  'sha256',
+] as const;
+
+/** Why a template cannot be used, or null. An unknown placeholder is refused, not left in. */
+export function templateProblem(template: string): string | null {
+  if (template.trim() === '') return 'the template is empty';
+  for (const match of template.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)) {
+    if (!(TEMPLATE_PLACEHOLDERS as readonly string[]).includes(match[1] ?? '')) {
+      return `unknown placeholder {{${match[1] ?? ''}}}; use ${TEMPLATE_PLACEHOLDERS.map((p) => `{{${p}}}`).join(', ')}`;
+    }
+  }
+  return null;
+}
+
+/** Why a workflow body cannot be used, or null. */
+export function workflowProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const body = value as Record<string, unknown>;
+  const allowed = ['name', 'enabled', 'trigger', 'conditions', 'actions', 'position'];
+  const extra = Object.keys(body).find((key) => !allowed.includes(key));
+  if (extra !== undefined) return `unknown key "${extra}"`;
+  if (!validLabelName(body['name']))
+    return 'name must be non-empty text without surrounding spaces';
+  if (typeof body['enabled'] !== 'boolean') return 'enabled must be true or false';
+  if (!(WORKFLOW_TRIGGERS as readonly unknown[]).includes(body['trigger'])) {
+    return `trigger must be one of ${WORKFLOW_TRIGGERS.join(', ')}`;
+  }
+  const position = body['position'];
+  if (
+    position !== undefined &&
+    !(Number.isSafeInteger(position) && Math.abs(position as number) < 1e9)
+  ) {
+    return 'position must be a whole number';
+  }
+
+  const conditions = body['conditions'];
+  if (typeof conditions !== 'object' || conditions === null || Array.isArray(conditions)) {
+    return 'conditions must be an object';
+  }
+  const c = conditions as Record<string, unknown>;
+  const conditionKeys = ['tags', 'anyTags', 'notTags', 'correspondent', 'documentType', 'text'];
+  const extraCondition = Object.keys(c).find((key) => !conditionKeys.includes(key));
+  if (extraCondition !== undefined) return `unknown condition "${extraCondition}"`;
+  for (const key of ['tags', 'anyTags', 'notTags']) {
+    if (c[key] !== undefined && !labelList(c[key])) return `${key} must be a list of names`;
+  }
+  for (const key of ['correspondent', 'documentType']) {
+    if (c[key] !== undefined && !validLabelName(c[key])) return `${key} must be a name`;
+  }
+  if (c['text'] !== undefined) {
+    const problem = matchingRuleProblem(c['text']);
+    if (problem !== null) return `text: ${problem}`;
+    if ((c['text'] as MatchingRule).algorithm === 'none')
+      return 'text: leave it out instead of none';
+  }
+
+  const actions = body['actions'];
+  if (typeof actions !== 'object' || actions === null || Array.isArray(actions)) {
+    return 'actions must be an object';
+  }
+  const a = actions as Record<string, unknown>;
+  const actionKeys = [
+    'title',
+    'addTags',
+    'removeTags',
+    'correspondent',
+    'documentType',
+    'customField',
+    'webhook',
+  ];
+  const extraAction = Object.keys(a).find((key) => !actionKeys.includes(key));
+  if (extraAction !== undefined) return `unknown action "${extraAction}"`;
+  if (Object.keys(a).length === 0) return 'a workflow needs at least one action';
+  if (a['title'] !== undefined) {
+    if (typeof a['title'] !== 'string') return 'title must be a template';
+    const problem = templateProblem(a['title']);
+    if (problem !== null) return `title: ${problem}`;
+  }
+  for (const key of ['addTags', 'removeTags']) {
+    if (a[key] !== undefined && !labelList(a[key])) return `${key} must be a list of names`;
+  }
+  for (const key of ['correspondent', 'documentType']) {
+    if (a[key] !== undefined && !labelOrNull(a[key])) return `${key} must be a name or null`;
+  }
+  const field = a['customField'];
+  if (field !== undefined) {
+    if (typeof field !== 'object' || field === null) return 'customField must be {field, value}';
+    const f = field as Record<string, unknown>;
+    if (
+      !(Number.isSafeInteger(f['field']) && (f['field'] as number) > 0) ||
+      f['value'] === undefined
+    ) {
+      return 'customField must be {field: <id>, value}';
+    }
+  }
+  const webhook = a['webhook'];
+  if (webhook !== undefined) {
+    if (typeof webhook !== 'string') return 'webhook must be a URL';
+    try {
+      const url = new URL(webhook);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:')
+        return 'webhook must be http or https';
+    } catch {
+      return 'webhook must be a URL';
+    }
+  }
+  return null;
 }
 
 export interface ErrorBody {

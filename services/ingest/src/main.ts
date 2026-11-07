@@ -18,6 +18,7 @@ import { Rules } from './rules.ts';
 import { BulkEditor } from './bulk.ts';
 import { ConsumeFolder } from './consume.ts';
 import { ShareLinks } from './share-links.ts';
+import { Workflows } from './workflows.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -55,6 +56,10 @@ const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
 const rules = new Rules(driver, storage);
 const customFields = new CustomFields(driver, storage);
+const workflows = new Workflows(driver, storage, customFields, {
+  fetch: (url, init) => fetch(url, init),
+  warn: (message) => log.error(message),
+});
 
 /**
  * Forwarding is opt-in. Without it this server stores documents and nothing more,
@@ -191,6 +196,7 @@ const server = createIngestServer({
   views: new SavedViews(driver),
   bulk: new BulkEditor(storage, customFields, rules),
   shareLinks: new ShareLinks(driver, storage),
+  workflows,
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
@@ -327,7 +333,7 @@ if (paperlessClient !== null && vocabulary !== null) {
 const steps: Step[] = [];
 
 // Filing each new document by the labels' own rules, once its text is in.
-steps.push(matchStep(storage, rules, { graceMs: 120_000 }));
+steps.push(matchStep(storage, rules, { graceMs: 120_000, workflows }));
 
 // Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
 if (extraction.kind === 'native') {

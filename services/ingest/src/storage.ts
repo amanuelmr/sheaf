@@ -870,6 +870,51 @@ export class Storage {
   }
 
   /**
+   * Change what a document is filed under on the server's own account, as a
+   * workflow does: nothing is recorded as a person's choice. `null` clears.
+   */
+  async fileByMachine(
+    sha256: string,
+    change: {
+      readonly title?: string | null;
+      readonly correspondent?: string | null;
+      readonly documentType?: string | null;
+      readonly tags?: readonly string[];
+    },
+  ): Promise<void> {
+    const sets: string[] = [];
+    const values: Array<string | null> = [];
+    for (const [column, value] of [
+      ['title', change.title],
+      ['correspondent', change.correspondent],
+      ['document_type', change.documentType],
+    ] as const) {
+      if (value === undefined) continue;
+      sets.push(`${column} = ?`);
+      values.push(value);
+    }
+    if (change.tags !== undefined) {
+      sets.push('tags = ?');
+      values.push(JSON.stringify(change.tags));
+    }
+    if (sets.length === 0) return;
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, [
+        ...values,
+        sha256,
+      ]);
+      if (typeof change.correspondent === 'string') {
+        await this.#addName('correspondent', change.correspondent);
+      }
+      if (typeof change.documentType === 'string') {
+        await this.#addName('document_type', change.documentType);
+      }
+      for (const tag of change.tags ?? []) await this.#addName('tag', tag);
+      await this.reindex(sha256);
+    });
+  }
+
+  /**
    * Add tags without recording them as a person's choice, the way a consume
    * folder's subfolders do: rules may still add more. Answers the tags now there.
    */

@@ -346,6 +346,24 @@ export const MIGRATIONS: readonly Migration[] = [
       'CREATE INDEX share_links_by_document ON share_links (sha256)',
     ],
   },
+  {
+    // Workflows: when, for which documents, and what to do. Conditions and actions
+    // are the protocol's WorkflowConditions and WorkflowActions as JSON.
+    id: 18,
+    name: 'workflows',
+    statements: [
+      `CREATE TABLE workflows (
+         id              INTEGER PRIMARY KEY,
+         name            TEXT    NOT NULL,
+         enabled         INTEGER NOT NULL,
+         trigger_kind    TEXT    NOT NULL,
+         conditions_json TEXT    NOT NULL,
+         actions_json    TEXT    NOT NULL,
+         position        INTEGER NOT NULL,
+         created_at      INTEGER NOT NULL
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

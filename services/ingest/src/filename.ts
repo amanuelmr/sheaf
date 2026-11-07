@@ -1,44 +1,27 @@
-import type { DocumentRecord } from '@sheaf/protocol';
+import type { TEMPLATE_PLACEHOLDERS } from '@sheaf/protocol';
+import { templateProblem, type DocumentRecord } from '@sheaf/protocol';
 
 /** Where an exported document goes when nobody chose a format. */
 export const DEFAULT_FILENAME_FORMAT = '{{created_year}}/{{correspondent}}/{{title}}';
 
-const PLACEHOLDERS = [
-  'title',
-  'correspondent',
-  'document_type',
-  'tag_list',
-  'created',
-  'created_year',
-  'created_month',
-  'created_day',
-  'added',
-  'added_year',
-  'asn',
-  'sha256',
-] as const;
-
 /** Why a format cannot be used, or null. Unknown placeholders are refused, not left in names. */
 export function filenameFormatProblem(format: string): string | null {
-  if (format.trim() === '') return 'the format is empty';
-  for (const match of format.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)) {
-    if (!(PLACEHOLDERS as readonly string[]).includes(match[1] ?? '')) {
-      return `unknown placeholder {{${match[1] ?? ''}}}; use ${PLACEHOLDERS.map((p) => `{{${p}}}`).join(', ')}`;
-    }
-  }
-  return null;
+  return templateProblem(format);
 }
 
 /**
- * A relative path for one document, without extension: the format with each
- * placeholder filled in, and each part made safe to be a file or folder name on
- * any system. A missing value reads `none`; a document's date falls back to the
- * day it was received.
+ * A template with each placeholder filled in from the document, `none` for a value
+ * it does not have; a document's date falls back to the day it was received.
+ * `escape` is applied to each value, never to the template's own text.
  */
-export function renderFilename(format: string, record: DocumentRecord): string {
+export function fillTemplate(
+  template: string,
+  record: DocumentRecord,
+  escape: (value: string) => string = (value) => value,
+): string {
   const added = new Date(record.receivedAt).toISOString().slice(0, 10);
   const created = record.created ?? added;
-  const values: Readonly<Record<(typeof PLACEHOLDERS)[number], string | null>> = {
+  const values: Readonly<Record<(typeof TEMPLATE_PLACEHOLDERS)[number], string | null>> = {
     title: record.title ?? record.suggestions?.title ?? null,
     correspondent: record.correspondent,
     document_type: record.documentType,
@@ -52,10 +35,18 @@ export function renderFilename(format: string, record: DocumentRecord): string {
     asn: record.asn === null ? null : String(record.asn).padStart(7, '0'),
     sha256: record.sha256,
   };
-  const filled = format.replace(/\{\{\s*([^}]*?)\s*\}\}/g, (_, name: string) =>
-    // A value's own slashes must not make folders: only the format's do.
-    (values[name as keyof typeof values] ?? 'none').replace(/[/\\]/g, '-'),
+  return template.replace(/\{\{\s*([^}]*?)\s*\}\}/g, (_, name: string) =>
+    escape(values[name as keyof typeof values] ?? 'none'),
   );
+}
+
+/**
+ * A relative path for one document, without extension: the format filled in, and
+ * each part made safe to be a file or folder name on any system.
+ */
+export function renderFilename(format: string, record: DocumentRecord): string {
+  // A value's own slashes must not make folders: only the format's do.
+  const filled = fillTemplate(format, record, (value) => value.replace(/[/\\]/g, '-'));
   const parts = filled
     .split('/')
     .map(safePart)
