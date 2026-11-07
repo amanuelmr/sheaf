@@ -125,7 +125,8 @@ label {
   margin-bottom: 6px;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--border);
@@ -451,4 +452,26 @@ form.inline input {
   letter-spacing: 1px;
   overflow-wrap: anywhere;
   margin: 4px 0 12px;
+}
+
+textarea {
+  padding: 10px 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.notes {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.notes li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notes li p {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
 }

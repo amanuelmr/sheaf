@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { DocumentRecord, FieldEntry, HistoryEvent } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { money, shortSha, when } from '../format';
+import { Notes } from './Notes';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -115,6 +116,16 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             </tbody>
           </table>
         )}
+
+        <Notes
+          api={api}
+          sha256={sha256}
+          onChange={() =>
+            void api.history(sha256).then((h) => {
+              if (h.ok) setEvents(h.value.events);
+            })
+          }
+        />
 
         <h2>History</h2>
         <ol className="timeline">

@@ -8,6 +8,9 @@ import {
   type HealthResponse,
   type HistoryResponse,
   type InboxResponse,
+  type Note,
+  type NoteBody,
+  type NotesResponse,
   type PairingCodeResponse,
   type SearchResponse,
 } from '@sheaf/protocol';
@@ -57,6 +60,11 @@ export function api(connection: Connection) {
     history: (sha256: string) => call<HistoryResponse>('GET', paths.documentHistory(sha256)),
     patch: (sha256: string, patch: DocumentPatch) =>
       call<DocumentRecord>('PATCH', paths.document(sha256), patch),
+    notes: (sha256: string) => call<NotesResponse>('GET', paths.documentNotes(sha256)),
+    addNote: (sha256: string, text: string) =>
+      call<Note>('POST', paths.documentNotes(sha256), { text } satisfies NoteBody),
+    deleteNote: (sha256: string, id: number) =>
+      call<undefined>('DELETE', paths.documentNote(sha256, id)),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
