@@ -85,6 +85,10 @@ export const paths = {
   currentSession: () => `/${PROTOCOL_VERSION}/sessions/current`,
   /** `GET` who this token belongs to and what it may do. */
   me: () => `/${PROTOCOL_VERSION}/me`,
+  /** `GET` every user's id and name, for choosing whom to share a document with. */
+  userDirectory: () => `/${PROTOCOL_VERSION}/users/directory`,
+  /** `GET` who may see and change a document; its owner or an admin `PUT`s `DocumentPermissions`. */
+  documentPermissions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/permissions`,
   /** Admin: `GET` lists users, `POST` a `UserBody` adds one. */
   users: () => `/${PROTOCOL_VERSION}/users`,
   /** Admin: `PATCH` a `UserPatch`, or `DELETE` the user and their sessions. */
@@ -246,6 +250,11 @@ export interface DocumentRecord {
   readonly created: string | null;
   /** Archive serial number: ties the document to its paper original. Unique. */
   readonly asn: number | null;
+  /**
+   * The user it belongs to, or null when it is shared with everyone. A document a
+   * person uploads is theirs; one from a phone or the admin token is shared.
+   */
+  readonly owner: number | null;
   readonly forward: ForwardStatus;
   /**
    * True once the server has freed the bytes for this document, which it will only
@@ -1624,6 +1633,8 @@ export interface SessionResponse {
 /** `GET /v1/me`. */
 export interface Me {
   readonly kind: 'admin-token' | 'device' | 'user';
+  /** The user's id, for a user. */
+  readonly id: number | null;
   readonly role: Role;
   /** For a user; for a device, its name. */
   readonly name: string | null;
@@ -1875,6 +1886,40 @@ export function settingsPatchProblem(value: unknown): string | null {
     if (problem !== null) return problem;
   }
   return null;
+}
+
+/** What another user may do with a document: read it, or read and change it. */
+export type AccessLevel = 'view' | 'change';
+
+export interface DocumentPermissions {
+  /** Null: shared with everyone, as documents were before there were users. */
+  readonly owner: number | null;
+  /** Others the owner shared it with. */
+  readonly grants: readonly { readonly user: number; readonly level: AccessLevel }[];
+}
+
+export interface UserDirectoryResponse {
+  readonly users: readonly { readonly id: number; readonly username: string }[];
+}
+
+export function isDocumentPermissions(value: unknown): value is DocumentPermissions {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const owner = body['owner'];
+  const grants = body['grants'];
+  const id = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
+  return (
+    Object.keys(body).every((key) => key === 'owner' || key === 'grants') &&
+    (owner === null || id(owner)) &&
+    Array.isArray(grants) &&
+    grants.length <= 200 &&
+    grants.every((grant: unknown) => {
+      if (typeof grant !== 'object' || grant === null) return false;
+      const g = grant as Record<string, unknown>;
+      return id(g['user']) && (g['level'] === 'view' || g['level'] === 'change');
+    }) &&
+    new Set(grants.map((g: { user: number }) => g.user)).size === grants.length
+  );
 }
 
 export interface ErrorBody {

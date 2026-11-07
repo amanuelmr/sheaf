@@ -14,6 +14,7 @@ const record: DocumentRecord = {
   tags: ['bills'],
   created: null,
   asn: 4,
+  owner: null,
   forward: { state: 'pending', attempts: 0, remoteId: null, error: null },
   bytesReleased: false,
   suggestions: { date: '2026-03-01' },

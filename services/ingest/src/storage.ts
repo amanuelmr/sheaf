@@ -9,7 +9,9 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  AccessLevel,
   DocumentFilter,
+  DocumentPermissions,
   DocumentPatch,
   DocumentRecord,
   HistoryEvent,
@@ -159,7 +161,7 @@ export const PRIMARY_CONNECTOR = 'paperless';
  */
 const WITH_DELIVERY = `
   SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
-         d.document_type, d.tags, d.created, d.asn, d.bytes_released, d.suggestions_state,
+         d.document_type, d.tags, d.created, d.asn, d.owner_id, d.bytes_released, d.suggestions_state,
          d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json, d.trashed_at,
          COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
          v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
@@ -191,6 +193,20 @@ interface Row {
   tags: string;
   created: string | null;
   asn: number | null;
+  owner_id: number | null;
+}
+
+/**
+ * The SQL that keeps a non-admin user to the documents they may see: shared with
+ * everyone, theirs, or shared with them. `viewer` null: no limit.
+ */
+export function visibleTo(viewer: number | null, alias = 'd'): { sql: string; params: number[] } {
+  if (viewer === null) return { sql: '1 = 1', params: [] };
+  return {
+    sql: `(${alias}.owner_id IS NULL OR ${alias}.owner_id = ?
+           OR EXISTS (SELECT 1 FROM document_grants g WHERE g.sha256 = ${alias}.sha256 AND g.user_id = ?))`,
+    params: [viewer, viewer],
+  };
 }
 
 /** What became of a request to give a document a new file. */
@@ -283,8 +299,12 @@ export class Storage {
     pageCount: number | null,
     /** The paired phone that sent it, or null for the admin token. */
     deviceId: string | null = null,
+    /** The user it belongs to, when a person uploaded it; null shares it with everyone. */
+    ownerId: number | null = null,
   ): Promise<PutOutcome> {
-    return this.#exclusive(sha256, () => this.#put(sha256, bytes, now, pageCount, deviceId));
+    return this.#exclusive(sha256, () =>
+      this.#put(sha256, bytes, now, pageCount, deviceId, ownerId),
+    );
   }
 
   async #put(
@@ -293,6 +313,7 @@ export class Storage {
     now: number,
     pageCount: number | null,
     deviceId: string | null,
+    ownerId: number | null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) {
       // Sending a document again is asking to keep it. One in the trash comes back
@@ -305,10 +326,10 @@ export class Storage {
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
-        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id)
-         VALUES (?, ?, ?, ?, '[]', ?)
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id, owner_id)
+         VALUES (?, ?, ?, ?, '[]', ?, ?)
          ON CONFLICT(sha256) DO NOTHING`,
-        [sha256, bytes.length, pageCount, now, deviceId],
+        [sha256, bytes.length, pageCount, now, deviceId, ownerId],
       );
       await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
@@ -347,11 +368,12 @@ export class Storage {
     return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
   }
 
-  async list(limit = 200): Promise<readonly DocumentRecord[]> {
+  async list(limit = 200, viewer: number | null = null): Promise<readonly DocumentRecord[]> {
+    const visible = visibleTo(viewer);
     const rows = await this.#driver.all<Row>(
-      `${WITH_DELIVERY} WHERE d.trashed_at IS NULL
+      `${WITH_DELIVERY} WHERE d.trashed_at IS NULL AND ${visible.sql}
         ORDER BY d.received_at DESC, d.sha256 ASC LIMIT ?`,
-      [PRIMARY_CONNECTOR, limit],
+      [PRIMARY_CONNECTOR, ...visible.params, limit],
     );
     return rows.map(toRecord);
   }
@@ -605,7 +627,8 @@ export class Storage {
   }
 
   /** Documents with suggestions that no person has acted on, newest first. */
-  async inbox(limit = 100): Promise<readonly InboxEntry[]> {
+  async inbox(limit = 100, viewer: number | null = null): Promise<readonly InboxEntry[]> {
+    const visible = visibleTo(viewer);
     const rows = await this.#driver.all<{
       sha256: string;
       received_at: number;
@@ -614,11 +637,11 @@ export class Storage {
     }>(
       `SELECT sha256, received_at, title, suggestions_json FROM documents d
         WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
-          AND d.trashed_at IS NULL
+          AND d.trashed_at IS NULL AND ${visible.sql}
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
         ORDER BY received_at DESC, sha256
         LIMIT ?`,
-      [limit],
+      [...visible.params, limit],
     );
     return rows.map((row) => ({
       sha256: row.sha256,
@@ -745,7 +768,7 @@ export class Storage {
   }
 
   /** What is in the trash, most recently trashed first. */
-  async trashed(): Promise<
+  async trashed(viewer: number | null = null): Promise<
     readonly {
       sha256: string;
       title: string | null;
@@ -763,8 +786,9 @@ export class Storage {
     }>(
       `SELECT sha256, title, json_extract(suggestions_json, '$.title') AS suggested_title,
               received_at, trashed_at
-         FROM documents WHERE trashed_at IS NOT NULL
+         FROM documents d WHERE trashed_at IS NOT NULL AND ${visibleTo(viewer).sql}
         ORDER BY trashed_at DESC, sha256`,
+      visibleTo(viewer).params,
     );
     return rows.map((row) => ({
       sha256: row.sha256,
@@ -815,6 +839,8 @@ export class Storage {
         'jobs',
         'deliveries',
         'share_links',
+        'document_grants',
+        'workflow_runs',
         'documents',
       ]) {
         await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);
@@ -948,6 +974,8 @@ export class Storage {
       'share_links',
       'archive_ids',
       'audit_log',
+      'document_grants',
+      'workflow_runs',
     ]) {
       await this.#driver.run(`UPDATE ${table} SET sha256 = ? WHERE sha256 = ?`, [to, from]);
     }
@@ -1167,6 +1195,57 @@ export class Storage {
     }
   }
 
+  /**
+   * What a user may do with a document: change it (shared with everyone, theirs, or
+   * shared with them to change), only see it, or neither. Null for no such document.
+   */
+  async access(sha256: string, user: number): Promise<'change' | 'view' | 'none' | null> {
+    const rows = await this.#driver.all<{ owner_id: number | null; level: string | null }>(
+      `SELECT d.owner_id, g.level FROM documents d
+         LEFT JOIN document_grants g ON g.sha256 = d.sha256 AND g.user_id = ?
+        WHERE d.sha256 = ?`,
+      [user, sha256],
+    );
+    const row = rows[0];
+    if (row === undefined) return null;
+    if (row.owner_id === null || row.owner_id === user) return 'change';
+    return row.level === 'change' ? 'change' : row.level === 'view' ? 'view' : 'none';
+  }
+
+  async permissions(sha256: string): Promise<DocumentPermissions | null> {
+    const owner = await this.#driver.all<{ owner_id: number | null }>(
+      'SELECT owner_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    if (owner[0] === undefined) return null;
+    const grants = await this.#driver.all<{ user_id: number; level: AccessLevel }>(
+      'SELECT user_id, level FROM document_grants WHERE sha256 = ? ORDER BY user_id',
+      [sha256],
+    );
+    return {
+      owner: owner[0].owner_id,
+      grants: grants.map((grant) => ({ user: grant.user_id, level: grant.level })),
+    };
+  }
+
+  /** Replace who owns a document and whom it is shared with. */
+  async setPermissions(sha256: string, permissions: DocumentPermissions): Promise<void> {
+    await this.#driver.transaction(async () => {
+      await this.#driver.run('UPDATE documents SET owner_id = ? WHERE sha256 = ?', [
+        permissions.owner,
+        sha256,
+      ]);
+      await this.#driver.run('DELETE FROM document_grants WHERE sha256 = ?', [sha256]);
+      for (const grant of permissions.grants) {
+        if (grant.user === permissions.owner) continue;
+        await this.#driver.run(
+          'INSERT INTO document_grants (sha256, user_id, level) VALUES (?, ?, ?)',
+          [sha256, grant.user, grant.level],
+        );
+      }
+    });
+  }
+
   /** One more than the highest archive serial number in use, trash included. */
   async nextAsn(): Promise<number> {
     const rows = await this.#driver.all<{ n: number | null }>(
@@ -1345,9 +1424,11 @@ export class Storage {
     filter: DocumentFilter,
     limit: number,
     offset: number,
+    viewer: number | null = null,
   ): Promise<SearchResponse> {
-    const where = ['d.trashed_at IS NULL'];
-    const params: Array<string | number> = [];
+    const visible = visibleTo(viewer);
+    const where = ['d.trashed_at IS NULL', visible.sql];
+    const params: Array<string | number> = [...visible.params];
     const anyOf = (column: string, values: readonly string[] | undefined) => {
       if (values === undefined || values.length === 0) return;
       where.push(`${column} IN (${values.map(() => '?').join(', ')})`);
@@ -1731,6 +1812,7 @@ function toRecord(row: Row): DocumentRecord {
     tags: JSON.parse(row.tags) as string[],
     created: row.created,
     asn: row.asn,
+    owner: row.owner_id,
     forward: {
       state: row.f_state as DocumentRecord['forward']['state'],
       attempts: row.f_attempts,

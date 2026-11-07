@@ -46,6 +46,13 @@ export class Users {
     this.#driver = driver;
   }
 
+  /** Every user's id and name, for choosing whom to share a document with. */
+  async directory(): Promise<readonly { id: number; username: string }[]> {
+    return this.#driver.all<{ id: number; username: string }>(
+      'SELECT id, username FROM users WHERE disabled_at IS NULL ORDER BY username',
+    );
+  }
+
   async list(): Promise<readonly User[]> {
     const rows = await this.#driver.all<UserRow>('SELECT * FROM users ORDER BY username');
     return rows.map(toUser);
@@ -95,6 +102,9 @@ export class Users {
     if ((await this.#byId(id)) === null) return false;
     await this.#driver.transaction(async () => {
       await this.#driver.run('DELETE FROM sessions WHERE user_id = ?', [id]);
+      // What was theirs is shared with everyone again, rather than owned by no one.
+      await this.#driver.run('UPDATE documents SET owner_id = NULL WHERE owner_id = ?', [id]);
+      await this.#driver.run('DELETE FROM document_grants WHERE user_id = ?', [id]);
       await this.#driver.run('DELETE FROM users WHERE id = ?', [id]);
     });
     return true;

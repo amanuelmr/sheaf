@@ -19,6 +19,7 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isDocumentPermissions,
   settingsPatchProblem,
   isMergeBody,
   isPagesBody,
@@ -55,6 +56,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type UserDirectoryResponse,
   type SettingsPatch,
   type SettingsResponse,
   type NewDocumentsResponse,
@@ -184,6 +186,15 @@ type Principal =
       readonly username: string;
       readonly role: 'admin' | 'editor' | 'viewer';
     };
+
+/**
+ * Whose view of the documents to keep to, or null for all of them: a person who
+ * is not an admin sees what is shared, theirs, or shared with them. Phones, the
+ * admin token and admins see everything.
+ */
+function viewerOf(principal: Principal): number | null {
+  return principal.kind === 'user' && principal.role !== 'admin' ? principal.id : null;
+}
 
 /** The admin token, or a person signed in with the admin role. */
 function isAdmin(principal: Principal): boolean {
@@ -368,10 +379,10 @@ async function authenticated(
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const me: Me =
       principal.kind === 'admin'
-        ? { kind: 'admin-token', role: 'admin', name: null }
+        ? { kind: 'admin-token', id: null, role: 'admin', name: null }
         : principal.kind === 'device'
-          ? { kind: 'device', role: 'editor', name: null }
-          : { kind: 'user', role: principal.role, name: principal.username };
+          ? { kind: 'device', id: null, role: 'editor', name: null }
+          : { kind: 'user', id: principal.id, role: principal.role, name: principal.username };
     return { status: 200, json: me };
   }
 
@@ -411,6 +422,13 @@ async function authenticated(
         ...(before === null ? {} : { before: Number(before) }),
       }),
     };
+    return { status: 200, json: response };
+  }
+
+  if (path === paths.userDirectory()) {
+    if (deps.users === undefined) return fail('not_found');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const response: UserDirectoryResponse = { users: await deps.users.directory() };
     return { status: 200, json: response };
   }
 
@@ -468,13 +486,15 @@ async function authenticated(
 
   if (path === paths.inbox()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
-    const response: InboxResponse = { documents: await deps.storage.inbox() };
+    const response: InboxResponse = {
+      documents: await deps.storage.inbox(100, viewerOf(principal)),
+    };
     return { status: 200, json: response };
   }
 
   if (path === paths.search()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
-    return search(request.query, deps);
+    return search(request.query, deps, viewerOf(principal));
   }
 
   if (path === paths.customFields() || path.startsWith(`${paths.customFields()}/`)) {
@@ -539,6 +559,8 @@ async function authenticated(
         'body must be {"documents": [two or more sha256s], "keepOriginals"?: true}',
       );
     }
+    const refused = await changeRefused(deps, principal, body.documents);
+    if (refused !== null) return refused;
     const merged = await deps.edits.merge(body.documents, body.keepOriginals === true, deps.now());
     if (!merged.ok) return editRefusal(merged);
     return { status: 201, json: await deps.storage.record(merged.sha256) };
@@ -554,6 +576,8 @@ async function authenticated(
         'body must be {"documents": [sha256, ...], "action": {"kind": ...}}; see BulkAction',
       );
     }
+    const refused = await changeRefused(deps, principal, body.documents);
+    if (refused !== null) return refused;
     const outcome = await deps.bulk.edit(body.documents, body.action, deps.now());
     if (!outcome.ok) return fail('bad_request', outcome.message);
     const response: BulkEditResponse = { changed: outcome.changed };
@@ -562,17 +586,37 @@ async function authenticated(
 
   if (path === paths.documents()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
-    const list: ListResponse = { documents: await deps.storage.list() };
+    const list: ListResponse = { documents: await deps.storage.list(200, viewerOf(principal)) };
     return { status: 200, json: list };
   }
 
   if (path === paths.archive() || path.startsWith(`${paths.archive()}/`)) {
+    // The archive is browsed whole; a person who sees only some documents searches.
+    if (viewerOf(principal) !== null) {
+      return fail('forbidden', 'search to find your documents; browsing the archive is for admins');
+    }
     return archive(path, request, deps);
   }
 
   const prefix = `${paths.documents()}/`;
   if (!path.startsWith(prefix)) return fail('not_found');
   const rest = path.slice(prefix.length);
+
+  // A document a person may not see is not there, as far as they can tell; one they
+  // may only see, they cannot change.
+  const viewer = viewerOf(principal);
+  const target = rest.split('/')[0] ?? '';
+  if (viewer !== null && isSha256(target)) {
+    const access = await deps.storage.access(target, viewer);
+    if (access === 'none') return fail('not_found');
+    if (access === 'view' && method !== 'GET') {
+      return fail('forbidden', 'this document was shared with you to read, not to change');
+    }
+  }
+
+  if (rest === `${target}/permissions` && isSha256(target)) {
+    return documentPermissions(request, deps, principal, target);
+  }
 
   const [docId, area, versionId, versionAction, ...extra] = rest.split('/');
   if (
@@ -728,6 +772,8 @@ async function put(
     deps.now(),
     pageCount,
     principal.kind === 'device' ? principal.id : null,
+    // What a person uploads is theirs; what a phone or the admin token sends is shared.
+    principal.kind === 'user' ? principal.id : null,
   );
   const record = await deps.storage.record(id);
 
@@ -943,6 +989,58 @@ async function userRoutes(
   return updated === null ? fail('not_found') : { status: 200, json: updated };
 }
 
+/**
+ * Refuses a change to many documents unless the person may change every one: 404
+ * names one they may not see, 403 one they may only read.
+ */
+async function changeRefused(
+  deps: RouterDeps,
+  principal: Principal,
+  documents: readonly string[],
+): Promise<IngestResponse | null> {
+  const viewer = viewerOf(principal);
+  if (viewer === null) return null;
+  for (const sha256 of documents) {
+    const access = await deps.storage.access(sha256, viewer);
+    if (access === 'none') return fail('not_found', `no document ${sha256.slice(0, 12)}…`);
+    if (access === 'view') {
+      return fail('forbidden', `document ${sha256.slice(0, 12)}… was shared with you to read`);
+    }
+  }
+  return null;
+}
+
+/** Who a document belongs to and whom it is shared with; its owner or an admin decides. */
+async function documentPermissions(
+  request: IngestRequest,
+  deps: RouterDeps,
+  principal: Principal,
+  sha256: string,
+): Promise<IngestResponse> {
+  const current = await deps.storage.permissions(sha256);
+  if (current === null) return fail('not_found');
+  if (request.method === 'GET') return { status: 200, json: current };
+  if (request.method !== 'PUT') return fail('bad_request', `${request.method} not allowed here`);
+  const own = principal.kind === 'user' && current.owner === principal.id;
+  if (!isAdmin(principal) && !own) {
+    return fail('forbidden', 'only its owner or an admin decides who sees a document');
+  }
+  const body = parseJson<unknown>(request.body);
+  if (!isDocumentPermissions(body)) {
+    return fail(
+      'bad_request',
+      'body must be {"owner": <user id> or null, "grants": [{"user", "level": view or change}]}',
+    );
+  }
+  const known = new Set(((await deps.users?.directory()) ?? []).map((user) => user.id));
+  const unknown = [body.owner, ...body.grants.map((grant) => grant.user)].find(
+    (id) => id !== null && !known.has(id),
+  );
+  if (unknown !== undefined) return fail('bad_request', `there is no user ${String(unknown)}`);
+  await deps.storage.setPermissions(sha256, body);
+  return { status: 200, json: await deps.storage.permissions(sha256) };
+}
+
 /** Workflows: anyone may read them; only the admin token changes them. */
 async function workflowRoutes(
   request: IngestRequest,
@@ -1147,7 +1245,7 @@ async function trash(
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const keepMs = days * 86_400_000;
     const response: TrashResponse = {
-      documents: (await deps.storage.trashed()).map((entry) => ({
+      documents: (await deps.storage.trashed(viewerOf(principal))).map((entry) => ({
         ...entry,
         purgeAt: entry.trashedAt + keepMs,
       })),
@@ -1170,6 +1268,8 @@ async function trash(
     if (body.documents === undefined) {
       return fail('bad_request', 'say which documents to restore');
     }
+    const refused = await changeRefused(deps, principal, body.documents);
+    if (refused !== null) return refused;
     count = await deps.storage.restore(body.documents);
   } else {
     const chosen = body.documents ?? (await deps.storage.trashed()).map((entry) => entry.sha256);
@@ -1232,7 +1332,11 @@ async function readHistory(id: string, deps: RouterDeps): Promise<HistoryRespons
   return { events: await deps.storage.history(id) };
 }
 
-async function search(query: string, deps: RouterDeps): Promise<IngestResponse> {
+async function search(
+  query: string,
+  deps: RouterDeps,
+  viewer: number | null,
+): Promise<IngestResponse> {
   const params = new URLSearchParams(query);
   const limit = whole(params.get('limit'), SEARCH_DEFAULT_LIMIT);
   const offset = whole(params.get('offset'), 0);
@@ -1254,7 +1358,7 @@ async function search(query: string, deps: RouterDeps): Promise<IngestResponse> 
   const response: SearchResponse =
     filter.text !== undefined && match === null
       ? { hits: [], hasMore: false, total: 0 }
-      : await deps.storage.find(match, filter, limit, offset);
+      : await deps.storage.find(match, filter, limit, offset, viewer);
   return { status: 200, json: response };
 }
 

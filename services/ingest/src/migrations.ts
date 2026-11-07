@@ -453,6 +453,21 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Whose a document is, and whom else it is shared with. Every document there is
+    // already stays shared with everyone: owner_id starts out null.
+    id: 25,
+    name: 'document_permissions',
+    statements: [
+      'ALTER TABLE documents ADD COLUMN owner_id INTEGER',
+      `CREATE TABLE document_grants (
+         sha256  TEXT    NOT NULL,
+         user_id INTEGER NOT NULL,
+         level   TEXT    NOT NULL CHECK (level IN ('view', 'change')),
+         PRIMARY KEY (sha256, user_id)
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

@@ -84,6 +84,7 @@ suite('signing in', () => {
     expect(user).toMatchObject({ username: 'ed', role: 'editor' });
     expect((await handle(req('GET', paths.me(), undefined, token), deps)).json).toEqual({
       kind: 'user',
+      id: 2,
       role: 'editor',
       name: 'ed',
     });
