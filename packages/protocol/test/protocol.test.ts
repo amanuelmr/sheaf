@@ -9,6 +9,7 @@ import {
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
+  isBulkEditBody,
   filterFromParams,
   filterToParams,
   isSavedViewBody,
@@ -263,5 +264,35 @@ suite('document filters', () => {
     expect(isSavedViewBody({ name: 'x', filter: { tags: 'bills' } })).toBe(false);
     expect(isSavedViewPatch({ position: 2 })).toBe(true);
     expect(isSavedViewPatch({ position: 1.5 })).toBe(false);
+  });
+});
+
+suite('bulk edit bodies', () => {
+  const docs = ['a'.repeat(64)];
+  it('takes documents and one action', () => {
+    for (const action of [
+      { kind: 'setCorrespondent', value: 'City Power' },
+      { kind: 'setDocumentType', value: null },
+      { kind: 'modifyTags', add: ['bills'], remove: ['unread'] },
+      { kind: 'setCustomField', field: 2, value: 'INV-1' },
+      { kind: 'setCustomField', field: 2, value: null },
+      { kind: 'removeCustomField', field: 2 },
+      { kind: 'applyRules' },
+      { kind: 'trash' },
+    ]) {
+      expect(isBulkEditBody({ documents: docs, action }), action.kind).toBe(true);
+    }
+  });
+
+  it('refuses no documents, bad ids, empty tag changes and unknown actions', () => {
+    const tags = { kind: 'modifyTags', add: [], remove: [] };
+    expect(isBulkEditBody({ documents: [], action: { kind: 'trash' } })).toBe(false);
+    expect(isBulkEditBody({ documents: ['nope'], action: { kind: 'trash' } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: tags })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'purge' } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'trash', x: 1 } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'setCustomField', field: 2 } })).toBe(
+      false,
+    );
   });
 });

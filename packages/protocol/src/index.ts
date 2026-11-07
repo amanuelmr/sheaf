@@ -70,6 +70,8 @@ export const paths = {
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
   /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
   labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
+  /** `POST` a `BulkEditBody`: one change to many documents. */
+  bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
   /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
   views: () => `/${PROTOCOL_VERSION}/views`,
   /** `PATCH` a `SavedViewPatch`, or `DELETE` it. */
@@ -1077,6 +1079,88 @@ export function isApplyRulesBody(value: unknown): value is ApplyRulesBody {
 /** The kind a path segment names, or null. */
 export function labelKindOf(segment: string): LabelKind | null {
   return LABEL_KINDS.find((kind) => LABEL_SEGMENTS[kind] === segment) ?? null;
+}
+
+/** One change, made to every document in a bulk edit. */
+export type BulkAction =
+  | { readonly kind: 'setCorrespondent'; readonly value: string | null }
+  | { readonly kind: 'setDocumentType'; readonly value: string | null }
+  | {
+      readonly kind: 'modifyTags';
+      readonly add: readonly string[];
+      readonly remove: readonly string[];
+    }
+  | {
+      readonly kind: 'setCustomField';
+      readonly field: number;
+      readonly value: CustomFieldData | null;
+    }
+  | { readonly kind: 'removeCustomField'; readonly field: number }
+  | { readonly kind: 'applyRules' }
+  | { readonly kind: 'trash' };
+
+export const MAX_BULK_DOCUMENTS = 1_000;
+
+/** `POST /v1/documents/bulk`. */
+export interface BulkEditBody {
+  readonly documents: readonly string[];
+  readonly action: BulkAction;
+}
+
+export interface BulkEditResponse {
+  /** Documents the action changed; those it found already so, or did not hold, are left out. */
+  readonly changed: number;
+}
+
+function labelOrNull(value: unknown): boolean {
+  return value === null || validLabelName(value);
+}
+
+function labelList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length <= MAX_FILTER_VALUES && value.every(validLabelName);
+}
+
+function isBulkAction(value: unknown): value is BulkAction {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const action = value as Record<string, unknown>;
+  const keys = (...allowed: string[]) =>
+    Object.keys(action).every((key) => key === 'kind' || allowed.includes(key));
+  const fieldId = (id: unknown) => Number.isSafeInteger(id) && (id as number) > 0;
+  switch (action['kind']) {
+    case 'setCorrespondent':
+    case 'setDocumentType':
+      return keys('value') && labelOrNull(action['value']);
+    case 'modifyTags':
+      return (
+        keys('add', 'remove') &&
+        labelList(action['add']) &&
+        labelList(action['remove']) &&
+        action['add'].length + action['remove'].length > 0
+      );
+    case 'setCustomField':
+      return keys('field', 'value') && fieldId(action['field']) && action['value'] !== undefined;
+    case 'removeCustomField':
+      return keys('field') && fieldId(action['field']);
+    case 'applyRules':
+    case 'trash':
+      return keys();
+    default:
+      return false;
+  }
+}
+
+export function isBulkEditBody(value: unknown): value is BulkEditBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const documents = body['documents'];
+  return (
+    Object.keys(body).every((key) => key === 'documents' || key === 'action') &&
+    Array.isArray(documents) &&
+    documents.length > 0 &&
+    documents.length <= MAX_BULK_DOCUMENTS &&
+    documents.every((id) => typeof id === 'string' && isSha256(id)) &&
+    isBulkAction(body['action'])
+  );
 }
 
 export interface ErrorBody {
