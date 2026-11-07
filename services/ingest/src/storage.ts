@@ -1520,10 +1520,21 @@ export class Storage {
         LIMIT ? OFFSET ?`,
       [...params, limit + 1, offset],
     );
-    const counted = await this.#driver.all<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM ${from} WHERE ${condition}`,
-      params,
-    );
+    // The total costs a second pass over the matches, so it is only counted when the
+    // page does not already show them all, and straight from the index when the
+    // words are all there is to it: trashed documents are never in the index.
+    const onlyWords = match !== null && where.length === 3 && viewer === null;
+    const total =
+      offset === 0 && rows.length <= limit
+        ? rows.length
+        : ((
+            await this.#driver.all<{ n: number }>(
+              onlyWords
+                ? 'SELECT COUNT(*) AS n FROM documents_fts WHERE documents_fts MATCH ?'
+                : `SELECT COUNT(*) AS n FROM ${from} WHERE ${condition}`,
+              onlyWords ? [match] : params,
+            )
+          )[0]?.n ?? 0);
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
       title: row.title,
@@ -1536,7 +1547,7 @@ export class Storage {
       asn: row.asn,
       snippet: row.snippet,
     }));
-    return { hits, hasMore: rows.length > limit, total: counted[0]?.n ?? 0 };
+    return { hits, hasMore: rows.length > limit, total };
   }
 
   /**
