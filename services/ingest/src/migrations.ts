@@ -17,6 +17,26 @@ export interface Migration {
   readonly statements: readonly string[];
 }
 
+/** ISO 4217 currencies with thousandths, ten-thousandths, and no minor unit (bar JPY and KRW). */
+const MINOR_3 = `'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND'`;
+const MINOR_4 = `'CLF', 'UYW'`;
+const MINOR_0_WAS_2 = `'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'KMF', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'`;
+
+/**
+ * Rescale the amount at `at` (an object with `minor` and `currency`) in one JSON
+ * column, from the old rule (cents for all but JPY and KRW) to ISO 4217's unit.
+ */
+function rescaleMoney(table: string, column: string, at: string, where: string): string {
+  const currency = `json_extract(${column}, '${at}.currency')`;
+  return `UPDATE ${table}
+             SET ${column} = json_set(${column}, '${at}.minor', CAST(round(
+                   json_extract(${column}, '${at}.minor') * CASE
+                     WHEN ${currency} IN (${MINOR_3}) THEN 10
+                     WHEN ${currency} IN (${MINOR_4}) THEN 100
+                     ELSE 0.01 END) AS INTEGER))
+           WHERE ${where} AND ${currency} IN (${MINOR_3}, ${MINOR_4}, ${MINOR_0_WAS_2})`;
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     id: 1,
@@ -235,6 +255,24 @@ export const MIGRATIONS: readonly Migration[] = [
          PRIMARY KEY (sha256, field_id)
        )`,
       `CREATE INDEX custom_field_values_by_field ON custom_field_values (field_id)`,
+    ],
+  },
+  {
+    // Amounts read before minor units followed ISO 4217 were stored as if every
+    // currency but JPY and KRW had cents. Rescale those whose ISO unit differs, in
+    // both the current totals and every recorded extraction run. The lists are
+    // written out, not read from `minorDigits`, so this migration means the same
+    // thing however that table changes later.
+    id: 11,
+    name: 'iso_minor_units',
+    statements: [
+      rescaleMoney('fields', 'value_json', '$', `name = 'total'`),
+      rescaleMoney(
+        'extractions',
+        'fields_json',
+        '$.total.value',
+        `json_extract(fields_json, '$.total') IS NOT NULL`,
+      ),
     ],
   },
 ];
