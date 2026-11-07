@@ -12,6 +12,7 @@ import { Document } from './pages/Document';
 import { INBOX_CHANGED, Inbox } from './pages/Inbox';
 import { Search } from './pages/Search';
 import { System } from './pages/System';
+import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
 
 export default function App() {
@@ -85,6 +86,7 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'search' }, label: 'Search' },
   { route: { page: 'inbox' }, label: 'To review' },
   { route: { page: 'devices' }, label: 'Phones' },
+  { route: { page: 'trash' }, label: 'Trash' },
   { route: { page: 'system' }, label: 'System' },
 ];
 
@@ -122,6 +124,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
         {route.page === 'document' ? <Document api={api} sha256={route.sha256} /> : null}
         {route.page === 'inbox' ? <Inbox api={api} /> : null}
         {route.page === 'devices' ? <Devices api={api} serverUrl={connection.baseUrl} /> : null}
+        {route.page === 'trash' ? <Trash api={api} /> : null}
         {route.page === 'system' ? <System api={api} /> : null}
       </main>
     </div>

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { DocumentRecord, FieldEntry, HistoryEvent } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { money, shortSha, when } from '../format';
+import { href } from '../route';
+import { INBOX_CHANGED } from './Inbox';
 import { Notes } from './Notes';
 
 const LABELS: Readonly<Record<string, string>> = {
@@ -50,6 +52,29 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
     };
   }, [api, sha256]);
 
+  const [confirmTrash, setConfirmTrash] = useState(false);
+
+  const moveToTrash = async () => {
+    const result = await api.trashDocument(sha256);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    window.dispatchEvent(new Event(INBOX_CHANGED));
+    window.location.hash = href({ page: 'trash' });
+  };
+
+  const restore = async () => {
+    const result = await api.restore([sha256]);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const r = await api.record(sha256);
+    if (r.ok) setRecord(r.value);
+    window.dispatchEvent(new Event(INBOX_CHANGED));
+  };
+
   const saveTitle = async (event: React.FormEvent) => {
     event.preventDefault();
     const result = await api.patch(sha256, { title: title.trim() === '' ? null : title.trim() });
@@ -84,6 +109,14 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
       <div className="details">
         <h1>{record.title ?? record.suggestions?.title ?? `Scan ${shortSha(sha256)}`}</h1>
         <p className="muted">Received {when(record.receivedAt)}</p>
+        {record.trashedAt === undefined ? null : (
+          <p className="card">
+            In the trash since {when(record.trashedAt)}.{' '}
+            <button type="button" className="secondary" onClick={() => void restore()}>
+              Restore
+            </button>
+          </p>
+        )}
 
         <form className="inline" onSubmit={(event) => void saveTitle(event)}>
           <label htmlFor="title">Title</label>
@@ -135,6 +168,23 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             </li>
           ))}
         </ol>
+
+        {record.trashedAt !== undefined ? null : confirmTrash ? (
+          <p className="actions">
+            <button type="button" className="danger" onClick={() => void moveToTrash()}>
+              Move to trash
+            </button>
+            <button type="button" className="secondary" onClick={() => setConfirmTrash(false)}>
+              Keep it
+            </button>
+          </p>
+        ) : (
+          <p>
+            <button type="button" className="secondary" onClick={() => setConfirmTrash(true)}>
+              Delete…
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

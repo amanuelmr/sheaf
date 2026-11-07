@@ -13,6 +13,9 @@ import {
   type NotesResponse,
   type PairingCodeResponse,
   type SearchResponse,
+  type TrashActionBody,
+  type TrashActionResponse,
+  type TrashResponse,
 } from '@sheaf/protocol';
 import type { Connection } from './connection';
 
@@ -65,6 +68,20 @@ export function api(connection: Connection) {
       call<Note>('POST', paths.documentNotes(sha256), { text } satisfies NoteBody),
     deleteNote: (sha256: string, id: number) =>
       call<undefined>('DELETE', paths.documentNote(sha256, id)),
+    /** Moves it to the trash; see `restore` to take it back. */
+    trashDocument: (sha256: string) => call<undefined>('DELETE', paths.document(sha256)),
+    trash: () => call<TrashResponse>('GET', paths.trash()),
+    restore: (documents: readonly string[]) =>
+      call<TrashActionResponse>('POST', paths.trashRestore(), {
+        documents,
+      } satisfies TrashActionBody),
+    /** Deletes for good: the named documents, or everything in the trash. */
+    emptyTrash: (documents?: readonly string[]) =>
+      call<TrashActionResponse>(
+        'POST',
+        paths.trashEmpty(),
+        (documents === undefined ? {} : { documents }) satisfies TrashActionBody,
+      ),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {

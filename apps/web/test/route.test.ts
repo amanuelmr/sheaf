@@ -17,6 +17,7 @@ suite('parse', () => {
     expect(parse('#/search')).toEqual({ page: 'search' });
     expect(parse('#/inbox')).toEqual({ page: 'inbox' });
     expect(parse('#/devices')).toEqual({ page: 'devices' });
+    expect(parse('#/trash')).toEqual({ page: 'trash' });
     expect(parse('#/system')).toEqual({ page: 'system' });
     expect(parse(`#/doc/${SHA}`)).toEqual({ page: 'document', sha256: SHA });
   });
@@ -52,12 +53,13 @@ suite('href', () => {
     expect(href({ page: 'search' })).toBe('#/search');
     expect(href({ page: 'inbox' })).toBe('#/inbox');
     expect(href({ page: 'devices' })).toBe('#/devices');
+    expect(href({ page: 'trash' })).toBe('#/trash');
     expect(href({ page: 'system' })).toBe('#/system');
     expect(href({ page: 'document', sha256: SHA })).toBe(`#/doc/${SHA}`);
   });
 
   it('produces a hash parse accepts', () => {
-    for (const page of ['search', 'inbox', 'devices', 'system'] as const) {
+    for (const page of ['search', 'inbox', 'devices', 'trash', 'system'] as const) {
       const route = { page } as const;
       expect(parse(href(route))).toEqual(route);
     }
