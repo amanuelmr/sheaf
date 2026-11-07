@@ -14,6 +14,8 @@ import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
+import { Rules } from './rules.ts';
+import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
 import { log } from './log.ts';
 import { ServerMetrics } from './observability.ts';
@@ -47,6 +49,7 @@ mkdirSync(dataDir, { recursive: true });
 
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
+const rules = new Rules(driver, storage);
 
 /**
  * Forwarding is opt-in. Without it this server stores documents and nothing more,
@@ -179,6 +182,7 @@ const server = createIngestServer({
   trashDays,
   customFields: new CustomFields(driver, storage),
   labels: new Labels(driver, storage),
+  rules,
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
@@ -282,6 +286,9 @@ if (paperlessClient !== null && vocabulary !== null) {
  * there is something for it to do.
  */
 const steps: Step[] = [];
+
+// Filing each new document by the labels' own rules, once its text is in.
+steps.push(matchStep(storage, rules, { graceMs: 120_000 }));
 
 // Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
 if (extraction.kind === 'native') {

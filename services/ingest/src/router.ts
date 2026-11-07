@@ -16,6 +16,7 @@ import {
   isCustomFieldPatch,
   isCustomFieldValuesBody,
   isDocumentTextBody,
+  isApplyRulesBody,
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
@@ -40,6 +41,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type ApplyRulesResponse,
   type NotesResponse,
   type PairRequest,
   type PairResponse,
@@ -52,6 +54,7 @@ import {
 } from '@sheaf/protocol';
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
+import type { Rules } from './rules.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -111,6 +114,8 @@ export interface RouterDeps {
   readonly customFields?: CustomFields;
   /** Correspondents, document types and tags. Absent, those routes answer 404. */
   readonly labels?: Labels;
+  /** Filing documents by the labels' rules. Absent, applying them answers 404. */
+  readonly rules?: Rules;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -274,6 +279,18 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.customFields() || path.startsWith(`${paths.customFields()}/`)) {
     if (deps.customFields === undefined) return fail('not_found');
     return customFieldDefinitions(request, deps, deps.customFields, principal);
+  }
+
+  if (path === paths.labelsApply()) {
+    if (deps.rules === undefined) return fail('not_found');
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token applies rules');
+    const body = parseJson<unknown>(request.body);
+    if (!isApplyRulesBody(body)) {
+      return fail('bad_request', 'body must be {} or {"documents": [sha256, ...]}');
+    }
+    const response: ApplyRulesResponse = { changed: await deps.rules.applyAll(body.documents) };
+    return { status: 200, json: response };
   }
 
   if (path.startsWith(`/${PROTOCOL_VERSION}/labels/`)) {
