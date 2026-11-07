@@ -19,6 +19,9 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isSessionBody,
+  isUserBody,
+  isUserPatch,
   workflowProblem,
   isShareLinkBody,
   isBulkEditBody,
@@ -48,6 +51,9 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type Me,
+  type SessionResponse,
+  type UsersResponse,
   type WorkflowBody,
   type WorkflowsResponse,
   type ShareLinksResponse,
@@ -71,6 +77,7 @@ import type { Rules } from './rules.ts';
 import type { BulkEditor } from './bulk.ts';
 import type { ShareLinks } from './share-links.ts';
 import type { Workflows } from './workflows.ts';
+import type { Users } from './users.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -141,13 +148,28 @@ export interface RouterDeps {
   readonly shareLinks?: ShareLinks;
   /** "When this, do that". Absent, those routes answer 404 and nothing runs. */
   readonly workflows?: Workflows;
+  /** People who sign in with a password. Absent, only tokens are accepted. */
+  readonly users?: Users;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
 export const METRICS_PATH = '/metrics';
 
 /** Who a request is from: the operator's admin token, or one paired phone. */
-type Principal = { readonly kind: 'admin' } | { readonly kind: 'device'; readonly id: string };
+type Principal =
+  | { readonly kind: 'admin' }
+  | { readonly kind: 'device'; readonly id: string }
+  | {
+      readonly kind: 'user';
+      readonly id: number;
+      readonly username: string;
+      readonly role: 'admin' | 'editor' | 'viewer';
+    };
+
+/** The admin token, or a person signed in with the admin role. */
+function isAdmin(principal: Principal): boolean {
+  return principal.kind === 'admin' || (principal.kind === 'user' && principal.role === 'admin');
+}
 
 /**
  * At most this many failed pairing attempts per address per minute. Codes cannot be
@@ -169,6 +191,8 @@ async function authenticate(
   const provided = bearerToken(request.headers['authorization']);
   if (provided === null) return null;
   if (tokenMatches(provided, deps.token)) return { kind: 'admin' };
+  const user = await deps.users?.authenticate(provided, deps.now());
+  if (user !== undefined && user !== null) return { kind: 'user', ...user };
   const device = await deps.devices?.authenticate(provided);
   if (device === undefined || device === null) return null;
   return device.kind === 'revoked' ? 'revoked' : { kind: 'device', id: device.id };
@@ -256,15 +280,64 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     };
   }
 
+  // Signing in: the person has a password, not yet a token.
+  if (path === paths.sessions() && deps.users !== undefined) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isSessionBody(body)) return fail('bad_request', 'body must be {"username", "password"}');
+    const signed = await deps.users.signIn(body.username, body.password, deps.now());
+    if (!signed.ok) {
+      return signed.reason === 'locked'
+        ? fail('rate_limited', 'too many wrong passwords; try again in fifteen minutes')
+        : fail('unauthenticated', 'wrong username or password');
+    }
+    const response: SessionResponse = {
+      token: signed.token,
+      expiresAt: signed.expiresAt,
+      user: signed.user,
+    };
+    return { status: 201, json: response };
+  }
+
   const principal = await authenticate(request, deps);
   if (principal === 'revoked') {
     return fail('device_revoked', 'this device was removed; pair it again to keep syncing');
   }
   if (principal === null) return fail('unauthenticated');
 
+  if (path === paths.currentSession()) {
+    if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind === 'user' && deps.users !== undefined) {
+      await deps.users.signOut(bearerToken(request.headers['authorization']) ?? '');
+    }
+    return { status: 204 };
+  }
+
+  // A viewer reads; every change is refused here, once, rather than route by route.
+  if (principal.kind === 'user' && principal.role === 'viewer' && method !== 'GET') {
+    return fail('forbidden', 'a viewer can only read');
+  }
+
+  if (path === paths.me()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const me: Me =
+      principal.kind === 'admin'
+        ? { kind: 'admin-token', role: 'admin', name: null }
+        : principal.kind === 'device'
+          ? { kind: 'device', role: 'editor', name: null }
+          : { kind: 'user', role: principal.role, name: principal.username };
+    return { status: 200, json: me };
+  }
+
+  if (path === paths.users() || path.startsWith(`${paths.users()}/`)) {
+    if (deps.users === undefined) return fail('not_found');
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin manages users');
+    return userRoutes(request, deps, deps.users, principal);
+  }
+
   if (path === METRICS_PATH && deps.metrics !== undefined) {
     // Admin only: counts of documents and phones are not a paired phone's business.
-    if (principal.kind !== 'admin') return fail('forbidden', 'metrics need the admin token');
+    if (!isAdmin(principal)) return fail('forbidden', 'metrics need the admin token');
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     return {
       status: 200,
@@ -278,8 +351,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     path === paths.devices() ||
     path.startsWith(`${paths.devices()}/`)
   ) {
-    if (principal.kind !== 'admin')
-      return fail('forbidden', 'only the admin token manages devices');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token manages devices');
     if (deps.devices === undefined) return fail('not_found');
     return manageDevices(request, deps.devices);
   }
@@ -333,7 +405,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.labelsApply()) {
     if (deps.rules === undefined) return fail('not_found');
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token applies rules');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token applies rules');
     const body = parseJson<unknown>(request.body);
     if (!isApplyRulesBody(body)) {
       return fail('bad_request', 'body must be {} or {"documents": [sha256, ...]}');
@@ -354,7 +426,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path.startsWith(`/${PROTOCOL_VERSION}/share-links/`)) {
     if (deps.shareLinks === undefined) return fail('not_found');
     if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token revokes links');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token revokes links');
     const idPart = path.slice(`/${PROTOCOL_VERSION}/share-links/`.length);
     if (!/^[1-9][0-9]{0,15}$/.test(idPart))
       return fail('malformed_id', 'link ids are positive integers');
@@ -426,8 +498,7 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin')
-      return fail('forbidden', 'only the admin token shares documents');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token shares documents');
     const body = request.body.length === 0 ? {} : parseJson<unknown>(request.body);
     if (!isShareLinkBody(body)) {
       return fail('bad_request', 'body may hold "expiresInDays": a whole number of days, or null');
@@ -569,7 +640,7 @@ async function customFieldDefinitions(
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token defines fields');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token defines fields');
     const body = parseJson<unknown>(request.body);
     if (!isCustomFieldBody(body)) {
       return fail(
@@ -593,7 +664,7 @@ async function customFieldDefinitions(
   if (method !== 'PATCH' && method !== 'DELETE') {
     return fail('bad_request', `${method} not allowed here`);
   }
-  if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token changes fields');
+  if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes fields');
   if (method === 'DELETE') return (await fields.remove(id)) ? { status: 204 } : fail('not_found');
   const patch = parseJson<unknown>(request.body);
   if (!isCustomFieldPatch(patch)) {
@@ -659,7 +730,7 @@ async function labelRoutes(
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token adds labels');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token adds labels');
     const body = parseJson<unknown>(request.body);
     const ruleProblem = ruleProblemOf(body);
     if (ruleProblem !== null) return fail('bad_request', ruleProblem);
@@ -681,7 +752,7 @@ async function labelRoutes(
   if (action !== undefined) {
     if (action !== 'merge') return fail('not_found');
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token merges labels');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token merges labels');
     const body = parseJson<unknown>(request.body);
     if (!isLabelMergeBody(body)) return fail('bad_request', 'body must be {"into": <id>}');
     const merged = await labels.merge(kind, id, body.into);
@@ -695,7 +766,7 @@ async function labelRoutes(
   if (method !== 'PATCH' && method !== 'DELETE') {
     return fail('bad_request', `${method} not allowed here`);
   }
-  if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token changes labels');
+  if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes labels');
   if (method === 'DELETE')
     return (await labels.remove(kind, id)) ? { status: 204 } : fail('not_found');
   const patch = parseJson<unknown>(request.body);
@@ -709,6 +780,56 @@ async function labelRoutes(
   }
   const updated = await labels.update(kind, id, patch);
   return updated.ok ? { status: 200, json: updated.value } : labelRefusal(updated);
+}
+
+/** Users: the admin's alone. An admin cannot lock themselves out by demoting or removing themselves. */
+async function userRoutes(
+  request: IngestRequest,
+  deps: RouterDeps,
+  users: Users,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  if (path === paths.users()) {
+    if (method === 'GET') {
+      const response: UsersResponse = { users: await users.list() };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isUserBody(body)) {
+      return fail(
+        'bad_request',
+        'body must be {"username": lower case letters, digits, . _ -, "password": at least 10 characters, "role": admin, editor or viewer}',
+      );
+    }
+    const created = await users.create(body, deps.now());
+    return created === 'taken'
+      ? fail('conflict', `a user named "${body.username}" already exists`)
+      : { status: 201, json: created };
+  }
+  const idPart = path.slice(paths.users().length + 1);
+  if (!/^[1-9][0-9]{0,15}$/.test(idPart))
+    return fail('malformed_id', 'user ids are positive integers');
+  const id = Number(idPart);
+  const self = principal.kind === 'user' && principal.id === id;
+  if (method === 'DELETE') {
+    if (self) return fail('bad_request', 'you cannot remove yourself');
+    return (await users.remove(id)) ? { status: 204 } : fail('not_found');
+  }
+  if (method !== 'PATCH') return fail('bad_request', `${method} not allowed here`);
+  const patch = parseJson<unknown>(request.body);
+  if (!isUserPatch(patch)) {
+    return fail(
+      'bad_request',
+      'body may hold "password" (at least 10 characters), "role" and "disabled"',
+    );
+  }
+  if (self && ((patch.role !== undefined && patch.role !== 'admin') || patch.disabled === true)) {
+    return fail('bad_request', 'you cannot take away your own admin role or disable yourself');
+  }
+  const updated = await users.update(id, patch, deps.now());
+  return updated === null ? fail('not_found') : { status: 200, json: updated };
 }
 
 /** Workflows: anyone may read them; only the admin token changes them. */
@@ -733,8 +854,7 @@ async function workflowRoutes(
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (principal.kind !== 'admin')
-      return fail('forbidden', 'only the admin token changes workflows');
+    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
     const parsed = body();
     if (!isBody(parsed)) return parsed;
     return { status: 201, json: await workflows.create(parsed, deps.now()) };
@@ -749,8 +869,7 @@ async function workflowRoutes(
   }
   if (method !== 'PUT' && method !== 'DELETE')
     return fail('bad_request', `${method} not allowed here`);
-  if (principal.kind !== 'admin')
-    return fail('forbidden', 'only the admin token changes workflows');
+  if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
   if (method === 'DELETE')
     return (await workflows.remove(id)) ? { status: 204 } : fail('not_found');
   const parsed = body();
@@ -851,7 +970,7 @@ async function trash(
   const restoring = path === paths.trashRestore();
   if (!restoring && path !== paths.trashEmpty()) return fail('not_found');
   if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-  if (!restoring && principal.kind !== 'admin') {
+  if (!restoring && !isAdmin(principal)) {
     return fail('forbidden', 'only the admin token deletes documents for good');
   }
   const body = parseJson<unknown>(request.body);

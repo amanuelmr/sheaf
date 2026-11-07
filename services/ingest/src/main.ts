@@ -21,6 +21,7 @@ import { MailFetcher } from './mail.ts';
 import { connect as tlsConnect } from 'node:tls';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
+import { Users } from './users.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -199,6 +200,7 @@ const server = createIngestServer({
   bulk: new BulkEditor(storage, customFields, rules),
   shareLinks: new ShareLinks(driver, storage),
   workflows,
+  users: new Users(driver),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it

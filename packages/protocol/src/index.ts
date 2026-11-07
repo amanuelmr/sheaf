@@ -79,6 +79,16 @@ export const paths = {
    * versioned protocol, because it is a link people open, not an API call.
    */
   shared: (slug: string) => `/share/${slug}`,
+  /** `POST` a `SessionBody` to sign in as a user: needs no token. */
+  sessions: () => `/${PROTOCOL_VERSION}/sessions`,
+  /** `DELETE` signs this session out. */
+  currentSession: () => `/${PROTOCOL_VERSION}/sessions/current`,
+  /** `GET` who this token belongs to and what it may do. */
+  me: () => `/${PROTOCOL_VERSION}/me`,
+  /** Admin: `GET` lists users, `POST` a `UserBody` adds one. */
+  users: () => `/${PROTOCOL_VERSION}/users`,
+  /** Admin: `PATCH` a `UserPatch`, or `DELETE` the user and their sessions. */
+  user: (id: number) => `/${PROTOCOL_VERSION}/users/${String(id)}`,
   /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
   /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
@@ -1465,6 +1475,103 @@ export function workflowProblem(value: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * What a signed-in person may do. `admin`: everything the admin token can.
+ * `editor`: what a paired phone can, reading and changing documents. `viewer`:
+ * read only.
+ */
+export const ROLES = ['admin', 'editor', 'viewer'] as const;
+export type Role = (typeof ROLES)[number];
+
+export const MIN_PASSWORD_LENGTH = 10;
+export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,31}$/;
+
+export interface User {
+  readonly id: number;
+  readonly username: string;
+  readonly role: Role;
+  readonly createdAt: number;
+  /** Null while the user may sign in. */
+  readonly disabledAt: number | null;
+  readonly lastSignIn: number | null;
+}
+
+export interface UsersResponse {
+  readonly users: readonly User[];
+}
+
+/** `POST /v1/users`. Usernames are lower case: letters, digits, `.`, `_`, `-`. */
+export interface UserBody {
+  readonly username: string;
+  readonly password: string;
+  readonly role: Role;
+}
+
+export interface UserPatch {
+  readonly password?: string;
+  readonly role?: Role;
+  readonly disabled?: boolean;
+}
+
+/** `POST /v1/sessions`. */
+export interface SessionBody {
+  readonly username: string;
+  readonly password: string;
+}
+
+export interface SessionResponse {
+  /** A bearer token, like the admin token, that ends at `expiresAt`. */
+  readonly token: string;
+  readonly expiresAt: number;
+  readonly user: User;
+}
+
+/** `GET /v1/me`. */
+export interface Me {
+  readonly kind: 'admin-token' | 'device' | 'user';
+  readonly role: Role;
+  /** For a user; for a device, its name. */
+  readonly name: string | null;
+}
+
+function validPassword(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= MIN_PASSWORD_LENGTH && value.length <= 1024;
+}
+
+export function isUserBody(value: unknown): value is UserBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    Object.keys(body).every((key) => ['username', 'password', 'role'].includes(key)) &&
+    typeof body['username'] === 'string' &&
+    USERNAME_PATTERN.test(body['username']) &&
+    validPassword(body['password']) &&
+    (ROLES as readonly unknown[]).includes(body['role'])
+  );
+}
+
+export function isUserPatch(value: unknown): value is UserPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    Object.keys(body).every((key) => ['password', 'role', 'disabled'].includes(key)) &&
+    (body['password'] === undefined || validPassword(body['password'])) &&
+    (body['role'] === undefined || (ROLES as readonly unknown[]).includes(body['role'])) &&
+    (body['disabled'] === undefined || typeof body['disabled'] === 'boolean')
+  );
+}
+
+export function isSessionBody(value: unknown): value is SessionBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    typeof body['username'] === 'string' &&
+    body['username'].length <= 64 &&
+    typeof body['password'] === 'string' &&
+    body['password'].length <= 1024
+  );
 }
 
 export interface ErrorBody {

@@ -364,6 +364,28 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // People who sign in, and their sessions. Passwords and tokens are kept only as hashes.
+    id: 19,
+    name: 'users',
+    statements: [
+      `CREATE TABLE users (
+         id            INTEGER PRIMARY KEY,
+         username      TEXT    NOT NULL UNIQUE,
+         password_hash TEXT    NOT NULL,
+         role          TEXT    NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+         created_at    INTEGER NOT NULL,
+         disabled_at   INTEGER,
+         last_sign_in  INTEGER
+       )`,
+      `CREATE TABLE sessions (
+         token_hash TEXT    PRIMARY KEY,
+         user_id    INTEGER NOT NULL,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER NOT NULL
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
