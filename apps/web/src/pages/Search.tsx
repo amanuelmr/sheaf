@@ -11,6 +11,8 @@ import {
 import type { Api } from '../api';
 import { Snippet, shortSha, when } from '../format';
 import { href } from '../route';
+import { BulkBar } from './BulkBar';
+import { INBOX_CHANGED } from './Inbox';
 
 const DEBOUNCE_MS = 200;
 
@@ -70,6 +72,9 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
   const [filter, setFilter] = useState<DocumentFilter>(initial ?? {});
   const [hits, setHits] = useState<readonly SearchHit[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  /** Bumped after a bulk edit, to fetch the results again. */
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState<Readonly<Record<LabelKind, readonly Label[]>> | null>(null);
   const [views, setViews] = useState<readonly SavedView[]>([]);
@@ -101,7 +106,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
         });
       }
     });
-  }, [api, loadViews]);
+  }, [api, loadViews, reload]);
 
   // The address follows the filter, so a filtered page can be bookmarked or shared,
   // without adding a history entry per keystroke.
@@ -122,6 +127,10 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
         if (result.ok) {
           setHits(result.value.hits);
           setTotal(result.value.total);
+          // Keep only what is still shown: a ticked document that dropped out of the
+          // results must not be edited by a bulk action someone cannot see.
+          const shown = new Set(result.value.hits.map((hit) => hit.sha256));
+          setSelected((current) => new Set([...current].filter((sha) => shown.has(sha))));
           setError(null);
         } else {
           setError(result.message);
@@ -132,7 +141,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
       current = false;
       clearTimeout(timer);
     };
-  }, [api, filter, empty]);
+  }, [api, filter, empty, reload]);
 
   const change = (next: FilterDraft) => setFilter(tidy(next));
   const open = (view: SavedView) => {
@@ -216,7 +225,32 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
           {hits.length === 0 ? (
             <p className="muted">Nothing matches.</p>
           ) : (
-            <HitList hits={hits} labels={labels} />
+            <>
+              <BulkBar
+                api={api}
+                hits={hits}
+                labels={labels}
+                selected={selected}
+                setSelected={setSelected}
+                onDone={() => {
+                  setReload((n) => n + 1);
+                  window.dispatchEvent(new Event(INBOX_CHANGED));
+                }}
+              />
+              <HitList
+                hits={hits}
+                labels={labels}
+                selected={selected}
+                onSelect={(sha256, on) =>
+                  setSelected((current) => {
+                    const next = new Set(current);
+                    if (on) next.add(sha256);
+                    else next.delete(sha256);
+                    return next;
+                  })
+                }
+              />
+            </>
           )}
         </>
       )}
@@ -227,15 +261,31 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
 function HitList({
   hits,
   labels,
+  selected,
+  onSelect,
 }: {
   hits: readonly SearchHit[];
   labels: Readonly<Record<LabelKind, readonly Label[]>> | null;
+  /** With these two, each row can be ticked for a bulk edit. */
+  selected?: ReadonlySet<string>;
+  onSelect?: (sha256: string, on: boolean) => void;
 }) {
   const colour = (tag: string) => labels?.tag.find((t) => t.name === tag)?.colour ?? null;
   return (
     <ul className="list">
       {hits.map((hit) => (
-        <li key={hit.sha256}>
+        <li
+          key={hit.sha256}
+          className={selected?.has(hit.sha256) === true ? 'selected' : undefined}
+        >
+          {selected === undefined || onSelect === undefined ? null : (
+            <input
+              type="checkbox"
+              aria-label={`Select ${hit.title ?? hit.suggestedTitle ?? shortSha(hit.sha256)}`}
+              checked={selected.has(hit.sha256)}
+              onChange={(event) => onSelect(hit.sha256, event.target.checked)}
+            />
+          )}
           <a href={href({ page: 'document', sha256: hit.sha256 })}>
             <strong>{hit.title ?? hit.suggestedTitle ?? `Scan ${shortSha(hit.sha256)}`}</strong>
             <span className="muted">

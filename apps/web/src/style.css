@@ -713,3 +713,35 @@ input[type='checkbox'] {
 h2 .count {
   margin-left: 8px;
 }
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.bulk-bar label.check {
+  margin-bottom: 0;
+}
+
+.bulk-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.bulk-form select,
+.bulk-form input {
+  width: auto;
+  flex: 1;
+  min-width: 10em;
+  margin-bottom: 0;
+}
+
+.list li > input[type='checkbox'] {
+  align-self: center;
+}

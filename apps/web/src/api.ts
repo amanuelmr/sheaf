@@ -21,6 +21,8 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type BulkAction,
+  type BulkEditResponse,
   type DocumentFilter,
   type SavedView,
   type SavedViewBody,
@@ -82,6 +84,8 @@ export function api(connection: Connection) {
       params.set('offset', String(offset));
       return call<SearchResponse>('GET', `${paths.search()}?${params.toString()}`);
     },
+    bulkEdit: (documents: readonly string[], action: BulkAction) =>
+      call<BulkEditResponse>('POST', paths.bulkEdit(), { documents, action }),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
     updateView: (id: number, patch: SavedViewPatch) =>
