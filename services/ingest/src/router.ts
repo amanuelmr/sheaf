@@ -12,6 +12,7 @@ import {
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
   bearerToken,
+  documentPatchProblem,
   filterFromParams,
   isCustomFieldBody,
   isCustomFieldPatch,
@@ -45,6 +46,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type NextAsnResponse,
   type BulkEditResponse,
   type SavedViewsResponse,
   type ApplyRulesResponse,
@@ -68,7 +70,7 @@ import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
-import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
+import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 import { DEFAULT_TRASH_DAYS } from './trash.ts';
 
 /**
@@ -319,6 +321,12 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return trash(request, deps, principal);
   }
 
+  if (path === paths.nextAsn()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const response: NextAsnResponse = { asn: await deps.storage.nextAsn() };
+    return { status: 200, json: response };
+  }
+
   if (path === paths.bulkEdit()) {
     if (deps.bulk === undefined) return fail('not_found');
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
@@ -425,9 +433,15 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     }
     case 'PATCH': {
       const patch = parseJson<DocumentPatch>(request.body);
-      if (patch === null) return fail('bad_request', 'body must be a JSON object');
-      const record = await deps.storage.patch(id, patch, deps.now());
-      return record === null ? fail('not_found') : { status: 200, json: record };
+      const problem = documentPatchProblem(patch);
+      if (problem !== null) return fail('bad_request', problem);
+      try {
+        const record = await deps.storage.patch(id, patch!, deps.now());
+        return record === null ? fail('not_found') : { status: 200, json: record };
+      } catch (error) {
+        if (error instanceof AsnTaken) return fail('conflict', error.message);
+        throw error;
+      }
     }
     case 'DELETE':
       // To the trash, not gone: see `/v1/trash` for putting it back.

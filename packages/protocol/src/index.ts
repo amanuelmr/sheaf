@@ -70,6 +70,8 @@ export const paths = {
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
   /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
   labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
+  /** `GET` the lowest archive serial number above every one in use. */
+  nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
   bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
   /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
@@ -199,6 +201,10 @@ export interface DocumentRecord {
   readonly correspondent: string | null;
   readonly documentType: string | null;
   readonly tags: readonly string[];
+  /** The date on the document itself, YYYY-MM-DD, as a person set it; null until then. */
+  readonly created: string | null;
+  /** Archive serial number: ties the document to its paper original. Unique. */
+  readonly asn: number | null;
   readonly forward: ForwardStatus;
   /**
    * True once the server has freed the bytes for this document, which it will only
@@ -272,6 +278,53 @@ export interface DocumentPatch {
   readonly correspondent?: string | null;
   readonly documentType?: string | null;
   readonly tags?: readonly string[];
+  /** YYYY-MM-DD. */
+  readonly created?: string | null;
+  /** 1 to `MAX_ASN`; another document's number is refused with 409. */
+  readonly asn?: number | null;
+}
+
+export const MAX_ASN = 2_147_483_647;
+
+export interface NextAsnResponse {
+  readonly asn: number;
+}
+
+/**
+ * The shape `PATCH /v1/documents/{sha256}` accepts. Keys it does not know are
+ * left alone rather than refused, so an older or newer client still works.
+ */
+export function documentPatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const patch = value as Record<string, unknown>;
+  for (const key of ['title', 'correspondent', 'documentType']) {
+    const v = patch[key];
+    if (v !== undefined && v !== null && typeof v !== 'string')
+      return `${key} must be text or null`;
+  }
+  const tags = patch['tags'];
+  if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
+    return 'tags must be a list of names';
+  }
+  const created = patch['created'];
+  if (
+    created !== undefined &&
+    created !== null &&
+    (typeof created !== 'string' || !isDay(created))
+  ) {
+    return 'created must be a day, YYYY-MM-DD, or null';
+  }
+  const asn = patch['asn'];
+  if (
+    asn !== undefined &&
+    asn !== null &&
+    !(Number.isSafeInteger(asn) && (asn as number) >= 1 && (asn as number) <= MAX_ASN)
+  ) {
+    return `asn must be a whole number from 1 to ${String(MAX_ASN)}, or null`;
+  }
+  return null;
 }
 
 /**
@@ -367,6 +420,8 @@ export interface SearchHit {
   readonly documentType: string | null;
   readonly tags: readonly string[];
   readonly receivedAt: number;
+  readonly created: string | null;
+  readonly asn: number | null;
   /**
    * A short excerpt around the match, with each matched word wrapped in « and ».
    * Document text: escape it before putting it in HTML.
@@ -386,7 +441,7 @@ export interface SearchResponse {
   readonly total: number;
 }
 
-export const SEARCH_SORTS = ['relevance', 'newest', 'oldest', 'title'] as const;
+export const SEARCH_SORTS = ['relevance', 'newest', 'oldest', 'title', 'created', 'asn'] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 
 /**
@@ -406,6 +461,12 @@ export interface DocumentFilter {
   readonly receivedFrom?: string;
   /** Received on or before this day, YYYY-MM-DD, in UTC. */
   readonly receivedTo?: string;
+  /** Dated on or after this day, by the date on the document. */
+  readonly createdFrom?: string;
+  /** Dated on or before this day. */
+  readonly createdTo?: string;
+  /** This archive serial number. */
+  readonly asn?: number;
   /** Carries each of these custom fields, by id. */
   readonly fields?: readonly number[];
   /** Relevance needs words; without any, it falls back to newest. */
@@ -438,6 +499,9 @@ export function filterToParams(filter: DocumentFilter): URLSearchParams {
   }
   if (filter.receivedFrom !== undefined) params.set('from', filter.receivedFrom);
   if (filter.receivedTo !== undefined) params.set('to', filter.receivedTo);
+  if (filter.createdFrom !== undefined) params.set('createdFrom', filter.createdFrom);
+  if (filter.createdTo !== undefined) params.set('createdTo', filter.createdTo);
+  if (filter.asn !== undefined) params.set('asn', String(filter.asn));
   for (const id of filter.fields ?? []) params.append('field', String(id));
   if (filter.sort !== undefined) params.set('sort', filter.sort);
   return params;
@@ -461,6 +525,8 @@ export function filterFromParams(
   for (const [param, key] of [
     ['from', 'receivedFrom'],
     ['to', 'receivedTo'],
+    ['createdFrom', 'createdFrom'],
+    ['createdTo', 'createdTo'],
   ] as const) {
     const day = params.get(param);
     if (day === null) continue;
@@ -468,6 +534,13 @@ export function filterFromParams(
       return { ok: false, problem: `${param} must be a day, YYYY-MM-DD` };
     }
     filter[key] = day;
+  }
+  const asn = params.get('asn');
+  if (asn !== null) {
+    if (!/^[1-9][0-9]{0,9}$/.test(asn) || Number(asn) > MAX_ASN) {
+      return { ok: false, problem: 'asn must be an archive serial number' };
+    }
+    filter.asn = Number(asn);
   }
   const fields = params.getAll('field');
   if (fields.length > MAX_FILTER_VALUES || fields.some((f) => !/^[1-9][0-9]{0,15}$/.test(f))) {
@@ -494,6 +567,9 @@ export function isDocumentFilter(value: unknown): value is DocumentFilter {
     ...Object.keys(FILTER_LISTS),
     'receivedFrom',
     'receivedTo',
+    'createdFrom',
+    'createdTo',
+    'asn',
     'fields',
     'sort',
   ];
@@ -512,9 +588,10 @@ export function isDocumentFilter(value: unknown): value is DocumentFilter {
   ) {
     return false;
   }
-  for (const key of ['receivedFrom', 'receivedTo']) {
+  for (const key of ['receivedFrom', 'receivedTo', 'createdFrom', 'createdTo']) {
     if (filter[key] !== undefined && typeof filter[key] !== 'string') return false;
   }
+  if (filter['asn'] !== undefined && typeof filter['asn'] !== 'number') return false;
   if (filter['sort'] !== undefined && typeof filter['sort'] !== 'string') return false;
   // Everything else is the same check the query parameters get.
   return filterFromParams(filterToParams(value)).ok;

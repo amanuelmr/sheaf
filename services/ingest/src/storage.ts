@@ -64,6 +64,8 @@ export interface ArchiveRow {
   readonly documentType: string | null;
   readonly tags: readonly string[];
   readonly receivedAt: number;
+  /** The date on the document, when a person set one. */
+  readonly created: string | null;
   /** The start of its text, or the part around a search match. */
   readonly excerpt: string | null;
 }
@@ -156,7 +158,7 @@ export const PRIMARY_CONNECTOR = 'paperless';
  */
 const WITH_DELIVERY = `
   SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
-         d.document_type, d.tags, d.bytes_released, d.suggestions_state,
+         d.document_type, d.tags, d.created, d.asn, d.bytes_released, d.suggestions_state,
          d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json, d.trashed_at,
          COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
          v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
@@ -186,6 +188,17 @@ interface Row {
   correspondent: string | null;
   document_type: string | null;
   tags: string;
+  created: string | null;
+  asn: number | null;
+}
+
+/** Another document already has the archive serial number a patch asked for. */
+export class AsnTaken extends Error {
+  readonly asn: number;
+  constructor(asn: number) {
+    super(`archive serial number ${String(asn)} belongs to another document`);
+    this.asn = asn;
+  }
 }
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -410,15 +423,38 @@ export class Storage {
     assign('title', patch.title);
     assign('correspondent', patch.correspondent);
     assign('document_type', patch.documentType);
+    assign('created', patch.created);
+    if (patch.asn !== undefined) {
+      sets.push('asn = ?');
+      values.push(patch.asn);
+    }
     if (patch.tags !== undefined) {
       sets.push('tags = ?');
       values.push(JSON.stringify(patch.tags));
+    }
+    if (patch.asn !== undefined && patch.asn !== null) {
+      const holder = await this.#driver.all<{ sha256: string }>(
+        'SELECT sha256 FROM documents WHERE asn = ? AND sha256 <> ?',
+        [patch.asn, sha256],
+      );
+      if (holder.length > 0) throw new AsnTaken(patch.asn);
     }
 
     if (sets.length > 0) {
       values.push(sha256);
       await this.#driver.transaction(async () => {
-        await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+        try {
+          await this.#driver.run(
+            `UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`,
+            values,
+          );
+        } catch (error) {
+          // Another request took the number between the check and the update.
+          if (patch.asn != null && error instanceof Error && /UNIQUE/.test(error.message)) {
+            throw new AsnTaken(patch.asn);
+          }
+          throw error;
+        }
         if (typeof patch.correspondent === 'string') {
           await this.#addName('correspondent', patch.correspondent);
         }
@@ -537,6 +573,10 @@ export class Storage {
       ['correspondent', patch.correspondent],
       ['documentType', patch.documentType],
       ['tags', patch.tags],
+      // The date extraction reads is the date on the document: a person setting it
+      // keeps a later run from replacing it.
+      ['date', patch.created],
+      ['asn', patch.asn],
     ];
     for (const [name, value] of chosen) {
       if (value === undefined) continue;
@@ -828,6 +868,14 @@ export class Storage {
     });
   }
 
+  /** One more than the highest archive serial number in use, trash included. */
+  async nextAsn(): Promise<number> {
+    const rows = await this.#driver.all<{ n: number | null }>(
+      'SELECT MAX(asn) AS n FROM documents',
+    );
+    return (rows[0]?.n ?? 0) + 1;
+  }
+
   async #addName(kind: NameKind, name: string): Promise<void> {
     await this.#driver.run('INSERT OR IGNORE INTO names (kind, name) VALUES (?, ?)', [kind, name]);
   }
@@ -859,6 +907,7 @@ export class Storage {
   async archiveRow(id: number): Promise<ArchiveRow | null> {
     const rows = await this.#driver.all<ArchiveSqlRow>(
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              d.created,
               ${PLAIN_EXCERPT} AS excerpt
          FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
         WHERE a.id = ? AND d.trashed_at IS NULL`,
@@ -900,6 +949,7 @@ export class Storage {
 
     const rows = await this.#driver.all<ArchiveSqlRow>(
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              d.created,
               ${filter.match === null ? PLAIN_EXCERPT : "snippet(documents_fts, -1, '', '', '…', 24)"}
                 AS excerpt
          ${from}
@@ -1033,6 +1083,18 @@ export class Storage {
       where.push('d.received_at < ?');
       params.push(Date.parse(`${filter.receivedTo}T00:00:00Z`) + 86_400_000);
     }
+    if (filter.createdFrom !== undefined) {
+      where.push('d.created >= ?');
+      params.push(filter.createdFrom);
+    }
+    if (filter.createdTo !== undefined) {
+      where.push('d.created <= ?');
+      params.push(filter.createdTo);
+    }
+    if (filter.asn !== undefined) {
+      where.push('d.asn = ?');
+      params.push(filter.asn);
+    }
     for (const field of filter.fields ?? []) {
       where.push(
         'EXISTS (SELECT 1 FROM custom_field_values v WHERE v.sha256 = d.sha256 AND v.field_id = ?)',
@@ -1050,6 +1112,8 @@ export class Storage {
           : 'bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC',
       newest: 'd.received_at DESC',
       oldest: 'd.received_at ASC',
+      created: 'd.created IS NULL, d.created DESC, d.received_at DESC',
+      asn: 'd.asn IS NULL, d.asn ASC',
       title: `COALESCE(d.title, json_extract(d.suggestions_json, '$.title'), '~') COLLATE NOCASE,
               d.received_at DESC`,
     }[sort];
@@ -1062,11 +1126,13 @@ export class Storage {
       document_type: string | null;
       tags: string;
       received_at: number;
+      created: string | null;
+      asn: number | null;
       snippet: string;
       suggested_title: string | null;
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
-              json_extract(d.suggestions_json, '$.title') AS suggested_title,
+              d.created, d.asn, json_extract(d.suggestions_json, '$.title') AS suggested_title,
               ${match === null ? "''" : "snippet(documents_fts, -1, '«', '»', '…', 12)"} AS snippet
          FROM ${from}
         WHERE ${condition}
@@ -1086,6 +1152,8 @@ export class Storage {
       documentType: row.document_type,
       tags: JSON.parse(row.tags) as string[],
       receivedAt: row.received_at,
+      created: row.created,
+      asn: row.asn,
       snippet: row.snippet,
     }));
     return { hits, hasMore: rows.length > limit, total: counted[0]?.n ?? 0 };
@@ -1318,6 +1386,7 @@ interface ArchiveSqlRow {
   document_type: string | null;
   tags: string;
   received_at: number;
+  created: string | null;
   excerpt: string | null;
 }
 
@@ -1345,6 +1414,7 @@ function toArchiveRow(row: ArchiveSqlRow): ArchiveRow {
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
     receivedAt: row.received_at,
+    created: row.created,
     excerpt: row.excerpt === '' ? null : row.excerpt,
   };
 }
@@ -1359,6 +1429,8 @@ function toRecord(row: Row): DocumentRecord {
     correspondent: row.correspondent,
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
+    created: row.created,
+    asn: row.asn,
     forward: {
       state: row.f_state as DocumentRecord['forward']['state'],
       attempts: row.f_attempts,

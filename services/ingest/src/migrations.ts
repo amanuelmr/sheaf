@@ -320,6 +320,17 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // The date on the document itself, and the archive serial number that ties it to
+    // its paper original. A serial number belongs to one document at most.
+    id: 16,
+    name: 'created_and_asn',
+    statements: [
+      'ALTER TABLE documents ADD COLUMN created TEXT',
+      'ALTER TABLE documents ADD COLUMN asn INTEGER',
+      'CREATE UNIQUE INDEX documents_by_asn ON documents (asn) WHERE asn IS NOT NULL',
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

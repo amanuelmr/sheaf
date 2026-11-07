@@ -9,6 +9,7 @@ import {
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
+  documentPatchProblem,
   isBulkEditBody,
   filterFromParams,
   filterToParams,
@@ -234,6 +235,9 @@ suite('document filters', () => {
     notTags: ['paid'],
     receivedFrom: '2026-01-01',
     receivedTo: '2026-03-31',
+    createdFrom: '2025-12-01',
+    createdTo: '2026-01-31',
+    asn: 42,
     fields: [3],
     sort: 'oldest' as const,
   };
@@ -294,5 +298,22 @@ suite('bulk edit bodies', () => {
     expect(isBulkEditBody({ documents: docs, action: { kind: 'setCustomField', field: 2 } })).toBe(
       false,
     );
+  });
+});
+
+suite('document patches', () => {
+  it('takes a created day and an archive serial number, or null for either', () => {
+    expect(documentPatchProblem({ created: '2026-03-01', asn: 17 })).toBeNull();
+    expect(documentPatchProblem({ created: null, asn: null, title: null, tags: [] })).toBeNull();
+    expect(documentPatchProblem({ phoneOnly: true })).toBeNull();
+  });
+
+  it('says what is wrong otherwise', () => {
+    expect(documentPatchProblem({ created: '2026-02-30' })).toMatch(/created/);
+    expect(documentPatchProblem({ asn: 0 })).toMatch(/asn/);
+    expect(documentPatchProblem({ asn: 2 ** 31 })).toMatch(/asn/);
+    expect(documentPatchProblem({ tags: 'bills' })).toMatch(/tags/);
+    expect(documentPatchProblem({ title: 3 })).toMatch(/title/);
+    expect(documentPatchProblem([])).toMatch(/object/);
   });
 });
