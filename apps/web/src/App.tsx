@@ -8,6 +8,7 @@ import {
   type Connection,
 } from './connection';
 import { Devices } from './pages/Devices';
+import { Fields } from './pages/Fields';
 import { Document } from './pages/Document';
 import { INBOX_CHANGED, Inbox } from './pages/Inbox';
 import { Search } from './pages/Search';
@@ -86,6 +87,7 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'search' }, label: 'Search' },
   { route: { page: 'inbox' }, label: 'To review' },
   { route: { page: 'devices' }, label: 'Phones' },
+  { route: { page: 'fields' }, label: 'Fields' },
   { route: { page: 'trash' }, label: 'Trash' },
   { route: { page: 'system' }, label: 'System' },
 ];
@@ -125,6 +127,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
         {route.page === 'inbox' ? <Inbox api={api} /> : null}
         {route.page === 'devices' ? <Devices api={api} serverUrl={connection.baseUrl} /> : null}
         {route.page === 'trash' ? <Trash api={api} /> : null}
+        {route.page === 'fields' ? <Fields api={api} /> : null}
         {route.page === 'system' ? <System api={api} /> : null}
       </main>
     </div>

@@ -126,7 +126,8 @@ label {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--border);
@@ -474,4 +475,38 @@ textarea {
 .notes li p {
   margin: 0 0 4px;
   white-space: pre-wrap;
+}
+
+select {
+  appearance: auto;
+}
+
+.custom-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.custom-field-row > :first-child {
+  flex: 1;
+}
+
+.money-input {
+  display: flex;
+  gap: 8px;
+}
+
+.money-input .currency {
+  width: 5em;
+  text-transform: uppercase;
+}
+
+.links {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+
+.links a {
+  color: var(--accent);
 }

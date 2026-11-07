@@ -4,6 +4,7 @@ import type { Api } from '../api';
 import { money, shortSha, when } from '../format';
 import { href } from '../route';
 import { INBOX_CHANGED } from './Inbox';
+import { DocumentFields } from './DocumentFields';
 import { Notes } from './Notes';
 
 const LABELS: Readonly<Record<string, string>> = {
@@ -149,6 +150,16 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             </tbody>
           </table>
         )}
+
+        <DocumentFields
+          api={api}
+          sha256={sha256}
+          onChange={() =>
+            void api.history(sha256).then((h) => {
+              if (h.ok) setEvents(h.value.events);
+            })
+          }
+        />
 
         <Notes
           api={api}
