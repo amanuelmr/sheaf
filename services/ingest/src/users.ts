@@ -123,17 +123,49 @@ export class Users {
       return { ok: false, reason: 'wrong' };
     }
     this.#failures.delete(key);
+    return this.startSession(row.id, now);
+  }
+
+  /** A new session for a user someone has already vouched for: a password, or a provider. */
+  async startSession(id: number, now: number): Promise<Extract<SignIn, { ok: true }>> {
     const token = randomBytes(32).toString('base64url');
     const expiresAt = now + SESSION_MS;
     await this.#driver.transaction(async () => {
       await this.#driver.run(
         'INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
-        [hashToken(token), row.id, now, expiresAt],
+        [hashToken(token), id, now, expiresAt],
       );
-      await this.#driver.run('UPDATE users SET last_sign_in = ? WHERE id = ?', [now, row.id]);
+      await this.#driver.run('UPDATE users SET last_sign_in = ? WHERE id = ?', [now, id]);
       await this.#driver.run('DELETE FROM sessions WHERE expires_at <= ?', [now]);
     });
-    return { ok: true, token, expiresAt, user: (await this.#byId(row.id))! };
+    return { ok: true, token, expiresAt, user: (await this.#byId(id))! };
+  }
+
+  /** The user an identity provider's subject is linked to. */
+  async bySubject(subject: string): Promise<User | null> {
+    const rows = await this.#driver.all<UserRow>('SELECT * FROM users WHERE sso_subject = ?', [
+      subject,
+    ]);
+    return rows[0] === undefined ? null : toUser(rows[0]);
+  }
+
+  /**
+   * A user who will only ever sign in through the provider: linked to its subject,
+   * with a random password nobody knows. 'taken' when the name is someone else's.
+   */
+  async createLinked(
+    username: string,
+    role: Role,
+    subject: string,
+    now: number,
+  ): Promise<User | 'taken'> {
+    const made = await this.create(
+      { username, password: randomBytes(32).toString('base64url'), role },
+      now,
+    );
+    if (made === 'taken') return made;
+    await this.#driver.run('UPDATE users SET sso_subject = ? WHERE id = ?', [subject, made.id]);
+    return made;
   }
 
   /** The user a session token belongs to, while it lasts and they may sign in. */

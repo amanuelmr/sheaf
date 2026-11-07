@@ -83,6 +83,12 @@ export const paths = {
   sessions: () => `/${PROTOCOL_VERSION}/sessions`,
   /** `DELETE` signs this session out. */
   currentSession: () => `/${PROTOCOL_VERSION}/sessions/current`,
+  /** `GET` whether single sign-on is on, needing no token. */
+  sso: () => `/${PROTOCOL_VERSION}/sso`,
+  /** Opened in the browser: goes to the identity provider to sign in. */
+  ssoStart: () => `/${PROTOCOL_VERSION}/sso/start`,
+  /** Where the provider sends the person back. */
+  ssoCallback: () => `/${PROTOCOL_VERSION}/sso/callback`,
   /** `GET` who this token belongs to and what it may do. */
   me: () => `/${PROTOCOL_VERSION}/me`,
   /** `GET` every user's id and name, for choosing whom to share a document with. */
@@ -1628,6 +1634,12 @@ export interface SessionResponse {
   readonly token: string;
   readonly expiresAt: number;
   readonly user: User;
+}
+
+export interface SsoResponse {
+  readonly enabled: boolean;
+  /** What to call the provider on a button, e.g. "Sign in with Keycloak". */
+  readonly name: string | null;
 }
 
 /** `GET /v1/me`. */

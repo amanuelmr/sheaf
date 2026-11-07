@@ -56,6 +56,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type SsoResponse,
   type UserDirectoryResponse,
   type SettingsPatch,
   type SettingsResponse,
@@ -90,6 +91,7 @@ import type { BulkEditor } from './bulk.ts';
 import type { ShareLinks } from './share-links.ts';
 import type { Workflows } from './workflows.ts';
 import type { Users } from './users.ts';
+import type { Sso } from './sso.ts';
 import type { Actor, AuditLog } from './audit.ts';
 import type { DocumentEdits, EditRefusal } from './document-edits.ts';
 import type { Settings } from './settings.ts';
@@ -171,6 +173,8 @@ export interface RouterDeps {
   readonly edits?: DocumentEdits;
   /** Settings an admin can change while the server runs. */
   readonly settings?: Settings;
+  /** Single sign-on through an OpenID Connect provider. Absent, it is off. */
+  readonly sso?: Sso;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -308,6 +312,41 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       },
       bytes,
     };
+  }
+
+  // Single sign-on: before a token, by definition. The callback answers with a
+  // redirect to the web app either way, so a person never lands on raw JSON.
+  if (path === paths.sso()) {
+    const response: SsoResponse = {
+      enabled: deps.sso !== undefined,
+      name: deps.sso?.name ?? null,
+    };
+    return { status: 200, json: response };
+  }
+  if (path === paths.ssoStart() && deps.sso !== undefined) {
+    try {
+      return { status: 302, headers: { location: await deps.sso.start(deps.now()) } };
+    } catch {
+      return fail('server_error', 'the identity provider could not be reached');
+    }
+  }
+  if (path === paths.ssoCallback() && deps.sso !== undefined) {
+    const params = new URLSearchParams(request.query);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (code === null || state === null) {
+      return fail(
+        'bad_request',
+        params.get('error_description') ?? params.get('error') ?? 'no code',
+      );
+    }
+    try {
+      const signed = await deps.sso.finish(code, state, deps.now());
+      if (!signed.ok) return fail('unauthenticated', signed.message);
+      return { status: 302, headers: { location: signed.redirect, 'cache-control': 'no-store' } };
+    } catch {
+      return fail('server_error', 'the identity provider could not be reached');
+    }
   }
 
   // Signing in: the person has a password, not yet a token.

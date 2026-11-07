@@ -468,6 +468,16 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // The identity provider's name for a user who signs in with single sign-on:
+    // issuer and subject, which never change, unlike an email address.
+    id: 26,
+    name: 'sso_subjects',
+    statements: [
+      'ALTER TABLE users ADD COLUMN sso_subject TEXT',
+      'CREATE UNIQUE INDEX users_by_sso_subject ON users (sso_subject) WHERE sso_subject IS NOT NULL',
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

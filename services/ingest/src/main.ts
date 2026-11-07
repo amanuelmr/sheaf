@@ -29,6 +29,7 @@ import { Users } from './users.ts';
 import { AuditLog } from './audit.ts';
 import { DocumentEdits } from './document-edits.ts';
 import { Settings } from './settings.ts';
+import { Sso } from './sso.ts';
 import { barcodeStep } from './steps/barcodes.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
@@ -112,6 +113,46 @@ const smtp =
             : {}),
         };
       })();
+const users = new Users(driver);
+
+// Single sign-on, when SHEAF_OIDC_ISSUER is set.
+const oidcIssuer = process.env['SHEAF_OIDC_ISSUER'];
+let sso: Sso | null = null;
+if (oidcIssuer !== undefined && oidcIssuer !== '') {
+  const clientId = process.env['SHEAF_OIDC_CLIENT_ID'] ?? '';
+  const clientSecret = process.env['SHEAF_OIDC_CLIENT_SECRET'] ?? '';
+  const redirectUri = process.env['SHEAF_OIDC_REDIRECT_URI'] ?? '';
+  const webUrl = process.env['SHEAF_WEB_URL'] ?? '';
+  const role = process.env['SHEAF_OIDC_DEFAULT_ROLE'] ?? 'viewer';
+  if (
+    clientId === '' ||
+    clientSecret === '' ||
+    !/^https?:\/\//.test(redirectUri) ||
+    !/^https?:\/\//.test(webUrl) ||
+    !['admin', 'editor', 'viewer', 'none'].includes(role)
+  ) {
+    log.error(
+      'sso: SHEAF_OIDC_CLIENT_ID, SHEAF_OIDC_CLIENT_SECRET, SHEAF_OIDC_REDIRECT_URI and SHEAF_WEB_URL are required, and SHEAF_OIDC_DEFAULT_ROLE must be admin, editor, viewer or none',
+    );
+    process.exit(1);
+  }
+  sso = new Sso(
+    {
+      issuer: oidcIssuer,
+      clientId,
+      clientSecret,
+      redirectUri,
+      webUrl,
+      defaultRole: role === 'none' ? null : (role as 'admin' | 'editor' | 'viewer'),
+      usernameClaim: process.env['SHEAF_OIDC_USERNAME_CLAIM'] ?? 'preferred_username',
+      name: process.env['SHEAF_OIDC_NAME'] ?? 'single sign-on',
+      fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
+    },
+    users,
+  );
+  log.info(`sso: signing in through ${oidcIssuer}`);
+}
+
 const workflows = new Workflows(driver, storage, customFields, {
   fetch: (url, init) => fetch(url, init),
   warn: (message) => log.error(message),
@@ -291,7 +332,8 @@ const server = createIngestServer({
   bulk: new BulkEditor(storage, customFields, rules),
   shareLinks: new ShareLinks(driver, storage),
   workflows,
-  users: new Users(driver),
+  users,
+  ...(sso === null ? {} : { sso }),
   audit: new AuditLog(driver),
   edits,
   settings,
