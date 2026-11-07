@@ -91,6 +91,8 @@ export const paths = {
   user: (id: number) => `/${PROTOCOL_VERSION}/users/${String(id)}`,
   /** Admin: `GET ?limit=&before=` the newest changes made through the API. */
   audit: () => `/${PROTOCOL_VERSION}/audit`,
+  /** Admin: `GET` the server's settings; `PATCH` a `SettingsPatch` to change some. */
+  settings: () => `/${PROTOCOL_VERSION}/settings`,
   /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
   /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
@@ -1730,6 +1732,74 @@ export function parsePageList(text: string): number[] | null {
     }
   }
   return pages.length === 0 ? null : pages;
+}
+
+/** What an admin can change while the server runs. */
+export interface ServerSettings {
+  /** Days a deleted document waits in the trash. At least 1. */
+  readonly trashDays: number;
+  /** How exported files are named; see `TEMPLATE_PLACEHOLDERS`. */
+  readonly filenameFormat: string;
+  /** Read barcodes on new documents: separator pages and archive serial numbers. */
+  readonly barcodesEnabled: boolean;
+  /** A page whose barcode reads exactly this splits the document there, and is dropped. */
+  readonly barcodeSeparator: string;
+  /** A barcode starting with this, then digits, sets the archive serial number. */
+  readonly barcodeAsnPrefix: string;
+}
+
+export const SETTING_KEYS = [
+  'trashDays',
+  'filenameFormat',
+  'barcodesEnabled',
+  'barcodeSeparator',
+  'barcodeAsnPrefix',
+] as const;
+
+/** Where a setting's value comes from: built in, the environment, or saved by an admin. */
+export type SettingSource = 'default' | 'environment' | 'saved';
+
+export interface SettingsResponse {
+  readonly settings: ServerSettings;
+  readonly sources: Readonly<Record<keyof ServerSettings, SettingSource>>;
+}
+
+/** Each key given is saved; `null` forgets the saved value and goes back to the environment's. */
+export type SettingsPatch = {
+  readonly [K in keyof ServerSettings]?: ServerSettings[K] | null;
+};
+
+/** Why a value cannot be used for a setting, or null. */
+export function settingProblem(key: string, value: unknown): string | null {
+  if (value === null) return null;
+  switch (key) {
+    case 'trashDays':
+      return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 3650
+        ? null
+        : 'trashDays must be a number of days from 1 to 3650';
+    case 'filenameFormat':
+      return typeof value === 'string' ? templateProblem(value) : 'filenameFormat must be text';
+    case 'barcodesEnabled':
+      return typeof value === 'boolean' ? null : 'barcodesEnabled must be true or false';
+    case 'barcodeSeparator':
+    case 'barcodeAsnPrefix':
+      return typeof value === 'string' && value.trim() !== '' && value.length <= 64
+        ? null
+        : `${key} must be text of at most 64 characters`;
+    default:
+      return `there is no setting "${key}"`;
+  }
+}
+
+export function settingsPatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  for (const [key, setting] of Object.entries(value)) {
+    const problem = settingProblem(key, setting);
+    if (problem !== null) return problem;
+  }
+  return null;
 }
 
 export interface ErrorBody {

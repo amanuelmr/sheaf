@@ -19,6 +19,7 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  settingsPatchProblem,
   isMergeBody,
   isPagesBody,
   isSplitBody,
@@ -54,6 +55,8 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type SettingsPatch,
+  type SettingsResponse,
   type NewDocumentsResponse,
   type PageCountResponse,
   type VersionsResponse,
@@ -87,6 +90,7 @@ import type { Workflows } from './workflows.ts';
 import type { Users } from './users.ts';
 import type { Actor, AuditLog } from './audit.ts';
 import type { DocumentEdits, EditRefusal } from './document-edits.ts';
+import type { Settings } from './settings.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -163,6 +167,8 @@ export interface RouterDeps {
   readonly audit?: AuditLog;
   /** Page edits, splits, merges and versions. Absent, those routes answer 404. */
   readonly edits?: DocumentEdits;
+  /** Settings an admin can change while the server runs. */
+  readonly settings?: Settings;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -367,6 +373,24 @@ async function authenticated(
           ? { kind: 'device', role: 'editor', name: null }
           : { kind: 'user', role: principal.role, name: principal.username };
     return { status: 200, json: me };
+  }
+
+  if (path === paths.settings()) {
+    if (deps.settings === undefined) return fail('not_found');
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin changes settings');
+    if (method === 'PATCH') {
+      const patch = parseJson<unknown>(request.body);
+      const problem = settingsPatchProblem(patch);
+      if (problem !== null) return fail('bad_request', problem);
+      await deps.settings.update(patch as SettingsPatch, deps.now());
+    } else if (method !== 'GET') {
+      return fail('bad_request', `${method} not allowed here`);
+    }
+    const response: SettingsResponse = {
+      settings: deps.settings.current(),
+      sources: deps.settings.sources(),
+    };
+    return { status: 200, json: response };
   }
 
   if (path === paths.audit()) {
@@ -1118,7 +1142,7 @@ async function trash(
   principal: Principal,
 ): Promise<IngestResponse> {
   const { method, path } = request;
-  const days = deps.trashDays ?? DEFAULT_TRASH_DAYS;
+  const days = deps.settings?.current().trashDays ?? deps.trashDays ?? DEFAULT_TRASH_DAYS;
   if (path === paths.trash()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const keepMs = days * 86_400_000;

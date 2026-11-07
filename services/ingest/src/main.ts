@@ -24,6 +24,7 @@ import { Workflows } from './workflows.ts';
 import { Users } from './users.ts';
 import { AuditLog } from './audit.ts';
 import { DocumentEdits } from './document-edits.ts';
+import { Settings } from './settings.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -92,6 +93,24 @@ if (trashSetting.kind === 'invalid') {
   process.exit(1);
 }
 const trashDays = trashSetting.days;
+
+// What an admin may change from the web app. The environment gives the starting
+// values; a value saved from the web app wins over it.
+const settings = await Settings.open(driver, {
+  ...(process.env['SHEAF_TRASH_DAYS'] === undefined ? {} : { trashDays }),
+  ...(process.env['SHEAF_FILENAME_FORMAT'] === undefined
+    ? {}
+    : { filenameFormat: process.env['SHEAF_FILENAME_FORMAT'] }),
+  ...(process.env['SHEAF_BARCODES'] === undefined
+    ? {}
+    : { barcodesEnabled: process.env['SHEAF_BARCODES'] === 'true' }),
+  ...(process.env['SHEAF_BARCODE_SEPARATOR'] === undefined
+    ? {}
+    : { barcodeSeparator: process.env['SHEAF_BARCODE_SEPARATOR'] }),
+  ...(process.env['SHEAF_BARCODE_ASN_PREFIX'] === undefined
+    ? {}
+    : { barcodeAsnPrefix: process.env['SHEAF_BARCODE_ASN_PREFIX'] }),
+});
 
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
 if (archiveChoice.kind === 'invalid') {
@@ -205,11 +224,14 @@ const server = createIngestServer({
   users: new Users(driver),
   audit: new AuditLog(driver),
   edits: new DocumentEdits(storage, driver),
+  settings,
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
 // deletes, a person deleted first).
-const trashSweeper = new TrashSweeper(storage, trashDays * 86_400_000, { now: () => Date.now() });
+const trashSweeper = new TrashSweeper(storage, () => settings.current().trashDays * 86_400_000, {
+  now: () => Date.now(),
+});
 let sweepingTrash = false;
 setInterval(() => {
   if (sweepingTrash) return;
@@ -224,7 +246,7 @@ setInterval(() => {
       sweepingTrash = false;
     });
 }, 60_000);
-log.info(`trash: deleted documents are kept ${String(trashDays)} day(s)`);
+log.info(`trash: deleted documents are kept ${String(settings.current().trashDays)} day(s)`);
 
 // A folder a scanner or sync tool drops PDFs into, when SHEAF_CONSUME_DIR is set.
 const consumeDir = process.env['SHEAF_CONSUME_DIR'];

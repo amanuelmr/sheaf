@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { exportTo, importFrom } from './backup.ts';
 import { CustomFields } from './custom-fields.ts';
-import { DEFAULT_FILENAME_FORMAT, filenameFormatProblem } from './filename.ts';
+import { filenameFormatProblem } from './filename.ts';
 import { Labels } from './labels.ts';
+import { Settings } from './settings.ts';
 import { Storage } from './storage.ts';
 import { SavedViews } from './views.ts';
 
@@ -21,17 +22,19 @@ if ((command !== 'export' && command !== 'import') || dir === undefined) {
   process.exit(2);
 }
 
-const format = process.env['SHEAF_FILENAME_FORMAT'] ?? DEFAULT_FILENAME_FORMAT;
+const dataDir = process.env['SHEAF_DATA_DIR'] ?? join(process.cwd(), '.sheaf-data');
+mkdirSync(dataDir, { recursive: true });
+const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
+const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
+// The format saved from the web app, unless the environment names one for this run.
+const format =
+  process.env['SHEAF_FILENAME_FORMAT'] ??
+  (await Settings.open(driver, {})).current().filenameFormat;
 const problem = filenameFormatProblem(format);
 if (problem !== null) {
   console.error(`SHEAF_FILENAME_FORMAT: ${problem}`);
   process.exit(2);
 }
-
-const dataDir = process.env['SHEAF_DATA_DIR'] ?? join(process.cwd(), '.sheaf-data');
-mkdirSync(dataDir, { recursive: true });
-const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
-const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
 const parts = {
   driver,
   storage,

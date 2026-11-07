@@ -421,6 +421,19 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Settings an admin changed from the web app. Those not here come from the
+    // environment, or the built-in default.
+    id: 22,
+    name: 'settings',
+    statements: [
+      `CREATE TABLE settings (
+         key        TEXT    PRIMARY KEY,
+         value_json TEXT    NOT NULL,
+         updated_at INTEGER NOT NULL
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
