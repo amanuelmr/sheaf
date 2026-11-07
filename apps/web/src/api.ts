@@ -21,6 +21,7 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type NextAsnResponse,
   type BulkAction,
   type BulkEditResponse,
   type DocumentFilter,
@@ -86,6 +87,7 @@ export function api(connection: Connection) {
     },
     bulkEdit: (documents: readonly string[], action: BulkAction) =>
       call<BulkEditResponse>('POST', paths.bulkEdit(), { documents, action }),
+    nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
     updateView: (id: number, patch: SavedViewPatch) =>

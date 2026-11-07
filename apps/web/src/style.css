@@ -745,3 +745,26 @@ h2 .count {
 .list li > input[type='checkbox'] {
   align-self: center;
 }
+
+.asn-input {
+  display: flex;
+  gap: 8px;
+}
+
+.asn-input input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.details-form .tags.editable {
+  margin-bottom: 8px;
+}
+
+.details-form .tag .link {
+  min-height: 0;
+  padding: 0 2px;
+}
+
+.details-form > .asn-input {
+  margin-bottom: 8px;
+}

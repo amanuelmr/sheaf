@@ -5,6 +5,7 @@ import { money, shortSha, when } from '../format';
 import { href } from '../route';
 import { INBOX_CHANGED } from './Inbox';
 import { DocumentFields } from './DocumentFields';
+import { DocumentDetails } from './DocumentDetails';
 import { Notes } from './Notes';
 
 const LABELS: Readonly<Record<string, string>> = {
@@ -14,6 +15,7 @@ const LABELS: Readonly<Record<string, string>> = {
   documentType: 'Type',
   total: 'Total',
   tags: 'Tags',
+  asn: 'Serial number',
 };
 
 /** One document: the PDF, its details with who set each one, and its history here. */
@@ -23,8 +25,6 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   const [events, setEvents] = useState<readonly HistoryEvent[]>([]);
   const [pdf, setPdf] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     let url: string | null = null;
@@ -40,7 +40,6 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         return;
       }
       setRecord(r.value);
-      setTitle(r.value.title ?? r.value.suggestions?.title ?? '');
       if (f.ok) setFields(f.value.fields);
       if (h.ok) setEvents(h.value.events);
       if (p.ok) {
@@ -76,15 +75,9 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
     window.dispatchEvent(new Event(INBOX_CHANGED));
   };
 
-  const saveTitle = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const result = await api.patch(sha256, { title: title.trim() === '' ? null : title.trim() });
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    setRecord(result.value);
-    setSaved(true);
+  const saved = async (next: DocumentRecord) => {
+    setRecord(next);
+    window.dispatchEvent(new Event(INBOX_CHANGED));
     const [f, h] = await Promise.all([api.fields(sha256), api.history(sha256)]);
     if (f.ok) setFields(f.value.fields);
     if (h.ok) setEvents(h.value.events);
@@ -109,7 +102,15 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
 
       <div className="details">
         <h1>{record.title ?? record.suggestions?.title ?? `Scan ${shortSha(sha256)}`}</h1>
-        <p className="muted">Received {when(record.receivedAt)}</p>
+        <p className="muted">
+          {[
+            record.created === null ? null : `Dated ${record.created}`,
+            record.asn === null ? null : `ASN ${String(record.asn)}`,
+            `Received ${when(record.receivedAt)}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
         {record.trashedAt === undefined ? null : (
           <p className="card">
             In the trash since {when(record.trashedAt)}.{' '}
@@ -119,12 +120,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
           </p>
         )}
 
-        <form className="inline" onSubmit={(event) => void saveTitle(event)}>
-          <label htmlFor="title">Title</label>
-          <input id="title" value={title} onChange={(event) => setTitle(event.target.value)} />
-          <button type="submit">Save</button>
-          {saved ? <span className="badge ok">Saved</span> : null}
-        </form>
+        <DocumentDetails api={api} record={record} onSaved={(next) => void saved(next)} />
 
         <h2>Details</h2>
         {fields.length === 0 ? (

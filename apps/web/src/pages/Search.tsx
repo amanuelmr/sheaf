@@ -21,6 +21,8 @@ const SORT_NAMES: Readonly<Record<SearchSort, string>> = {
   newest: 'Newest first',
   oldest: 'Oldest first',
   title: 'By title',
+  created: 'By date on the document',
+  asn: 'By serial number',
 };
 
 /** A filter being edited, where a part just cleared is still there as `undefined`. */
@@ -289,7 +291,12 @@ function HitList({
           <a href={href({ page: 'document', sha256: hit.sha256 })}>
             <strong>{hit.title ?? hit.suggestedTitle ?? `Scan ${shortSha(hit.sha256)}`}</strong>
             <span className="muted">
-              {[hit.correspondent, hit.documentType, when(hit.receivedAt)]
+              {[
+                hit.asn === null ? null : `#${String(hit.asn)}`,
+                hit.correspondent,
+                hit.documentType,
+                hit.created ?? when(hit.receivedAt),
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </span>
@@ -370,6 +377,30 @@ function FilterPanel({
               </option>
             ))}
           </select>
+        </div>
+      </div>
+      <div className="filter-row">
+        <div>
+          <label htmlFor="filter-created-from">Dated from</label>
+          <input
+            id="filter-created-from"
+            type="date"
+            value={filter.createdFrom ?? ''}
+            onChange={(event) =>
+              onChange({ ...filter, createdFrom: event.target.value || undefined })
+            }
+          />
+        </div>
+        <div>
+          <label htmlFor="filter-created-to">Dated to</label>
+          <input
+            id="filter-created-to"
+            type="date"
+            value={filter.createdTo ?? ''}
+            onChange={(event) =>
+              onChange({ ...filter, createdTo: event.target.value || undefined })
+            }
+          />
         </div>
       </div>
       <div className="filter-row">
