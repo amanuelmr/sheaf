@@ -48,15 +48,14 @@ export class CustomFields {
 
   async list(): Promise<readonly CustomField[]> {
     const rows = await this.#driver.all<FieldRow>(
-      `SELECT f.id, f.name, f.data_type, f.options_json,
-              (SELECT COUNT(*) FROM custom_field_values v WHERE v.field_id = f.id) AS document_count
-         FROM custom_fields f ORDER BY f.name COLLATE NOCASE, f.id`,
+      `${FIELD_SELECT} ORDER BY f.name COLLATE NOCASE, f.id`,
     );
     return rows.map(toField);
   }
 
   async get(id: number): Promise<CustomField | null> {
-    return (await this.list()).find((field) => field.id === id) ?? null;
+    const rows = await this.#driver.all<FieldRow>(`${FIELD_SELECT} WHERE f.id = ?`, [id]);
+    return rows[0] === undefined ? null : toField(rows[0]);
   }
 
   async create(body: CustomFieldBody, now: number): Promise<Outcome<CustomField>> {
@@ -160,17 +159,29 @@ export class CustomFields {
         WHERE v.sha256 = ? ORDER BY f.name COLLATE NOCASE, f.id`,
       [sha256],
     );
-    const result: DocumentCustomField[] = [];
-    for (const row of rows) {
-      let value = JSON.parse(row.value_json) as CustomFieldData | null;
-      if (row.data_type === 'documentLink' && Array.isArray(value)) {
-        const kept: string[] = [];
-        for (const id of value as readonly string[]) if (await this.#storage.has(id)) kept.push(id);
-        value = kept;
-      }
-      result.push({ field: row.field_id, name: row.name, type: row.data_type, value });
-    }
-    return result;
+    const values = rows.map((row) => ({
+      field: row.field_id,
+      name: row.name,
+      type: row.data_type,
+      value: JSON.parse(row.value_json) as CustomFieldData | null,
+    }));
+    // Purging removes links to what it deletes; this only guards against a link
+    // to a document that is gone some other way. One lookup for all of them.
+    const linked = values.flatMap((v) => (v.type === 'documentLink' ? asLinks(v.value) : []));
+    if (linked.length === 0) return values;
+    const present = new Set(
+      (
+        await this.#driver.all<{ sha256: string }>(
+          'SELECT sha256 FROM documents WHERE sha256 IN (SELECT value FROM json_each(?))',
+          [JSON.stringify(linked)],
+        )
+      ).map((row) => row.sha256),
+    );
+    return values.map((v) =>
+      v.type === 'documentLink' && Array.isArray(v.value)
+        ? { ...v, value: asLinks(v.value).filter((id) => present.has(id)) }
+        : v,
+    );
   }
 
   /**
@@ -322,6 +333,11 @@ function isUniqueViolation(error: unknown): boolean {
 function asLinks(value: unknown): readonly string[] {
   return Array.isArray(value) ? (value as string[]) : [];
 }
+
+const FIELD_SELECT = `
+  SELECT f.id, f.name, f.data_type, f.options_json,
+         (SELECT COUNT(*) FROM custom_field_values v WHERE v.field_id = f.id) AS document_count
+    FROM custom_fields f`;
 
 function toField(row: FieldRow): CustomField {
   return {
