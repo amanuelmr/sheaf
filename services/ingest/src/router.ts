@@ -18,6 +18,7 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isBulkEditBody,
   isSavedViewBody,
   isSavedViewPatch,
   isLabelBody,
@@ -44,6 +45,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type BulkEditResponse,
   type SavedViewsResponse,
   type ApplyRulesResponse,
   type NotesResponse,
@@ -59,6 +61,7 @@ import {
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
+import type { BulkEditor } from './bulk.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -123,6 +126,8 @@ export interface RouterDeps {
   readonly rules?: Rules;
   /** Filters kept under a name. Absent, those routes answer 404. */
   readonly views?: SavedViews;
+  /** One change to many documents. Absent, the route answers 404. */
+  readonly bulk?: BulkEditor;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -312,6 +317,22 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
 
   if (path === paths.trash() || path.startsWith(`${paths.trash()}/`)) {
     return trash(request, deps, principal);
+  }
+
+  if (path === paths.bulkEdit()) {
+    if (deps.bulk === undefined) return fail('not_found');
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isBulkEditBody(body)) {
+      return fail(
+        'bad_request',
+        'body must be {"documents": [sha256, ...], "action": {"kind": ...}}; see BulkAction',
+      );
+    }
+    const outcome = await deps.bulk.edit(body.documents, body.action, deps.now());
+    if (!outcome.ok) return fail('bad_request', outcome.message);
+    const response: BulkEditResponse = { changed: outcome.changed };
+    return { status: 200, json: response };
   }
 
   if (path === paths.documents()) {

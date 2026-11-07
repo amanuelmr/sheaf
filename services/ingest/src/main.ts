@@ -15,6 +15,7 @@ import { Retention } from './retention.ts';
 import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
 import { Rules } from './rules.ts';
+import { BulkEditor } from './bulk.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -51,6 +52,7 @@ mkdirSync(dataDir, { recursive: true });
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
 const rules = new Rules(driver, storage);
+const customFields = new CustomFields(driver, storage);
 
 /**
  * Forwarding is opt-in. Without it this server stores documents and nothing more,
@@ -181,10 +183,11 @@ const server = createIngestServer({
   ...(archiveSource === null ? {} : { archive: archiveSource }),
   ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
   trashDays,
-  customFields: new CustomFields(driver, storage),
+  customFields,
   labels: new Labels(driver, storage),
   rules,
   views: new SavedViews(driver),
+  bulk: new BulkEditor(storage, customFields, rules),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
