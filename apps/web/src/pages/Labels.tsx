@@ -27,6 +27,7 @@ type Editing =
       readonly mode: 'rule';
       readonly rule: MatchingRule;
       readonly inbox: boolean;
+      readonly parent: number | null;
     };
 
 /** Tags, correspondents and document types: add, rename, colour, merge and delete. */
@@ -119,8 +120,12 @@ export function Labels({ api }: { api: Api }) {
         <p className="muted">No {plural.toLowerCase()} yet.</p>
       ) : null}
       <ul className="list">
-        {(labels ?? []).map((label) => (
-          <li key={label.id} id={`label-${String(label.id)}`}>
+        {tree(labels ?? []).map(({ label, depth }) => (
+          <li
+            key={label.id}
+            id={`label-${String(label.id)}`}
+            style={depth === 0 ? undefined : { paddingLeft: `${String(8 + depth * 20)}px` }}
+          >
             {editing?.id === label.id && editing.mode === 'rename' ? (
               <form
                 className="inline-form"
@@ -146,13 +151,16 @@ export function Labels({ api }: { api: Api }) {
             ) : editing?.id === label.id && editing.mode === 'rule' ? (
               <RuleEditor
                 label={label}
+                tags={labels ?? []}
                 editing={editing}
                 setEditing={setEditing}
                 onSave={() =>
                   void apply(
                     api.updateLabel(kind, label.id, {
                       matching: editing.rule,
-                      ...(label.kind === 'tag' ? { inbox: editing.inbox } : {}),
+                      ...(label.kind === 'tag'
+                        ? { inbox: editing.inbox, parent: editing.parent }
+                        : {}),
                     }),
                   )
                 }
@@ -302,10 +310,16 @@ function Actions({
         type="button"
         className="secondary"
         onClick={() =>
-          setEditing({ id: label.id, mode: 'rule', rule: label.matching, inbox: label.inbox })
+          setEditing({
+            id: label.id,
+            mode: 'rule',
+            rule: label.matching,
+            inbox: label.inbox,
+            parent: label.parent,
+          })
         }
       >
-        Rule…
+        {label.kind === 'tag' ? 'Settings…' : 'Rule…'}
       </button>
       {others.length === 0 ? null : (
         <button
@@ -348,11 +362,14 @@ function ColourPicker({ label, onColour }: { label: Label; onColour: (colour: st
 /** Choose how a label finds its documents, and for a tag whether it marks the inbox. */
 function RuleEditor({
   label,
+  tags,
   editing,
   setEditing,
   onSave,
 }: {
   label: Label;
+  /** The other labels of this kind, to choose a parent from. */
+  tags: readonly Label[];
   editing: Extract<Editing, { mode: 'rule' }>;
   setEditing: (editing: Editing | null) => void;
   onSave: () => void;
@@ -418,6 +435,30 @@ function RuleEditor({
           Add to every new document, to mark it as not yet looked at
         </label>
       ) : null}
+      {label.kind === 'tag' ? (
+        <>
+          <label htmlFor={`${id}-parent`}>Inside</label>
+          <select
+            id={`${id}-parent`}
+            value={editing.parent === null ? '' : String(editing.parent)}
+            onChange={(event) =>
+              setEditing({
+                ...editing,
+                parent: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+          >
+            <option value="">No other tag</option>
+            {tags
+              .filter((tag) => tag.id !== label.id && !within(tags, tag.id, label.id))
+              .map((tag) => (
+                <option key={tag.id} value={tag.id}>
+                  {path(tags, tag)}
+                </option>
+              ))}
+          </select>
+        </>
+      ) : null}
       <div className="actions">
         <button type="submit" disabled={rule.algorithm !== 'none' && rule.pattern.trim() === ''}>
           Save rule
@@ -440,4 +481,44 @@ function filterFor(label: Label) {
     case 'tag':
       return { tags: [label.name] };
   }
+}
+
+/** Tags under their parents, depth first; other kinds as they are. */
+export function tree(labels: readonly Label[]): { label: Label; depth: number }[] {
+  const ids = new Set(labels.map((label) => label.id));
+  const out: { label: Label; depth: number }[] = [];
+  const add = (parent: number | null, depth: number) => {
+    for (const label of labels) {
+      const top = label.parent === null || !ids.has(label.parent);
+      if ((parent === null ? top : label.parent === parent) && depth < 10) {
+        out.push({ label, depth });
+        add(label.id, depth + 1);
+      }
+    }
+  };
+  add(null, 0);
+  return out;
+}
+
+/** Whether `id` sits somewhere inside `ancestor`. */
+function within(labels: readonly Label[], id: number, ancestor: number): boolean {
+  let at = labels.find((label) => label.id === id)?.parent ?? null;
+  for (let steps = 0; at !== null && steps < 10; steps++) {
+    if (at === ancestor) return true;
+    at = labels.find((label) => label.id === at)?.parent ?? null;
+  }
+  return false;
+}
+
+/** "home / insurance / car". */
+function path(labels: readonly Label[], label: Label): string {
+  const names = [label.name];
+  let at = label.parent;
+  for (let steps = 0; at !== null && steps < 10; steps++) {
+    const parent = labels.find((l) => l.id === at);
+    if (parent === undefined) break;
+    names.unshift(parent.name);
+    at = parent.parent;
+  }
+  return names.join(' / ');
 }
