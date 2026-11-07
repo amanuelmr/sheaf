@@ -26,7 +26,8 @@ export function matchStep(
   return {
     name: 'match',
     version: 1,
-    after: ['ocr'],
+    // After barcodes: a document split by a separator sheet is filed as its parts.
+    after: ['ocr', 'barcodes'],
     budget: 5,
 
     async notBefore(document) {

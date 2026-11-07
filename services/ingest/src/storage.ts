@@ -1106,6 +1106,21 @@ export class Storage {
     return next;
   }
 
+  /**
+   * Give a document a serial number read off it, if it has none and no other
+   * document has that number. True when it took.
+   */
+  async setAsnIfFree(sha256: string, asn: number): Promise<boolean> {
+    const changed = await this.#driver.all<{ n: number }>(
+      `UPDATE documents SET asn = ?
+        WHERE sha256 = ? AND asn IS NULL
+          AND NOT EXISTS (SELECT 1 FROM documents WHERE asn = ?)
+       RETURNING 1 AS n`,
+      [asn, sha256, asn],
+    );
+    return changed.length > 0;
+  }
+
   /** One more than the highest archive serial number in use, trash included. */
   async nextAsn(): Promise<number> {
     const rows = await this.#driver.all<{ n: number | null }>(

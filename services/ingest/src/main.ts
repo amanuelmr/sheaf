@@ -25,6 +25,7 @@ import { Users } from './users.ts';
 import { AuditLog } from './audit.ts';
 import { DocumentEdits } from './document-edits.ts';
 import { Settings } from './settings.ts';
+import { barcodeStep } from './steps/barcodes.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
@@ -62,6 +63,7 @@ const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
 const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
 const rules = new Rules(driver, storage);
 const customFields = new CustomFields(driver, storage);
+const edits = new DocumentEdits(storage, driver);
 const workflows = new Workflows(driver, storage, customFields, {
   fetch: (url, init) => fetch(url, init),
   warn: (message) => log.error(message),
@@ -223,7 +225,7 @@ const server = createIngestServer({
   workflows,
   users: new Users(driver),
   audit: new AuditLog(driver),
-  edits: new DocumentEdits(storage, driver),
+  edits,
   settings,
 });
 
@@ -421,6 +423,9 @@ if (paperlessClient !== null && vocabulary !== null) {
  * there is something for it to do.
  */
 const steps: Step[] = [];
+
+// Barcodes on new documents, when the setting is on: separator sheets and serial numbers.
+steps.push(barcodeStep(storage, driver, edits, settings, (message) => log.error(message)));
 
 // Filing each new document by the labels' own rules, once its text is in.
 const postConsumeScript = process.env['SHEAF_POST_CONSUME_SCRIPT'];

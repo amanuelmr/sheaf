@@ -118,6 +118,28 @@ export class DocumentEdits {
     return { ok: true, sha256 };
   }
 
+  /**
+   * Split a document that just arrived, the way a separator sheet asks: the parts
+   * are new arrivals, worked through like any other, and the bundle they came in
+   * goes to the trash.
+   */
+  async splitArrival(
+    sha256: string,
+    parts: readonly (readonly number[])[],
+    now: number,
+  ): Promise<string[]> {
+    const bytes = await this.#live(sha256);
+    if (bytes === null) return [];
+    const made: string[] = [];
+    for (const [i, piece] of (await splitPdf(bytes, parts)).entries()) {
+      const part = sha256Hex(piece);
+      await this.#storage.put(part, piece, now, parts[i]!.length);
+      made.push(part);
+    }
+    if (!made.includes(sha256)) await this.#storage.trash(sha256, now);
+    return made;
+  }
+
   /** Bytes of a document that is here, outside the trash, with its file. */
   async #live(sha256: string): Promise<Uint8Array | null> {
     const record = await this.#storage.record(sha256);
