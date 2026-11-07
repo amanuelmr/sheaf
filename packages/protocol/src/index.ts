@@ -70,7 +70,15 @@ export const paths = {
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
   /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
   labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
-  /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
+  /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
+  views: () => `/${PROTOCOL_VERSION}/views`,
+  /** `PATCH` a `SavedViewPatch`, or `DELETE` it. */
+  view: (id: number) => `/${PROTOCOL_VERSION}/views/${String(id)}`,
+  /**
+   * `GET ?q=&limit=&offset=` plus a `DocumentFilter` (see `filterToParams`):
+   * full-text search of the server's own catalog, or with no `q`, every document
+   * the filter lets through.
+   */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
@@ -369,9 +377,200 @@ export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_MAX_LIMIT = 100;
 
 export interface SearchResponse {
-  /** Best match first. */
+  /** In the order asked for; best match first by default when searching for words. */
   readonly hits: readonly SearchHit[];
   readonly hasMore: boolean;
+  /** How many documents match in all, across every page. */
+  readonly total: number;
+}
+
+export const SEARCH_SORTS = ['relevance', 'newest', 'oldest', 'title'] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
+
+/**
+ * Which documents to show. Every part is optional and they all apply together.
+ * Within a list, `correspondents` and `documentTypes` mean any one of them, tags in
+ * `tags` must all be there, one of `anyTags` must be, and none of `notTags` may be.
+ */
+export interface DocumentFilter {
+  /** Words to search for, as typed. */
+  readonly text?: string;
+  readonly correspondents?: readonly string[];
+  readonly documentTypes?: readonly string[];
+  readonly tags?: readonly string[];
+  readonly anyTags?: readonly string[];
+  readonly notTags?: readonly string[];
+  /** Received on or after this day, YYYY-MM-DD, in UTC. */
+  readonly receivedFrom?: string;
+  /** Received on or before this day, YYYY-MM-DD, in UTC. */
+  readonly receivedTo?: string;
+  /** Carries each of these custom fields, by id. */
+  readonly fields?: readonly number[];
+  /** Relevance needs words; without any, it falls back to newest. */
+  readonly sort?: SearchSort;
+}
+
+const FILTER_LISTS = {
+  correspondents: 'correspondent',
+  documentTypes: 'type',
+  tags: 'tag',
+  anyTags: 'anyTag',
+  notTags: 'notTag',
+} as const;
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A real calendar day as YYYY-MM-DD: not 2026-02-30. */
+function isDay(day: string): boolean {
+  if (!DAY.test(day)) return false;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
+}
+
+/** A filter as query parameters, the way `GET /v1/search` reads it. */
+export function filterToParams(filter: DocumentFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.text !== undefined && filter.text.trim() !== '') params.set('q', filter.text);
+  for (const [key, param] of Object.entries(FILTER_LISTS)) {
+    for (const value of filter[key as keyof typeof FILTER_LISTS] ?? []) params.append(param, value);
+  }
+  if (filter.receivedFrom !== undefined) params.set('from', filter.receivedFrom);
+  if (filter.receivedTo !== undefined) params.set('to', filter.receivedTo);
+  for (const id of filter.fields ?? []) params.append('field', String(id));
+  if (filter.sort !== undefined) params.set('sort', filter.sort);
+  return params;
+}
+
+/** Reads `filterToParams` back, or says what is wrong with the parameters. */
+export function filterFromParams(
+  params: URLSearchParams,
+): { ok: true; filter: DocumentFilter } | { ok: false; problem: string } {
+  const filter: { -readonly [K in keyof DocumentFilter]: DocumentFilter[K] } = {};
+  const q = params.get('q');
+  if (q !== null && q.trim() !== '') filter.text = q;
+  for (const [key, param] of Object.entries(FILTER_LISTS)) {
+    const values = params.getAll(param);
+    if (values.length > MAX_FILTER_VALUES) return { ok: false, problem: `too many ${param}s` };
+    if (values.some((v) => v === '' || v.length > MAX_LABEL_NAME)) {
+      return { ok: false, problem: `each ${param} must be a name` };
+    }
+    if (values.length > 0) filter[key as keyof typeof FILTER_LISTS] = values;
+  }
+  for (const [param, key] of [
+    ['from', 'receivedFrom'],
+    ['to', 'receivedTo'],
+  ] as const) {
+    const day = params.get(param);
+    if (day === null) continue;
+    if (!isDay(day)) {
+      return { ok: false, problem: `${param} must be a day, YYYY-MM-DD` };
+    }
+    filter[key] = day;
+  }
+  const fields = params.getAll('field');
+  if (fields.length > MAX_FILTER_VALUES || fields.some((f) => !/^[1-9][0-9]{0,15}$/.test(f))) {
+    return { ok: false, problem: 'each field must be a custom field id' };
+  }
+  if (fields.length > 0) filter.fields = fields.map(Number);
+  const sort = params.get('sort');
+  if (sort !== null) {
+    if (!(SEARCH_SORTS as readonly string[]).includes(sort)) {
+      return { ok: false, problem: `sort must be one of ${SEARCH_SORTS.join(', ')}` };
+    }
+    filter.sort = sort as SearchSort;
+  }
+  return { ok: true, filter };
+}
+
+export const MAX_FILTER_VALUES = 50;
+
+export function isDocumentFilter(value: unknown): value is DocumentFilter {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const filter = value as Record<string, unknown>;
+  const known = [
+    'text',
+    ...Object.keys(FILTER_LISTS),
+    'receivedFrom',
+    'receivedTo',
+    'fields',
+    'sort',
+  ];
+  if (Object.keys(filter).some((key) => !known.includes(key))) return false;
+  if (filter['text'] !== undefined && typeof filter['text'] !== 'string') return false;
+  for (const key of Object.keys(FILTER_LISTS)) {
+    const list = filter[key];
+    if (list !== undefined && (!Array.isArray(list) || !list.every((v) => typeof v === 'string'))) {
+      return false;
+    }
+  }
+  const fields = filter['fields'];
+  if (
+    fields !== undefined &&
+    (!Array.isArray(fields) || !fields.every((f) => Number.isSafeInteger(f) && (f as number) > 0))
+  ) {
+    return false;
+  }
+  for (const key of ['receivedFrom', 'receivedTo']) {
+    if (filter[key] !== undefined && typeof filter[key] !== 'string') return false;
+  }
+  if (filter['sort'] !== undefined && typeof filter['sort'] !== 'string') return false;
+  // Everything else is the same check the query parameters get.
+  return filterFromParams(filterToParams(value)).ok;
+}
+
+/** A filter kept under a name, to come back to. */
+export interface SavedView {
+  readonly id: number;
+  readonly name: string;
+  readonly filter: DocumentFilter;
+  /** Shown on the home page with its count. */
+  readonly onDashboard: boolean;
+  /** Smaller first, among views on the dashboard. */
+  readonly position: number;
+}
+
+export interface SavedViewsResponse {
+  /** Dashboard order first, then by name. */
+  readonly views: readonly SavedView[];
+}
+
+export interface SavedViewBody {
+  readonly name: string;
+  readonly filter: DocumentFilter;
+  readonly onDashboard?: boolean;
+}
+
+export interface SavedViewPatch {
+  readonly name?: string;
+  readonly filter?: DocumentFilter;
+  readonly onDashboard?: boolean;
+  readonly position?: number;
+}
+
+export function isSavedViewBody(value: unknown): value is SavedViewBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => !['name', 'filter', 'onDashboard'].includes(key)))
+    return false;
+  return (
+    validLabelName(body['name']) &&
+    isDocumentFilter(body['filter']) &&
+    (body['onDashboard'] === undefined || typeof body['onDashboard'] === 'boolean')
+  );
+}
+
+export function isSavedViewPatch(value: unknown): value is SavedViewPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const keys = ['name', 'filter', 'onDashboard', 'position'];
+  if (Object.keys(body).some((key) => !keys.includes(key))) return false;
+  return (
+    (body['name'] === undefined || validLabelName(body['name'])) &&
+    (body['filter'] === undefined || isDocumentFilter(body['filter'])) &&
+    (body['onDashboard'] === undefined || typeof body['onDashboard'] === 'boolean') &&
+    (body['position'] === undefined ||
+      (Number.isSafeInteger(body['position']) && Math.abs(body['position'] as number) < 1e9))
+  );
 }
 
 export interface InboxEntry {

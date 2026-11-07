@@ -12,6 +12,7 @@ import {
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
   bearerToken,
+  filterFromParams,
   isCustomFieldBody,
   isCustomFieldPatch,
   isCustomFieldValuesBody,
@@ -720,10 +721,17 @@ async function search(query: string, deps: RouterDeps): Promise<IngestResponse> 
   }
   if (offset === null) return fail('bad_request', 'offset must be a whole number');
 
+  const read = filterFromParams(params);
+  if (!read.ok) return fail('bad_request', read.problem);
+  const { filter } = read;
+
   // Anything typed is searchable; text with no words in it simply matches nothing.
-  const match = toMatch(params.get('q') ?? '');
+  // With nothing typed, the filter alone decides.
+  const match = filter.text === undefined ? null : toMatch(filter.text);
   const response: SearchResponse =
-    match === null ? { hits: [], hasMore: false } : await deps.storage.search(match, limit, offset);
+    filter.text !== undefined && match === null
+      ? { hits: [], hasMore: false, total: 0 }
+      : await deps.storage.find(match, filter, limit, offset);
   return { status: 200, json: response };
 }
 

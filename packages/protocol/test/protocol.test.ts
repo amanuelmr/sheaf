@@ -9,6 +9,10 @@ import {
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
+  filterFromParams,
+  filterToParams,
+  isSavedViewBody,
+  isSavedViewPatch,
   matchingRuleProblem,
   labelKindOf,
   isPaperlessId,
@@ -216,5 +220,48 @@ suite('matching rules', () => {
     expect(isLabelBody({ name: 'Inbox', inbox: true, matching: rule('any', 'a b') })).toBe(true);
     expect(isLabelBody({ name: 'Inbox', matching: rule('regex', '[') })).toBe(false);
     expect(isLabelPatch({ inbox: 'yes' })).toBe(false);
+  });
+});
+
+suite('document filters', () => {
+  const full = {
+    text: 'gas bill',
+    correspondents: ['City Power', 'Water Co'],
+    documentTypes: ['Invoice'],
+    tags: ['bills'],
+    anyTags: ['home', 'office'],
+    notTags: ['paid'],
+    receivedFrom: '2026-01-01',
+    receivedTo: '2026-03-31',
+    fields: [3],
+    sort: 'oldest' as const,
+  };
+
+  it('goes to query parameters and comes back the same', () => {
+    const params = filterToParams(full);
+    expect(params.getAll('correspondent')).toEqual(['City Power', 'Water Co']);
+    expect(filterFromParams(params)).toEqual({ ok: true, filter: full });
+    expect(filterFromParams(new URLSearchParams())).toEqual({ ok: true, filter: {} });
+  });
+
+  it('says what is wrong with parameters it cannot use', () => {
+    const bad = (query: string) => {
+      const read = filterFromParams(new URLSearchParams(query));
+      return read.ok ? null : read.problem;
+    };
+    expect(bad('from=2026-02-30')).toMatch(/day/);
+    expect(bad('to=yesterday')).toMatch(/day/);
+    expect(bad('sort=random')).toMatch(/sort/);
+    expect(bad('field=abc')).toMatch(/field/);
+    expect(bad('tag=')).toMatch(/tag/);
+  });
+
+  it('checks a saved view body and patch', () => {
+    expect(isSavedViewBody({ name: 'Unpaid', filter: full, onDashboard: true })).toBe(true);
+    expect(isSavedViewBody({ name: 'Unpaid', filter: { sort: 'random' } })).toBe(false);
+    expect(isSavedViewBody({ name: '', filter: {} })).toBe(false);
+    expect(isSavedViewBody({ name: 'x', filter: { tags: 'bills' } })).toBe(false);
+    expect(isSavedViewPatch({ position: 2 })).toBe(true);
+    expect(isSavedViewPatch({ position: 1.5 })).toBe(false);
   });
 });

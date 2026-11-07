@@ -628,7 +628,7 @@ suite('search', () => {
       expect(response.status, q).toBe(200);
     }
     const none = await handle(req('GET', `${paths.search()}?q=%21%21`), deps);
-    expect(none.json).toEqual({ hits: [], hasMore: false });
+    expect(none.json).toEqual({ hits: [], hasMore: false, total: 0 });
   });
 
   it('pages with limit and offset', async () => {
@@ -1347,5 +1347,19 @@ suite('applying label rules', () => {
     expect(refused.status).toBe(400);
     expect((refused.json as { detail: string }).detail).toMatch(/regular expression/);
     expect((await handle(req('POST', paths.labelsApply(), json({})), deps)).status).toBe(404);
+  });
+});
+
+suite('search filters', () => {
+  it('lists documents by filter alone, and refuses parameters it cannot read', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(
+      req('PATCH', paths.document(hashA), new Uint8Array(Buffer.from('{"tags":["x"]}'))),
+      deps,
+    );
+    const listed = await handle(req('GET', `${paths.search()}?tag=x`), deps);
+    expect(listed.json).toMatchObject({ total: 1, hits: [{ sha256: hashA, tags: ['x'] }] });
+    const bad = await handle(req('GET', `${paths.search()}?from=2026-13-01`), deps);
+    expect(bad.status).toBe(400);
   });
 });

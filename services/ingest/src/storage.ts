@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  DocumentFilter,
   DocumentPatch,
   DocumentRecord,
   HistoryEvent,
@@ -982,6 +983,78 @@ export class Storage {
    * Column weights rank the title above names and tags, and those above body text.
    */
   async search(match: string, limit: number, offset: number): Promise<SearchResponse> {
+    return this.find(match, {}, limit, offset);
+  }
+
+  /**
+   * Documents the filter lets through, outside the trash. With `match`, only those
+   * whose text matches it, each with a snippet around the match; without, every one,
+   * with no snippet.
+   */
+  async find(
+    match: string | null,
+    filter: DocumentFilter,
+    limit: number,
+    offset: number,
+  ): Promise<SearchResponse> {
+    const where = ['d.trashed_at IS NULL'];
+    const params: Array<string | number> = [];
+    const anyOf = (column: string, values: readonly string[] | undefined) => {
+      if (values === undefined || values.length === 0) return;
+      where.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+      params.push(...values);
+    };
+    const tagIn = (values: readonly string[]) =>
+      `EXISTS (SELECT 1 FROM json_each(d.tags) WHERE value IN (${values.map(() => '?').join(', ')}))`;
+
+    if (match !== null) {
+      where.push('documents_fts MATCH ?');
+      params.push(match);
+    }
+    anyOf('d.correspondent', filter.correspondents);
+    anyOf('d.document_type', filter.documentTypes);
+    for (const tag of filter.tags ?? []) {
+      where.push(tagIn([tag]));
+      params.push(tag);
+    }
+    if (filter.anyTags !== undefined && filter.anyTags.length > 0) {
+      where.push(tagIn(filter.anyTags));
+      params.push(...filter.anyTags);
+    }
+    if (filter.notTags !== undefined && filter.notTags.length > 0) {
+      where.push(`NOT ${tagIn(filter.notTags)}`);
+      params.push(...filter.notTags);
+    }
+    if (filter.receivedFrom !== undefined) {
+      where.push('d.received_at >= ?');
+      params.push(Date.parse(`${filter.receivedFrom}T00:00:00Z`));
+    }
+    if (filter.receivedTo !== undefined) {
+      where.push('d.received_at < ?');
+      params.push(Date.parse(`${filter.receivedTo}T00:00:00Z`) + 86_400_000);
+    }
+    for (const field of filter.fields ?? []) {
+      where.push(
+        'EXISTS (SELECT 1 FROM custom_field_values v WHERE v.sha256 = d.sha256 AND v.field_id = ?)',
+      );
+      params.push(field);
+    }
+
+    const from =
+      match === null ? 'documents d' : 'documents_fts f JOIN documents d ON d.sha256 = f.sha256';
+    const sort = filter.sort ?? (match === null ? 'newest' : 'relevance');
+    const order = {
+      relevance:
+        match === null
+          ? 'd.received_at DESC'
+          : 'bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC',
+      newest: 'd.received_at DESC',
+      oldest: 'd.received_at ASC',
+      title: `COALESCE(d.title, json_extract(d.suggestions_json, '$.title'), '~') COLLATE NOCASE,
+              d.received_at DESC`,
+    }[sort];
+    const condition = where.join(' AND ');
+
     const rows = await this.#driver.all<{
       sha256: string;
       title: string | null;
@@ -994,13 +1067,16 @@ export class Storage {
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
               json_extract(d.suggestions_json, '$.title') AS suggested_title,
-              snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
-         FROM documents_fts f
-         JOIN documents d ON d.sha256 = f.sha256
-        WHERE documents_fts MATCH ?
-        ORDER BY bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC
+              ${match === null ? "''" : "snippet(documents_fts, -1, '«', '»', '…', 12)"} AS snippet
+         FROM ${from}
+        WHERE ${condition}
+        ORDER BY ${order}, d.sha256
         LIMIT ? OFFSET ?`,
-      [match, limit + 1, offset],
+      [...params, limit + 1, offset],
+    );
+    const counted = await this.#driver.all<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM ${from} WHERE ${condition}`,
+      params,
     );
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
@@ -1012,7 +1088,7 @@ export class Storage {
       receivedAt: row.received_at,
       snippet: row.snippet,
     }));
-    return { hits, hasMore: rows.length > limit };
+    return { hits, hasMore: rows.length > limit, total: counted[0]?.n ?? 0 };
   }
 
   /**
