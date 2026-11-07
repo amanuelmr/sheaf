@@ -13,6 +13,7 @@ import {
   bearerToken,
   isDocumentTextBody,
   isNoteBody,
+  isTrashActionBody,
   isPaperlessId,
   isSha256,
   paths,
@@ -34,6 +35,8 @@ import {
   type ReconciliationProbe,
   type SearchResponse,
   type SuggestionsResponse,
+  type TrashActionResponse,
+  type TrashResponse,
 } from '@sheaf/protocol';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
@@ -41,6 +44,7 @@ import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import type { Storage } from './storage.ts';
 import { PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
+import { DEFAULT_TRASH_DAYS } from './trash.ts';
 
 /**
  * Every route, as a pure function of a parsed request.
@@ -87,6 +91,8 @@ export interface RouterDeps {
   readonly devices?: Devices;
   /** What `/metrics` reports. Absent, the route does not exist. */
   readonly metrics?: ServerMetrics;
+  /** Days a trashed document is kept; see SHEAF_TRASH_DAYS. Absent means the default. */
+  readonly trashDays?: number;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -247,6 +253,10 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return search(request.query, deps);
   }
 
+  if (path === paths.trash() || path.startsWith(`${paths.trash()}/`)) {
+    return trash(request, deps, principal);
+  }
+
   if (path === paths.documents()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const list: ListResponse = { documents: await deps.storage.list() };
@@ -333,6 +343,9 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
       const record = await deps.storage.patch(id, patch, deps.now());
       return record === null ? fail('not_found') : { status: 200, json: record };
     }
+    case 'DELETE':
+      // To the trash, not gone: see `/v1/trash` for putting it back.
+      return (await deps.storage.trash(id, deps.now())) ? { status: 204 } : fail('not_found');
     default:
       return fail('bad_request', `${method} not allowed here`);
   }
@@ -368,6 +381,51 @@ async function put(
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+/** Listing, restoring and emptying the trash. Emptying is the admin's alone. */
+async function trash(
+  request: IngestRequest,
+  deps: RouterDeps,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  const days = deps.trashDays ?? DEFAULT_TRASH_DAYS;
+  if (path === paths.trash()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const keepMs = days * 86_400_000;
+    const response: TrashResponse = {
+      documents: (await deps.storage.trashed()).map((entry) => ({
+        ...entry,
+        purgeAt: entry.trashedAt + keepMs,
+      })),
+      purgeAfterDays: days,
+    };
+    return { status: 200, json: response };
+  }
+  const restoring = path === paths.trashRestore();
+  if (!restoring && path !== paths.trashEmpty()) return fail('not_found');
+  if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+  if (!restoring && principal.kind !== 'admin') {
+    return fail('forbidden', 'only the admin token deletes documents for good');
+  }
+  const body = parseJson<unknown>(request.body);
+  if (!isTrashActionBody(body)) {
+    return fail('bad_request', 'body must be {"documents": ["<sha256>", ...]}');
+  }
+  let count: number;
+  if (restoring) {
+    if (body.documents === undefined) {
+      return fail('bad_request', 'say which documents to restore');
+    }
+    count = await deps.storage.restore(body.documents);
+  } else {
+    const chosen = body.documents ?? (await deps.storage.trashed()).map((entry) => entry.sha256);
+    count = 0;
+    for (const sha256 of chosen) if (await deps.storage.purge(sha256)) count++;
+  }
+  const response: TrashActionResponse = { count };
+  return { status: 200, json: response };
 }
 
 /** `…/notes` lists and adds; `…/notes/{id}` deletes one. */
