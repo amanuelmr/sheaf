@@ -456,20 +456,48 @@ export interface CustomFieldPatch {
 }
 
 /**
+ * Currencies whose minor unit is not hundredths, from ISO 4217. Written out rather
+ * than read from `Intl`: `Intl` follows CLDR display conventions (it gives HUF and
+ * IDR no decimals, IQD none instead of three), and changes with the runtime, which
+ * would quietly change what an amount already stored means.
+ */
+const ISO_4217_MINOR_DIGITS: Readonly<Record<string, number>> = {
+  BIF: 0,
+  CLP: 0,
+  DJF: 0,
+  GNF: 0,
+  ISK: 0,
+  JPY: 0,
+  KMF: 0,
+  KRW: 0,
+  PYG: 0,
+  RWF: 0,
+  UGX: 0,
+  UYI: 0,
+  VND: 0,
+  VUV: 0,
+  XAF: 0,
+  XOF: 0,
+  XPF: 0,
+  BHD: 3,
+  IQD: 3,
+  JOD: 3,
+  KWD: 3,
+  LYD: 3,
+  OMR: 3,
+  TND: 3,
+  CLF: 4,
+  UYW: 4,
+};
+
+/**
  * How many digits a currency's minor unit has, by ISO 4217: 2 for EUR, 0 for JPY,
- * 3 for KWD. Every place that turns an amount into minor units, or back, asks this
- * one function, so a stored amount means the same thing everywhere. A code the
- * runtime does not know counts as 2.
+ * 3 for KWD; 2 for any code not listed. Every place that turns an amount into minor
+ * units, or back, asks this one function, so a stored amount means the same thing
+ * everywhere.
  */
 export function minorDigits(currency: string): number {
-  try {
-    return (
-      new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions()
-        .maximumFractionDigits ?? 2
-    );
-  } catch {
-    return 2;
-  }
+  return Object.hasOwn(ISO_4217_MINOR_DIGITS, currency) ? ISO_4217_MINOR_DIGITS[currency]! : 2;
 }
 
 /** An amount in minor units, the same shape extraction reads totals as. */

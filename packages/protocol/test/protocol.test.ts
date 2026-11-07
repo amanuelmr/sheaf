@@ -1,5 +1,6 @@
 import { describe as suite, expect, it } from 'vitest';
 import {
+  minorDigits,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
   authorization,
@@ -127,5 +128,24 @@ suite('pairing links', () => {
     'not a link',
   ])('refuses %j', (uri) => {
     expect(parsePairingUri(uri)).toBeNull();
+  });
+});
+
+suite('minorDigits', () => {
+  it('follows ISO 4217, not a display convention', () => {
+    expect(minorDigits('EUR')).toBe(2);
+    expect(minorDigits('JPY')).toBe(0);
+    expect(minorDigits('ISK')).toBe(0);
+    expect(minorDigits('KWD')).toBe(3);
+    expect(minorDigits('IQD')).toBe(3);
+    expect(minorDigits('CLF')).toBe(4);
+    // CLDR shows these without decimals; ISO gives them two.
+    expect(minorDigits('HUF')).toBe(2);
+    expect(minorDigits('IDR')).toBe(2);
+  });
+
+  it('counts anything it does not list as two digits', () => {
+    expect(minorDigits('XYZ')).toBe(2);
+    expect(minorDigits('constructor')).toBe(2);
   });
 });

@@ -88,6 +88,10 @@ suite('money', () => {
     expect(money({ minor: 1234, currency: 'JPY' }, 'en-US')).toContain('1,234');
   });
 
+  it('shows the stored digits even where the display convention rounds them away', () => {
+    expect(money({ minor: 150050, currency: 'HUF' }, 'en-US')).toContain('1,500.50');
+  });
+
   it('reads a three-decimal currency in its own minor units', () => {
     expect(money({ minor: 1500, currency: 'KWD' }, 'en-US')).toContain('1.500');
   });

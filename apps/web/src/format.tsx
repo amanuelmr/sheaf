@@ -27,9 +27,14 @@ export function money(value: unknown, locale?: string): string | null {
   if (!Number.isFinite(minor)) return null;
   const digits = minorDigits(currency);
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
-      minor / 10 ** digits,
-    );
+    // Exactly the stored digits: Intl's own convention for some currencies (HUF,
+    // IDR) is to round to whole units, which would hide what was recorded.
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(minor / 10 ** digits);
   } catch {
     return `${currency} ${(minor / 10 ** digits).toFixed(digits)}`;
   }
