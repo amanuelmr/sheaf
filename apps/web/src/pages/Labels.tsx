@@ -9,6 +9,7 @@ import {
 } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { ALGORITHM_NAMES, describeRule } from '../label-rule';
+import { href } from '../route';
 
 const KIND_NAMES: Readonly<Record<LabelKind, { plural: string; one: string }>> = {
   tag: { plural: 'Tags', one: 'tag' },
@@ -165,7 +166,9 @@ export function Labels({ api }: { api: Api }) {
                   {label.name}
                 </strong>
                 <span className="muted">
-                  on {String(label.documents)} document{label.documents === 1 ? '' : 's'}
+                  <a href={href({ page: 'search', filter: filterFor(label) })}>
+                    on {String(label.documents)} document{label.documents === 1 ? '' : 's'}
+                  </a>
                   {label.inbox ? ' · added to every new document' : ''}
                   {describeRule(label.matching) === null
                     ? ''
@@ -425,4 +428,16 @@ function RuleEditor({
       </div>
     </form>
   );
+}
+
+/** The search that lists a label's documents. */
+function filterFor(label: Label) {
+  switch (label.kind) {
+    case 'correspondent':
+      return { correspondents: [label.name] };
+    case 'documentType':
+      return { documentTypes: [label.name] };
+    case 'tag':
+      return { tags: [label.name] };
+  }
 }

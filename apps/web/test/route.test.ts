@@ -45,6 +45,21 @@ suite('parse', () => {
     }
   });
 
+  it('reads a filter after #/search, and drops one it cannot read', () => {
+    expect(parse('#/search?tag=bills&notTag=paid&sort=oldest')).toEqual({
+      page: 'search',
+      filter: { tags: ['bills'], notTags: ['paid'], sort: 'oldest' },
+    });
+    expect(parse('#/search?from=someday')).toEqual({ page: 'search' });
+    expect(parse(`#/doc/${SHA}?tag=x`)).toEqual({ page: 'document', sha256: SHA });
+  });
+
+  it('writes a filter into the hash and reads it back', () => {
+    const filter = { text: 'gas bill', correspondents: ['City Power'] };
+    expect(parse(href({ page: 'search', filter }))).toEqual({ page: 'search', filter });
+    expect(href({ page: 'search', filter: {} })).toBe('#/search');
+  });
+
   it('tolerates a hash with or without its leading #', () => {
     expect(parse(`/doc/${SHA}`)).toEqual({ page: 'document', sha256: SHA });
   });

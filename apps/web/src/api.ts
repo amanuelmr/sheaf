@@ -1,5 +1,6 @@
 import {
   authorization,
+  filterToParams,
   paths,
   type CustomField,
   type CustomFieldBody,
@@ -20,6 +21,11 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type DocumentFilter,
+  type SavedView,
+  type SavedViewBody,
+  type SavedViewPatch,
+  type SavedViewsResponse,
   type ApplyRulesResponse,
   type Note,
   type NoteBody,
@@ -69,6 +75,18 @@ export function api(connection: Connection) {
         'GET',
         `${paths.search()}?${new URLSearchParams({ q, limit: '50' }).toString()}`,
       ),
+    /** Documents the filter lets through; with words in it, a search. */
+    find: (filter: DocumentFilter, limit = 50, offset = 0) => {
+      const params = filterToParams(filter);
+      params.set('limit', String(limit));
+      params.set('offset', String(offset));
+      return call<SearchResponse>('GET', `${paths.search()}?${params.toString()}`);
+    },
+    views: () => call<SavedViewsResponse>('GET', paths.views()),
+    createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
+    updateView: (id: number, patch: SavedViewPatch) =>
+      call<SavedView>('PATCH', paths.view(id), patch),
+    deleteView: (id: number) => call<undefined>('DELETE', paths.view(id)),
     recent: () => call<{ documents: readonly DocumentRecord[] }>('GET', paths.documents()),
     inbox: () => call<InboxResponse>('GET', paths.inbox()),
     record: (sha256: string) => call<DocumentRecord>('GET', paths.documentRecord(sha256)),

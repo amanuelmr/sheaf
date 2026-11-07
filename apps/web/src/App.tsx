@@ -124,7 +124,15 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
         </button>
       </header>
       <main>
-        {route.page === 'search' ? <Search api={api} /> : null}
+        {route.page === 'search' ? (
+          // Keyed by the address it opened with, so following a link to a filtered
+          // search starts from that filter. Typing only rewrites the address in place.
+          <Search
+            key={href(route)}
+            api={api}
+            {...(route.filter ? { initial: route.filter } : {})}
+          />
+        ) : null}
         {route.page === 'document' ? (
           // Keyed, so moving to another document starts with nothing left over from
           // the last one: no drafts, notes or half-confirmed delete.
