@@ -169,6 +169,27 @@ suite('document links', () => {
     expect((await fields.valuesOf(hashB))[0]?.value).toEqual([hashC, hashA]);
   });
 
+  it('refuses a link that would give the other document more links than allowed', async () => {
+    const related = await make('Related', 'documentLink');
+    const label = await make('Label', 'text');
+    // B already holds the most links a document may.
+    const full = Array.from({ length: 100 }, (_, i) => sha256Hex(pdf(`filler-${String(i)}`)));
+    await driver.run(
+      'INSERT INTO custom_field_values (sha256, field_id, value_json, updated_at) VALUES (?, ?, ?, ?)',
+      [hashB, related.id, JSON.stringify(full), NOW],
+    );
+
+    const refused = await fields.setValues(hashA, [{ field: related.id, value: [hashB] }], NOW);
+    expect(!refused.ok && refused.kind === 'invalid' && refused.message).toMatch(
+      /already links 100 documents/,
+    );
+    expect(await fields.valuesOf(hashA)).toEqual([]);
+
+    // A's other fields still save, with no link to B.
+    const saved = await fields.setValues(hashA, [{ field: label.id, value: 'ok' }], NOW);
+    expect(saved.ok).toBe(true);
+  });
+
   it('refuses a link to itself or to a document it does not hold', async () => {
     const related = await make('Related', 'documentLink');
     const self = await fields.setValues(hashA, [{ field: related.id, value: [hashA] }], NOW);

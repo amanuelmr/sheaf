@@ -1,4 +1,5 @@
 import {
+  MAX_DOCUMENT_LINKS,
   customFieldValueProblem,
   type CustomField,
   type CustomFieldBody,
@@ -167,45 +168,72 @@ export class CustomFields {
       if (problem !== null) {
         return { ok: false, kind: 'invalid', message: `${field.name} must be ${problem}` };
       }
-      if (field.type === 'documentLink' && Array.isArray(value)) {
-        for (const target of value as readonly string[]) {
-          if (target === sha256) {
-            return { ok: false, kind: 'invalid', message: 'a document cannot link to itself' };
-          }
-          if (!(await this.#storage.has(target))) {
-            return { ok: false, kind: 'invalid', message: `no document ${target.slice(0, 8)}…` };
-          }
-        }
+      if (field.type === 'documentLink' && asLinks(value).includes(sha256)) {
+        return { ok: false, kind: 'invalid', message: 'a document cannot link to itself' };
       }
     }
 
-    await this.#driver.transaction(async () => {
+    // Checked and written in one transaction, so what was checked is what is written
+    // over, and a refusal leaves everything as it was.
+    const refused = await this.#driver.transaction(async (): Promise<string | null> => {
       const before = await this.#rawValues(sha256);
-      const touched = new Set<string>([sha256]);
+      const changes: { field: number; added: string[]; removed: string[] }[] = [];
+      for (const field of new Set([...before.keys(), ...values.map((v) => v.field)])) {
+        if (fields.get(field)?.type !== 'documentLink') continue;
+        const was = new Set(asLinks(before.get(field)));
+        const after = new Set(asLinks(values.find((v) => v.field === field)?.value ?? null));
+        changes.push({
+          field,
+          added: [...after].filter((target) => !was.has(target)),
+          removed: [...was].filter((target) => !after.has(target)),
+        });
+      }
+
+      // Every newly linked document must exist and have room for the link back.
+      for (const { field, added } of changes) {
+        if (added.length === 0) continue;
+        const present = new Set(
+          (
+            await this.#driver.all<{ sha256: string }>(
+              'SELECT sha256 FROM documents WHERE sha256 IN (SELECT value FROM json_each(?))',
+              [JSON.stringify(added)],
+            )
+          ).map((row) => row.sha256),
+        );
+        const missing = added.find((target) => !present.has(target));
+        if (missing !== undefined) return `no document ${missing.slice(0, 8)}…`;
+        const theirs = await this.#driver.all<{ sha256: string; value_json: string }>(
+          `SELECT sha256, value_json FROM custom_field_values
+            WHERE field_id = ? AND sha256 IN (SELECT value FROM json_each(?))`,
+          [field, JSON.stringify(added)],
+        );
+        for (const row of theirs) {
+          if (asLinks(JSON.parse(row.value_json)).length >= MAX_DOCUMENT_LINKS) {
+            return `${row.sha256.slice(0, 8)}… already links ${String(MAX_DOCUMENT_LINKS)} documents`;
+          }
+        }
+      }
 
       await this.#driver.run('DELETE FROM custom_field_values WHERE sha256 = ?', [sha256]);
       for (const { field, value } of values) {
         await this.#write(sha256, field, value, now);
       }
-
       // Mirror every link change onto the other document.
-      for (const field of new Set([...before.keys(), ...values.map((v) => v.field)])) {
-        if (fields.get(field)?.type !== 'documentLink') continue;
-        const was = new Set(asLinks(before.get(field)));
-        const after = new Set(asLinks(values.find((v) => v.field === field)?.value ?? null));
-        for (const target of after) {
-          if (was.has(target)) continue;
+      const touched = new Set<string>([sha256]);
+      for (const { field, added, removed } of changes) {
+        for (const target of added) {
           await this.#link(target, field, sha256, true, now);
           touched.add(target);
         }
-        for (const target of was) {
-          if (after.has(target)) continue;
+        for (const target of removed) {
           await this.#link(target, field, sha256, false, now);
           touched.add(target);
         }
       }
       for (const document of touched) await this.#storage.reindex(document);
+      return null;
     });
+    if (refused !== null) return { ok: false, kind: 'invalid', message: refused };
     return { ok: true, value: await this.valuesOf(sha256) };
   }
 
