@@ -455,6 +455,23 @@ export interface CustomFieldPatch {
   readonly options?: readonly string[];
 }
 
+/**
+ * How many digits a currency's minor unit has, by ISO 4217: 2 for EUR, 0 for JPY,
+ * 3 for KWD. Every place that turns an amount into minor units, or back, asks this
+ * one function, so a stored amount means the same thing everywhere. A code the
+ * runtime does not know counts as 2.
+ */
+export function minorDigits(currency: string): number {
+  try {
+    return (
+      new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
 /** An amount in minor units, the same shape extraction reads totals as. */
 export interface MonetaryValue {
   readonly minor: number;

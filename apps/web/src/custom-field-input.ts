@@ -1,11 +1,9 @@
-import type { CustomFieldData, CustomFieldType, MonetaryValue } from '@sheaf/protocol';
-
-/** Currencies with no minor unit: an amount in them is a count of whole units. */
-const NO_MINOR_UNIT = new Set(['JPY', 'KRW']);
-
-export function minorDigits(currency: string): number {
-  return NO_MINOR_UNIT.has(currency) ? 0 : 2;
-}
+import {
+  minorDigits,
+  type CustomFieldData,
+  type CustomFieldType,
+  type MonetaryValue,
+} from '@sheaf/protocol';
 
 /** What a form shows for a stored value: always text, except a checkbox's yes/no. */
 export function toInput(type: CustomFieldType, value: CustomFieldData | null): string {

@@ -88,6 +88,10 @@ suite('money', () => {
     expect(money({ minor: 1234, currency: 'JPY' }, 'en-US')).toContain('1,234');
   });
 
+  it('reads a three-decimal currency in its own minor units', () => {
+    expect(money({ minor: 1500, currency: 'KWD' }, 'en-US')).toContain('1.500');
+  });
+
   it('formats in the locale it is given', () => {
     expect(money({ minor: 1234, currency: 'EUR' }, 'de-DE')).toContain('12,34');
   });

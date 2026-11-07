@@ -234,6 +234,9 @@ importers:
       '@sheaf/http':
         specifier: workspace:*
         version: link:../http
+      '@sheaf/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/http:
     dependencies:

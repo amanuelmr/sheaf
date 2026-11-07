@@ -5,6 +5,8 @@
  * models alike, so they can be compared field for field (ADR 0010). Pure: "today"
  * is a parameter, and nothing reads a clock.
  */
+
+import { minorDigits } from '@sheaf/protocol';
 import type { Money } from './schema.ts';
 
 export type DateOrder = 'DMY' | 'MDY' | 'YMD';
@@ -137,8 +139,6 @@ const CURRENCY_MARKS: readonly (readonly [RegExp, string])[] = [
   [/\$/, '$'],
 ];
 const DOLLARS = new Set(['USD', 'CAD', 'AUD', 'NZD', 'SGD']);
-/** Currencies with no minor unit: an amount in them is a count of whole units. */
-const NO_MINOR_UNIT = new Set(['JPY', 'KRW']);
 
 /**
  * An amount of money, in integer minor units: `€12,50` is 1250 EUR. Never a float,
@@ -157,14 +157,15 @@ export function parseMoney(text: string, defaultCurrency: string): Money | null 
 
   const decimal = /^(.*?)[.,](\d{1,2})$/.exec(raw);
   const whole = (decimal === null ? raw : decimal[1]!).replace(/[.,']/g, '');
-  const fraction = decimal === null ? '' : decimal[2]!.padEnd(2, '0');
+  const digits = minorDigits(currency);
+  const fraction = decimal === null ? '' : decimal[2]!.padEnd(digits, '0');
   // Separators left in the whole part must each group exactly three digits.
   if (decimal !== null && /[.,]\d{1,2}[.,]/.test(raw)) return null;
   if (!/^\d{1,13}$/.test(whole)) return null;
 
-  const minor = NO_MINOR_UNIT.has(currency)
-    ? Number(whole)
-    : Number(whole) * 100 + (fraction === '' ? 0 : Number(fraction));
+  // A currency with no minor unit ignores what follows the decimal mark, as before.
+  const minor =
+    Number(whole) * 10 ** digits + (fraction === '' || digits === 0 ? 0 : Number(fraction));
   return { minor: negative ? -minor : minor, currency };
 }
 

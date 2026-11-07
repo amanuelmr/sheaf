@@ -18,6 +18,12 @@ suite('fromInput', () => {
     expect(fromInput('monetary', '-3.10', 'USD')).toEqual({ minor: -310, currency: 'USD' });
   });
 
+  it('gives currencies with three decimals their third digit', () => {
+    expect(fromInput('monetary', '1.5', 'KWD')).toEqual({ minor: 1500, currency: 'KWD' });
+    expect(fromInput('monetary', '0.125', 'BHD')).toEqual({ minor: 125, currency: 'BHD' });
+    expect(toInput('monetary', { minor: 1500, currency: 'KWD' })).toBe('1.500');
+  });
+
   it('refuses an amount with more precision than the currency has', () => {
     expect(fromInput('monetary', '1.234', 'EUR')).toBeUndefined();
     expect(fromInput('monetary', '1.5', 'JPY')).toBeUndefined();
