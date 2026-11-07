@@ -133,7 +133,8 @@ export class JobRunner {
         `INSERT OR IGNORE INTO jobs (sha256, step, version, state, attempts, created_at)
          SELECT d.sha256, ?, ?, 'pending', 0, ?
            FROM documents d
-          WHERE NOT EXISTS (
+          WHERE d.trashed_at IS NULL
+            AND NOT EXISTS (
                   SELECT 1 FROM jobs j
                    WHERE j.sha256 = d.sha256 AND j.step = ? AND j.version = ?)
           ORDER BY d.received_at ASC
@@ -159,6 +160,9 @@ export class JobRunner {
         WHERE state = 'pending'
           AND (next_at IS NULL OR next_at <= ?)
           AND (${current})
+          -- Work for a trashed document waits, untouched, until it is restored.
+          AND NOT EXISTS (SELECT 1 FROM documents d
+                           WHERE d.sha256 = jobs.sha256 AND d.trashed_at IS NOT NULL)
         ORDER BY created_at ASC, sha256 ASC
         LIMIT ?`,
       [this.#ports.now(), ...params, RUN_BATCH],
@@ -186,6 +190,9 @@ export class JobRunner {
       await this.#finish(job, 'given_up', 'the document is no longer stored');
       return 'given_up';
     }
+    // Trashed since `#due` picked it: left exactly as it is, so a restore finds its
+    // wait and attempts unchanged.
+    if (document.trashedAt !== undefined) return 'waiting';
 
     // Whether the step applies is asked first: a step that stopped applying while it
     // waited (OCR, once the phone's text arrives) is skipped at once, so whatever

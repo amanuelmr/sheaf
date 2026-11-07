@@ -71,6 +71,31 @@ export function retentionFromEnv(
   return { kind: 'on', config: { ms: days * DAY_MS, connector } };
 }
 
+export type TrashSetting =
+  | { readonly kind: 'on'; readonly days: number }
+  | { readonly kind: 'invalid'; readonly message: string };
+
+/**
+ * How many days a deleted document stays in the trash before it is gone for good:
+ * `SHEAF_TRASH_DAYS`, 30 by default, at least 1. Unlike retention this is always
+ * on, because everything it deletes is something a person deleted first.
+ */
+export function trashFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  defaultDays: number,
+): TrashSetting {
+  const raw = env['SHEAF_TRASH_DAYS'];
+  if (raw === undefined || raw === '') return { kind: 'on', days: defaultDays };
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days < 1) {
+    return {
+      kind: 'invalid',
+      message: `SHEAF_TRASH_DAYS must be a number of days, at least 1, got "${raw}".`,
+    };
+  }
+  return { kind: 'on', days };
+}
+
 export type ArchiveChoice =
   | { readonly kind: 'native' | 'paperless' }
   | { readonly kind: 'invalid'; readonly message: string };

@@ -17,6 +17,8 @@ suite('parse', () => {
     expect(parse('#/search')).toEqual({ page: 'search' });
     expect(parse('#/inbox')).toEqual({ page: 'inbox' });
     expect(parse('#/devices')).toEqual({ page: 'devices' });
+    expect(parse('#/trash')).toEqual({ page: 'trash' });
+    expect(parse('#/fields')).toEqual({ page: 'fields' });
     expect(parse('#/system')).toEqual({ page: 'system' });
     expect(parse(`#/doc/${SHA}`)).toEqual({ page: 'document', sha256: SHA });
   });
@@ -52,12 +54,14 @@ suite('href', () => {
     expect(href({ page: 'search' })).toBe('#/search');
     expect(href({ page: 'inbox' })).toBe('#/inbox');
     expect(href({ page: 'devices' })).toBe('#/devices');
+    expect(href({ page: 'trash' })).toBe('#/trash');
+    expect(href({ page: 'fields' })).toBe('#/fields');
     expect(href({ page: 'system' })).toBe('#/system');
     expect(href({ page: 'document', sha256: SHA })).toBe(`#/doc/${SHA}`);
   });
 
   it('produces a hash parse accepts', () => {
-    for (const page of ['search', 'inbox', 'devices', 'system'] as const) {
+    for (const page of ['search', 'inbox', 'devices', 'trash', 'fields', 'system'] as const) {
       const route = { page } as const;
       expect(parse(href(route))).toEqual(route);
     }
@@ -82,6 +86,14 @@ suite('money', () => {
     expect(money({ minor: 1234, currency: 'EUR' }, 'en-US')).toContain('12.34');
     // 0 digits: JPY has no subunit, so 1234 minor units is 1234 yen.
     expect(money({ minor: 1234, currency: 'JPY' }, 'en-US')).toContain('1,234');
+  });
+
+  it('shows the stored digits even where the display convention rounds them away', () => {
+    expect(money({ minor: 150050, currency: 'HUF' }, 'en-US')).toContain('1,500.50');
+  });
+
+  it('reads a three-decimal currency in its own minor units', () => {
+    expect(money({ minor: 1500, currency: 'KWD' }, 'en-US')).toContain('1.500');
   });
 
   it('formats in the locale it is given', () => {

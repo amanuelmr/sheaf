@@ -10,7 +10,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sheaf/http": "workspace:*"
+    "@sheaf/http": "workspace:*",
+    "@sheaf/protocol": "workspace:*"
   },
   "scripts": {
     "eval": "node --experimental-strip-types eval/run.ts",

@@ -17,6 +17,26 @@ export interface Migration {
   readonly statements: readonly string[];
 }
 
+/** ISO 4217 currencies with thousandths, ten-thousandths, and no minor unit (bar JPY and KRW). */
+const MINOR_3 = `'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND'`;
+const MINOR_4 = `'CLF', 'UYW'`;
+const MINOR_0_WAS_2 = `'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'KMF', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'`;
+
+/**
+ * Rescale the amount at `at` (an object with `minor` and `currency`) in one JSON
+ * column, from the old rule (cents for all but JPY and KRW) to ISO 4217's unit.
+ */
+function rescaleMoney(table: string, column: string, at: string, where: string): string {
+  const currency = `json_extract(${column}, '${at}.currency')`;
+  return `UPDATE ${table}
+             SET ${column} = json_set(${column}, '${at}.minor', CAST(round(
+                   json_extract(${column}, '${at}.minor') * CASE
+                     WHEN ${currency} IN (${MINOR_3}) THEN 10
+                     WHEN ${currency} IN (${MINOR_4}) THEN 100
+                     ELSE 0.01 END) AS INTEGER))
+           WHERE ${where} AND ${currency} IN (${MINOR_3}, ${MINOR_4}, ${MINOR_0_WAS_2})`;
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     id: 1,
@@ -184,6 +204,75 @@ export const MIGRATIONS: readonly Migration[] = [
       // Which phone first delivered each document. Null for the admin token, and for
       // everything stored before pairing existed.
       `ALTER TABLE documents ADD COLUMN device_id TEXT`,
+    ],
+  },
+  {
+    // Notes people write on a document. Searchable along with its text, and kept
+    // apart from `fields`: a note is something said about a document, not a detail
+    // of it that extraction could ever propose.
+    id: 8,
+    name: 'notes',
+    statements: [
+      `CREATE TABLE notes (
+         id         INTEGER PRIMARY KEY,
+         sha256     TEXT    NOT NULL,
+         text       TEXT    NOT NULL,
+         device_id  TEXT,
+         created_at INTEGER NOT NULL
+       )`,
+      `CREATE INDEX notes_by_document ON notes (sha256, created_at)`,
+    ],
+  },
+  {
+    // The trash. Deleting a document only sets this; it is removed for good later,
+    // so a mistaken delete is a restore away rather than gone.
+    id: 9,
+    name: 'trash',
+    statements: [
+      `ALTER TABLE documents ADD COLUMN trashed_at INTEGER`,
+      `CREATE INDEX documents_by_trashed ON documents (trashed_at)`,
+    ],
+  },
+  {
+    // Custom fields: definitions people make, and each document's values of them.
+    // Apart from `fields`, which holds what extraction reads and a person corrects;
+    // these exist only because someone chose to track them.
+    id: 10,
+    name: 'custom_fields',
+    statements: [
+      `CREATE TABLE custom_fields (
+         id           INTEGER PRIMARY KEY,
+         name         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+         data_type    TEXT    NOT NULL,
+         options_json TEXT    NOT NULL DEFAULT '[]',
+         created_at   INTEGER NOT NULL
+       )`,
+      `CREATE TABLE custom_field_values (
+         sha256     TEXT    NOT NULL,
+         field_id   INTEGER NOT NULL,
+         value_json TEXT    NOT NULL,
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (sha256, field_id)
+       )`,
+      `CREATE INDEX custom_field_values_by_field ON custom_field_values (field_id)`,
+    ],
+  },
+  {
+    // Amounts read before minor units followed ISO 4217 were stored as if every
+    // currency but JPY and KRW had cents. Rescale those whose ISO unit differs, in
+    // both the current totals and every recorded extraction run. The lists are
+    // written out, not read from `minorDigits`, so this migration means the same
+    // thing however that table changes later.
+    id: 11,
+    name: 'iso_minor_units',
+    statements: [
+      rescaleMoney('fields', 'value_json', '$', `name = 'total'`),
+      rescaleMoney(
+        'extractions',
+        'fields_json',
+        '$.total.value',
+        `json_extract(fields_json, '$.total') IS NOT NULL`,
+      ),
     ],
   },
 ];

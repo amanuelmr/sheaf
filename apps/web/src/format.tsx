@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { minorDigits } from '@sheaf/protocol';
 
 /** A search snippet with its «matches» marked, as text nodes: never parsed as HTML. */
 export function Snippet({ text }: { text: string }): ReactNode {
@@ -24,11 +25,16 @@ export function money(value: unknown, locale?: string): string | null {
   if (typeof minor !== 'number' || typeof currency !== 'string') return null;
   // A non-finite amount would render as "€NaN", which reads as a real number.
   if (!Number.isFinite(minor)) return null;
-  const digits = currency === 'JPY' || currency === 'KRW' ? 0 : 2;
+  const digits = minorDigits(currency);
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
-      minor / 10 ** digits,
-    );
+    // Exactly the stored digits: Intl's own convention for some currencies (HUF,
+    // IDR) is to round to whole units, which would hide what was recorded.
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(minor / 10 ** digits);
   } catch {
     return `${currency} ${(minor / 10 ** digits).toFixed(digits)}`;
   }

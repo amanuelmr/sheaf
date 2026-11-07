@@ -13,6 +13,7 @@ import type {
   DocumentRecord,
   HistoryEvent,
   InboxEntry,
+  Note,
   PutOutcome,
   SearchHit,
   SearchResponse,
@@ -155,7 +156,7 @@ export const PRIMARY_CONNECTOR = 'paperless';
 const WITH_DELIVERY = `
   SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
          d.document_type, d.tags, d.bytes_released, d.suggestions_state,
-         d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json,
+         d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json, d.trashed_at,
          COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
          v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
          v.error AS f_error, v.done_at AS f_done_at
@@ -176,6 +177,7 @@ interface Row {
   suggestions_attempts: number;
   suggestions_next_at: number | null;
   suggestions_json: string | null;
+  trashed_at: number | null;
   bytes: number;
   page_count: number | null;
   received_at: number;
@@ -195,6 +197,8 @@ export class Storage {
   // emits code. Anything not erasable fails at startup rather than at build time.
   readonly #driver: SqlDriver;
   readonly #objectsDir: string;
+  /** The last operation queued on each document's file; see `#exclusive`. */
+  readonly #fileLocks = new Map<string, Promise<unknown>>();
 
   private constructor(driver: SqlDriver, objectsDir: string) {
     this.#driver = driver;
@@ -249,7 +253,22 @@ export class Storage {
     /** The paired phone that sent it, or null for the admin token. */
     deviceId: string | null = null,
   ): Promise<PutOutcome> {
-    if (await this.has(sha256)) return 'already-stored';
+    return this.#exclusive(sha256, () => this.#put(sha256, bytes, now, pageCount, deviceId));
+  }
+
+  async #put(
+    sha256: string,
+    bytes: Uint8Array,
+    now: number,
+    pageCount: number | null,
+    deviceId: string | null,
+  ): Promise<PutOutcome> {
+    if (await this.has(sha256)) {
+      // Sending a document again is asking to keep it. One in the trash comes back
+      // rather than being counted as synced and then deleted when the trash expires.
+      await this.restore([sha256]);
+      return 'already-stored';
+    }
 
     const target = this.pathFor(sha256);
     mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
@@ -303,14 +322,17 @@ export class Storage {
 
   async list(limit = 200): Promise<readonly DocumentRecord[]> {
     const rows = await this.#driver.all<Row>(
-      `${WITH_DELIVERY} ORDER BY d.received_at DESC, d.sha256 ASC LIMIT ?`,
+      `${WITH_DELIVERY} WHERE d.trashed_at IS NULL
+        ORDER BY d.received_at DESC, d.sha256 ASC LIMIT ?`,
       [PRIMARY_CONNECTOR, limit],
     );
     return rows.map(toRecord);
   }
 
   async count(): Promise<number> {
-    const rows = await this.#driver.all<{ n: number }>('SELECT COUNT(*) AS n FROM documents');
+    const rows = await this.#driver.all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM documents WHERE trashed_at IS NULL',
+    );
     return rows[0]?.n ?? 0;
   }
 
@@ -538,6 +560,7 @@ export class Storage {
     }>(
       `SELECT sha256, received_at, title, suggestions_json FROM documents d
         WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
+          AND d.trashed_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
         ORDER BY received_at DESC, sha256
         LIMIT ?`,
@@ -600,7 +623,208 @@ export class Storage {
     );
     for (const edit of edits)
       events.push({ at: edit.updated_at, text: `You changed: ${edit.names}` });
+    for (const note of await this.notes(sha256)) {
+      events.push({
+        at: note.createdAt,
+        text: note.author === null ? 'Note added' : `Note added from ${note.author}`,
+      });
+    }
     return events.sort((a, b) => a.at - b.at);
+  }
+
+  /**
+   * Move a document to the trash. It leaves lists, search, the inbox and the
+   * archive at once, and stops being forwarded or worked on; nothing is deleted.
+   * Trashing it again changes nothing, the time it was first trashed included.
+   */
+  async trash(sha256: string, now: number): Promise<boolean> {
+    if (!(await this.has(sha256))) return false;
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        'UPDATE documents SET trashed_at = ? WHERE sha256 = ? AND trashed_at IS NULL',
+        [now, sha256],
+      );
+      await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [sha256]);
+    });
+    return true;
+  }
+
+  /** Take documents back out of the trash. Returns how many were in it. */
+  async restore(sha256s: readonly string[]): Promise<number> {
+    return this.#driver.transaction(async () => {
+      const ids = JSON.stringify(sha256s);
+      const trashed = (
+        await this.#driver.all<{ sha256: string }>(
+          `SELECT sha256 FROM documents
+            WHERE sha256 IN (SELECT value FROM json_each(?)) AND trashed_at IS NOT NULL`,
+          [ids],
+        )
+      ).map((row) => row.sha256);
+      await this.#driver.run(
+        'UPDATE documents SET trashed_at = NULL WHERE sha256 IN (SELECT value FROM json_each(?))',
+        [JSON.stringify(trashed)],
+      );
+      await this.reindexMany(trashed);
+      return trashed.length;
+    });
+  }
+
+  /** What is in the trash, most recently trashed first. */
+  async trashed(): Promise<
+    readonly {
+      sha256: string;
+      title: string | null;
+      suggestedTitle: string | null;
+      receivedAt: number;
+      trashedAt: number;
+    }[]
+  > {
+    const rows = await this.#driver.all<{
+      sha256: string;
+      title: string | null;
+      suggested_title: string | null;
+      received_at: number;
+      trashed_at: number;
+    }>(
+      `SELECT sha256, title, json_extract(suggestions_json, '$.title') AS suggested_title,
+              received_at, trashed_at
+         FROM documents WHERE trashed_at IS NOT NULL
+        ORDER BY trashed_at DESC, sha256`,
+    );
+    return rows.map((row) => ({
+      sha256: row.sha256,
+      title: row.title,
+      suggestedTitle: row.suggested_title,
+      receivedAt: row.received_at,
+      trashedAt: row.trashed_at,
+    }));
+  }
+
+  /** Trashed documents whose time in the trash is up, oldest first. */
+  async dueForPurge(now: number, keepMs: number, limit = 100): Promise<readonly string[]> {
+    const rows = await this.#driver.all<{ sha256: string }>(
+      `SELECT sha256 FROM documents
+        WHERE trashed_at IS NOT NULL AND trashed_at <= ?
+        ORDER BY trashed_at ASC LIMIT ?`,
+      [now - keepMs, limit],
+    );
+    return rows.map((row) => row.sha256);
+  }
+
+  /**
+   * Delete a trashed document for good: its file and everything known about it.
+   * Refuses one that is not in the trash, so nothing reaches here by mistake.
+   *
+   * Its archive id is kept, unused, so a phone that cached it never sees that id
+   * name a different document.
+   */
+  async purge(sha256: string): Promise<boolean> {
+    return this.#exclusive(sha256, () => this.#purge(sha256));
+  }
+
+  async #purge(sha256: string): Promise<boolean> {
+    const deleted = await this.#driver.transaction(async () => {
+      const trashed = await this.#driver.all<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND trashed_at IS NOT NULL',
+        [sha256],
+      );
+      if ((trashed[0]?.n ?? 0) === 0) return false;
+      for (const table of [
+        'documents_fts',
+        'document_text',
+        'notes',
+        'custom_field_values',
+        'fields',
+        'extractions',
+        'jobs',
+        'deliveries',
+        'documents',
+      ]) {
+        await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);
+      }
+      // Links to it from other documents go too. Left in place they would come back
+      // to life, one-sided, if the same file were ever uploaded again.
+      await this.#driver.run(
+        `UPDATE custom_field_values
+            SET value_json = (SELECT json_group_array(j.value)
+                                FROM json_each(custom_field_values.value_json) j
+                               WHERE j.value <> ?)
+          WHERE field_id IN (SELECT id FROM custom_fields WHERE data_type = 'documentLink')
+            AND EXISTS (SELECT 1 FROM json_each(custom_field_values.value_json) j
+                         WHERE j.value = ?)`,
+        [sha256, sha256],
+      );
+      return true;
+    });
+    // After the rows: a crash between the two leaves an orphaned file, which costs
+    // disk space, never a row that points at a missing file. An upload of the same
+    // document cannot slip in between: `put` waits on the same lock.
+    if (deleted) {
+      try {
+        unlinkSync(this.pathFor(sha256));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    return deleted;
+  }
+
+  /**
+   * Keep a note on a document, and make it searchable in the same transaction.
+   * Returns null for a document this server does not hold.
+   */
+  async addNote(
+    sha256: string,
+    text: string,
+    deviceId: string | null,
+    now: number,
+  ): Promise<Note | null> {
+    if (!(await this.has(sha256))) return null;
+    const id = await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        'INSERT INTO notes (sha256, text, device_id, created_at) VALUES (?, ?, ?, ?)',
+        [sha256, text, deviceId, now],
+      );
+      const rows = await this.#driver.all<{ id: number }>('SELECT last_insert_rowid() AS id');
+      await this.reindex(sha256);
+      return rows[0]!.id;
+    });
+    return (await this.notes(sha256)).find((note) => note.id === id) ?? null;
+  }
+
+  /** A document's notes, oldest first, each with the name of the phone that wrote it. */
+  async notes(sha256: string): Promise<readonly Note[]> {
+    const rows = await this.#driver.all<{
+      id: number;
+      text: string;
+      author: string | null;
+      created_at: number;
+    }>(
+      `SELECT n.id, n.text, v.name AS author, n.created_at FROM notes n
+         LEFT JOIN devices v ON v.id = n.device_id
+        WHERE n.sha256 = ? ORDER BY n.created_at, n.id`,
+      [sha256],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      text: row.text,
+      author: row.author,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /** Remove one note of one document. False when there is no such note on it. */
+  async deleteNote(sha256: string, id: number): Promise<boolean> {
+    return this.#driver.transaction(async () => {
+      const found = await this.#driver.all<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM notes WHERE sha256 = ? AND id = ?',
+        [sha256, id],
+      );
+      if ((found[0]?.n ?? 0) === 0) return false;
+      await this.#driver.run('DELETE FROM notes WHERE sha256 = ? AND id = ?', [sha256, id]);
+      await this.reindex(sha256);
+      return true;
+    });
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {
@@ -636,7 +860,7 @@ export class Storage {
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
               ${PLAIN_EXCERPT} AS excerpt
          FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
-        WHERE a.id = ?`,
+        WHERE a.id = ? AND d.trashed_at IS NULL`,
       [id],
     );
     return rows[0] === undefined ? null : toArchiveRow(rows[0]);
@@ -651,7 +875,7 @@ export class Storage {
     limit: number,
     offset: number,
   ): Promise<{ rows: readonly ArchiveRow[]; total: number }> {
-    const where: string[] = [];
+    const where: string[] = ['d.trashed_at IS NULL'];
     const params: (string | number)[] = [];
     if (filter.match !== null) {
       where.push('documents_fts MATCH ?');
@@ -671,7 +895,7 @@ export class Storage {
     }
     const from = `FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
       ${filter.match === null ? '' : 'JOIN documents_fts f ON f.sha256 = d.sha256'}
-      ${where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`}`;
+      WHERE ${where.join(' AND ')}`;
 
     const rows = await this.#driver.all<ArchiveSqlRow>(
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
@@ -693,16 +917,37 @@ export class Storage {
    * index never describes a state that was not committed.
    */
   async reindex(sha256: string): Promise<void> {
-    await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [sha256]);
+    await this.reindexMany([sha256]);
+  }
+
+  /**
+   * `reindex` for many documents at once. The index's sha256 column is not indexed,
+   * so each delete scans the whole index: one statement for the lot costs one scan,
+   * where a loop of `reindex` would cost one scan per document.
+   */
+  async reindexMany(sha256s: readonly string[]): Promise<void> {
+    if (sha256s.length === 0) return;
+    const ids = JSON.stringify(sha256s);
+    await this.#driver.run(
+      'DELETE FROM documents_fts WHERE sha256 IN (SELECT value FROM json_each(?))',
+      [ids],
+    );
     await this.#driver.run(
       `INSERT INTO documents_fts (sha256, title, correspondent, document_type, tags, body)
        SELECT d.sha256, COALESCE(d.title, ''), COALESCE(d.correspondent, ''),
               COALESCE(d.document_type, ''), d.tags,
-              COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
-                         WHERE t.sha256 = d.sha256), '')
+              ltrim(
+                COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
+                           WHERE t.sha256 = d.sha256), '')
+                  || COALESCE((SELECT char(10) || group_concat(n.text, char(10)) FROM notes n
+                                WHERE n.sha256 = d.sha256), '')
+                  || COALESCE((SELECT char(10) || group_concat(${CUSTOM_FIELD_TEXT}, char(10))
+                                 FROM custom_field_values v JOIN custom_fields f ON f.id = v.field_id
+                                WHERE v.sha256 = d.sha256 AND v.value_json <> 'null'), ''),
+                char(10))
          FROM documents d
-        WHERE d.sha256 = ?`,
-      [sha256],
+        WHERE d.sha256 IN (SELECT value FROM json_each(?)) AND d.trashed_at IS NULL`,
+      [ids],
     );
   }
 
@@ -715,11 +960,13 @@ export class Storage {
         (row) => row.sha256,
       ),
     );
-    const all = await this.#driver.all<{ sha256: string }>('SELECT sha256 FROM documents');
+    const all = await this.#driver.all<{ sha256: string }>(
+      'SELECT sha256 FROM documents WHERE trashed_at IS NULL',
+    );
     const missing = all.map((row) => row.sha256).filter((sha256) => !indexed.has(sha256));
     for (let i = 0; i < missing.length; i += 200) {
       await this.#driver.transaction(async () => {
-        for (const sha256 of missing.slice(i, i + 200)) await this.reindex(sha256);
+        await this.reindexMany(missing.slice(i, i + 200));
       });
     }
     return missing.length;
@@ -781,6 +1028,7 @@ export class Storage {
       `${WITH_DELIVERY}
         WHERE COALESCE(v.state, 'pending') IN ('pending', 'sent')
           AND (v.next_at IS NULL OR v.next_at <= ?)
+          AND d.trashed_at IS NULL
         ORDER BY d.received_at ASC
         LIMIT ?`,
       [connector, now, limit],
@@ -925,6 +1173,7 @@ export class Storage {
         WHERE v.state = 'done' AND v.remote_id IS NOT NULL
           AND d.suggestions_state = 'pending'
           AND (d.suggestions_next_at IS NULL OR d.suggestions_next_at <= ?)
+          AND d.trashed_at IS NULL
         ORDER BY d.received_at ASC
         LIMIT ?`,
       [connector, now, limit],
@@ -961,6 +1210,24 @@ export class Storage {
     );
   }
 
+  /**
+   * Run `work` once every earlier operation on this document's file has finished.
+   * Uploading and purging both write the file and its row in two steps; without
+   * this, an upload landing between a purge's two steps would lose its file.
+   * In-process only, which is enough: one server process owns the data directory.
+   */
+  async #exclusive<T>(sha256: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.#fileLocks.get(sha256) ?? Promise.resolve();
+    const result = previous.then(work);
+    const settled = result.catch(() => undefined);
+    this.#fileLocks.set(sha256, settled);
+    try {
+      return await result;
+    } finally {
+      if (this.#fileLocks.get(sha256) === settled) this.#fileLocks.delete(sha256);
+    }
+  }
+
   private pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
@@ -977,6 +1244,17 @@ interface ArchiveSqlRow {
   received_at: number;
   excerpt: string | null;
 }
+
+/**
+ * What of a custom field value is searchable: its field's name and, for the types
+ * that hold words or numbers, the value. Links and yes/no answers say nothing a
+ * search could match.
+ */
+const CUSTOM_FIELD_TEXT = `f.name || ': ' || CASE
+    WHEN f.data_type IN ('text', 'url', 'select', 'date', 'integer', 'number')
+      THEN json_extract(v.value_json, '$')
+    WHEN f.data_type = 'monetary' THEN json_extract(v.value_json, '$.currency')
+    ELSE '' END`;
 
 /** The first 200 characters of a document's text, from whichever source has some. */
 const PLAIN_EXCERPT = `(SELECT substr(group_concat(t.text, ' '), 1, 200)
@@ -1014,5 +1292,6 @@ function toRecord(row: Row): DocumentRecord {
     bytesReleased: row.bytes_released === 1,
     suggestions:
       row.suggestions_json === null ? null : (JSON.parse(row.suggestions_json) as Suggestions),
+    ...(row.trashed_at === null ? {} : { trashedAt: row.trashed_at }),
   };
 }

@@ -66,7 +66,9 @@ export class ServerMetrics {
     const all = <T>(sql: string, params: (string | number)[] = []) =>
       this.#driver.all<T>(sql, params);
 
-    const [documents] = await all<{ n: number }>('SELECT COUNT(*) AS n FROM documents');
+    const [documents] = await all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM documents WHERE trashed_at IS NULL',
+    );
     this.#documents.set([{ labels: {}, value: documents?.n ?? 0 }]);
 
     const jobs = await all<{ step: string; state: string; n: number }>(

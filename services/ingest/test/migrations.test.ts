@@ -118,3 +118,50 @@ suite('a database from before connectors', () => {
     expect(rows).toEqual([]);
   });
 });
+
+suite('migration 11: amounts in ISO 4217 minor units', () => {
+  it('rescales totals stored under the old cents-for-all rule, and only those', async () => {
+    const driver = await storageDriver();
+    const total = (minor: number, currency: string) => JSON.stringify({ minor, currency });
+    const before: [string, string][] = [
+      ['kwd', total(1250, 'KWD')], // 12.50 KWD read as cents
+      ['isk', total(150000, 'ISK')], // 1500 ISK read as cents
+      ['clf', total(1234, 'CLF')], // 12.34 CLF read as cents
+      ['eur', total(1250, 'EUR')], // already right
+      ['jpy', total(1500, 'JPY')], // already whole yen
+      ['idr', total(150000, 'IDR')], // two digits either way
+    ];
+    for (const [sha256, value] of before) {
+      await driver.run(
+        `INSERT INTO fields (sha256, name, value_json, source, confidence, updated_at)
+         VALUES (?, 'total', ?, 'machine', 0.9, 0)`,
+        [sha256, value],
+      );
+    }
+    await driver.run(
+      `INSERT INTO extractions (sha256, version, provider, model, fields_json, input_tokens,
+                                output_tokens, cost_usd, latency_ms, created_at)
+       VALUES ('kwd', 1, 'heuristic', 'regex', ?, 0, 0, NULL, 1, 0)`,
+      [JSON.stringify({ total: { value: { minor: 1250, currency: 'KWD' }, confidence: 0.9 } })],
+    );
+
+    const migration = MIGRATIONS.find((m) => m.id === 11)!;
+    for (const statement of migration.statements) await driver.exec(statement);
+
+    const after = await driver.all<{ sha256: string; value_json: string }>(
+      `SELECT sha256, value_json FROM fields WHERE name = 'total' ORDER BY sha256`,
+    );
+    expect(Object.fromEntries(after.map((r) => [r.sha256, JSON.parse(r.value_json)]))).toEqual({
+      clf: { minor: 123400, currency: 'CLF' },
+      eur: { minor: 1250, currency: 'EUR' },
+      idr: { minor: 150000, currency: 'IDR' },
+      isk: { minor: 1500, currency: 'ISK' },
+      jpy: { minor: 1500, currency: 'JPY' },
+      kwd: { minor: 12500, currency: 'KWD' },
+    });
+    const run = await driver.all<{ fields_json: string }>('SELECT fields_json FROM extractions');
+    expect(JSON.parse(run[0]!.fields_json)).toEqual({
+      total: { value: { minor: 12500, currency: 'KWD' }, confidence: 0.9 },
+    });
+  });
+});

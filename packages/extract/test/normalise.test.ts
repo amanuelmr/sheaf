@@ -95,6 +95,8 @@ suite('parseMoney', () => {
 
   it('counts yen in whole yen, which have no minor unit', () => {
     expect(parseMoney('¥1,200', 'EUR')).toEqual({ minor: 1200, currency: 'JPY' });
+    // Three-decimal currencies count in thousandths, the same unit the web app shows.
+    expect(parseMoney('12.5', 'KWD')).toEqual({ minor: 12500, currency: 'KWD' });
   });
 
   it('reads a bare $ as the default currency when that is a dollar', () => {

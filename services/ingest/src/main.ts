@@ -12,14 +12,16 @@ import { paperlessTarget } from './paperless-target.ts';
 import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
+import { CustomFields } from './custom-fields.ts';
 import { Devices } from './devices.ts';
 import { log } from './log.ts';
 import { ServerMetrics } from './observability.ts';
-import { archiveFromEnv, extractionFromEnv, retentionFromEnv } from './config.ts';
+import { archiveFromEnv, extractionFromEnv, retentionFromEnv, trashFromEnv } from './config.ts';
 import { nativeArchiveSource } from './native-archive.ts';
 import { createIngestServer } from './server.ts';
 import { PRIMARY_CONNECTOR, Storage } from './storage.ts';
 import { SuggestionFetcher } from './suggestion-fetcher.ts';
+import { DEFAULT_TRASH_DAYS, TrashSweeper } from './trash.ts';
 
 /**
  * Entry point. Configuration is environment only — nothing about where documents
@@ -64,6 +66,13 @@ if (retentionSetting.kind === 'invalid') {
   process.exit(1);
 }
 const retention = retentionSetting.kind === 'on' ? retentionSetting.config : null;
+
+const trashSetting = trashFromEnv(process.env, DEFAULT_TRASH_DAYS);
+if (trashSetting.kind === 'invalid') {
+  log.error(trashSetting.message);
+  process.exit(1);
+}
+const trashDays = trashSetting.days;
 
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
 if (archiveChoice.kind === 'invalid') {
@@ -166,7 +175,28 @@ const server = createIngestServer({
   ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
   ...(archiveSource === null ? {} : { archive: archiveSource }),
   ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
+  trashDays,
+  customFields: new CustomFields(driver, storage),
 });
+
+// Deleted documents wait in the trash, then go for good (always on: everything it
+// deletes, a person deleted first).
+const trashSweeper = new TrashSweeper(storage, trashDays * 86_400_000, { now: () => Date.now() });
+let sweepingTrash = false;
+setInterval(() => {
+  if (sweepingTrash) return;
+  sweepingTrash = true;
+  void trashSweeper
+    .tick()
+    .then(({ purged }) => {
+      if (purged > 0) log.info(`trash: deleted ${String(purged)} document(s) for good`);
+    })
+    .catch((error: unknown) => log.error('emptying the trash failed', { error: String(error) }))
+    .finally(() => {
+      sweepingTrash = false;
+    });
+}, 60_000);
+log.info(`trash: deleted documents are kept ${String(trashDays)} day(s)`);
 
 if (paperlessClient !== null && vocabulary !== null) {
   const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {

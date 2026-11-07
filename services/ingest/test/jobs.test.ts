@@ -255,3 +255,54 @@ suite('a backlog behind a slow first step', () => {
     expect(extract.runs).toEqual([hashA]);
   });
 });
+
+suite('JobRunner and the trash', () => {
+  it('queues nothing for a document already in the trash', async () => {
+    await storage.trash(hashA, clock);
+    const step = fakeStep('extract');
+    await runner([step]).tick();
+    expect(step.runs).toEqual([]);
+    expect(await stateOf('extract')).toBeUndefined();
+  });
+
+  it('does not let queued work for trashed documents crowd out everyone else', async () => {
+    const step = fakeStep('extract');
+    const later = doc('later');
+    // More trashed documents with pending work than one tick takes.
+    for (let i = 0; i < 25; i++) {
+      const bytes = doc(`trashed-${String(i)}`);
+      const hash = sha256Hex(bytes);
+      await storage.put(hash, bytes, clock - 1_000, 1);
+      await driver.run(
+        `INSERT INTO jobs (sha256, step, version, state, attempts, created_at)
+         VALUES (?, 'extract', 1, 'pending', 0, ?)`,
+        [hash, clock - 1_000],
+      );
+      await storage.trash(hash, clock);
+    }
+    await storage.put(sha256Hex(later), later, clock + 1, 1);
+
+    await runner([step]).tick();
+    expect(step.runs).toEqual(expect.arrayContaining([hashA, sha256Hex(later)]));
+    expect(step.runs).toHaveLength(2);
+  });
+
+  it('leaves queued work waiting while trashed, and runs it once restored', async () => {
+    const startAt = clock + 10_000;
+    const step = fakeStep('extract', { notBefore: () => startAt });
+    const jobs = runner([step]);
+    await jobs.tick();
+    expect(await stateOf('extract')).toBe('pending');
+
+    await storage.trash(hashA, clock);
+    clock += 20_000;
+    await jobs.tick();
+    expect(step.runs).toEqual([]);
+    expect(await stateOf('extract')).toBe('pending');
+
+    await storage.restore([hashA]);
+    await jobs.tick();
+    expect(step.runs).toEqual([hashA]);
+    expect(await stateOf('extract')).toBe('done');
+  });
+});

@@ -1,6 +1,13 @@
 import {
   authorization,
   paths,
+  type CustomField,
+  type CustomFieldBody,
+  type CustomFieldPatch,
+  type CustomFieldValue,
+  type CustomFieldValuesBody,
+  type CustomFieldsResponse,
+  type DocumentCustomFieldsResponse,
   type DevicesResponse,
   type DocumentPatch,
   type DocumentRecord,
@@ -8,8 +15,14 @@ import {
   type HealthResponse,
   type HistoryResponse,
   type InboxResponse,
+  type Note,
+  type NoteBody,
+  type NotesResponse,
   type PairingCodeResponse,
   type SearchResponse,
+  type TrashActionBody,
+  type TrashActionResponse,
+  type TrashResponse,
 } from '@sheaf/protocol';
 import type { Connection } from './connection';
 
@@ -57,6 +70,37 @@ export function api(connection: Connection) {
     history: (sha256: string) => call<HistoryResponse>('GET', paths.documentHistory(sha256)),
     patch: (sha256: string, patch: DocumentPatch) =>
       call<DocumentRecord>('PATCH', paths.document(sha256), patch),
+    notes: (sha256: string) => call<NotesResponse>('GET', paths.documentNotes(sha256)),
+    addNote: (sha256: string, text: string) =>
+      call<Note>('POST', paths.documentNotes(sha256), { text } satisfies NoteBody),
+    deleteNote: (sha256: string, id: number) =>
+      call<undefined>('DELETE', paths.documentNote(sha256, id)),
+    /** Moves it to the trash; see `restore` to take it back. */
+    trashDocument: (sha256: string) => call<undefined>('DELETE', paths.document(sha256)),
+    trash: () => call<TrashResponse>('GET', paths.trash()),
+    restore: (documents: readonly string[]) =>
+      call<TrashActionResponse>('POST', paths.trashRestore(), {
+        documents,
+      } satisfies TrashActionBody),
+    /** Deletes for good: the named documents, or everything in the trash. */
+    emptyTrash: (documents?: readonly string[]) =>
+      call<TrashActionResponse>(
+        'POST',
+        paths.trashEmpty(),
+        (documents === undefined ? {} : { documents }) satisfies TrashActionBody,
+      ),
+    customFields: () => call<CustomFieldsResponse>('GET', paths.customFields()),
+    createCustomField: (body: CustomFieldBody) =>
+      call<CustomField>('POST', paths.customFields(), body),
+    updateCustomField: (id: number, patch: CustomFieldPatch) =>
+      call<CustomField>('PATCH', paths.customField(id), patch),
+    deleteCustomField: (id: number) => call<undefined>('DELETE', paths.customField(id)),
+    documentCustomFields: (sha256: string) =>
+      call<DocumentCustomFieldsResponse>('GET', paths.documentCustomFields(sha256)),
+    setDocumentCustomFields: (sha256: string, values: readonly CustomFieldValue[]) =>
+      call<DocumentCustomFieldsResponse>('PUT', paths.documentCustomFields(sha256), {
+        values,
+      } satisfies CustomFieldValuesBody),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
