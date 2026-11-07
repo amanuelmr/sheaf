@@ -9,6 +9,7 @@ import {
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
+  matchingRuleProblem,
   labelKindOf,
   isPaperlessId,
   isSha256,
@@ -186,5 +187,34 @@ suite('labels', () => {
     expect(isLabelMergeBody({ into: 0 })).toBe(false);
     expect(isLabelMergeBody({ into: '2' })).toBe(false);
     expect(isLabelMergeBody({ into: 2, also: 3 })).toBe(false);
+  });
+});
+
+suite('matching rules', () => {
+  const rule = (algorithm: string, pattern: string) => ({
+    algorithm,
+    pattern,
+    caseSensitive: false,
+  });
+
+  it('accepts each algorithm with a pattern, and none without', () => {
+    for (const algorithm of ['any', 'all', 'exact', 'regex', 'fuzzy']) {
+      expect(matchingRuleProblem(rule(algorithm, 'city power'))).toBeNull();
+    }
+    expect(matchingRuleProblem(rule('none', ''))).toBeNull();
+  });
+
+  it('says what is wrong with a rule it cannot use', () => {
+    expect(matchingRuleProblem(rule('any', '  '))).toMatch(/needs a pattern/);
+    expect(matchingRuleProblem(rule('none', 'x'))).toMatch(/no pattern/);
+    expect(matchingRuleProblem(rule('regex', '(unclosed'))).toMatch(/regular expression/);
+    expect(matchingRuleProblem(rule('auto', 'x'))).toMatch(/algorithm/);
+    expect(matchingRuleProblem({ ...rule('any', 'x'), extra: 1 })).toMatch(/only/);
+  });
+
+  it('lets a label body carry a rule and the inbox flag', () => {
+    expect(isLabelBody({ name: 'Inbox', inbox: true, matching: rule('any', 'a b') })).toBe(true);
+    expect(isLabelBody({ name: 'Inbox', matching: rule('regex', '[') })).toBe(false);
+    expect(isLabelPatch({ inbox: 'yes' })).toBe(false);
   });
 });

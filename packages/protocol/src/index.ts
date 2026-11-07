@@ -68,6 +68,8 @@ export const paths = {
   /** Admin: `POST` a `LabelMergeBody` to fold this label into another. */
   labelMerge: (kind: LabelKind, id: number) =>
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
+  /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
+  labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -706,6 +708,29 @@ export const MAX_LABEL_NAME = 128;
 /** `#rrggbb`, lower or upper case. */
 export const LABEL_COLOUR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * How a label finds its own documents in their text:
+ * - `none`: never on its own;
+ * - `any`: any one of the words, where a "quoted phrase" counts as one word;
+ * - `all`: every one of the words, in any order;
+ * - `exact`: the pattern as written, anywhere;
+ * - `regex`: a JavaScript regular expression;
+ * - `fuzzy`: the pattern, allowing for a few misread letters.
+ */
+export const MATCHING_ALGORITHMS = ['none', 'any', 'all', 'exact', 'regex', 'fuzzy'] as const;
+export type MatchingAlgorithm = (typeof MATCHING_ALGORITHMS)[number];
+
+export const MAX_MATCH_PATTERN = 512;
+
+export interface MatchingRule {
+  readonly algorithm: MatchingAlgorithm;
+  /** Empty for `none`. */
+  readonly pattern: string;
+  readonly caseSensitive: boolean;
+}
+
+export const NO_MATCHING: MatchingRule = { algorithm: 'none', pattern: '', caseSensitive: false };
+
 /** One correspondent, document type or tag, and how many documents carry it. */
 export interface Label {
   readonly id: number;
@@ -715,6 +740,9 @@ export interface Label {
   readonly documents: number;
   /** Tags only; null when none was chosen. */
   readonly colour: string | null;
+  readonly matching: MatchingRule;
+  /** Tags only: put on every new document, to mark it as not yet looked at. */
+  readonly inbox: boolean;
 }
 
 export interface LabelsResponse {
@@ -726,6 +754,9 @@ export interface LabelsResponse {
 export interface LabelBody {
   readonly name: string;
   readonly colour?: string;
+  readonly matching?: MatchingRule;
+  /** Tags only. */
+  readonly inbox?: boolean;
 }
 
 /**
@@ -735,6 +766,50 @@ export interface LabelBody {
 export interface LabelPatch {
   readonly name?: string;
   readonly colour?: string | null;
+  readonly matching?: MatchingRule;
+  readonly inbox?: boolean;
+}
+
+/** `POST /v1/labels/apply`. Leaving out `documents` means every document. */
+export interface ApplyRulesBody {
+  readonly documents?: readonly string[];
+}
+
+export interface ApplyRulesResponse {
+  /** Documents that gained a label. */
+  readonly changed: number;
+}
+
+/**
+ * Why a rule cannot be used, or null when it can. `none` takes no pattern; the
+ * others need one, and a regex must compile.
+ */
+export function matchingRuleProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'matching must be {"algorithm", "pattern", "caseSensitive"}';
+  }
+  const rule = value as Record<string, unknown>;
+  if (Object.keys(rule).some((k) => !['algorithm', 'pattern', 'caseSensitive'].includes(k))) {
+    return 'matching may hold only "algorithm", "pattern" and "caseSensitive"';
+  }
+  if (!(MATCHING_ALGORITHMS as readonly unknown[]).includes(rule['algorithm'])) {
+    return `algorithm must be one of ${MATCHING_ALGORITHMS.join(', ')}`;
+  }
+  const pattern = rule['pattern'];
+  if (typeof pattern !== 'string' || pattern.length > MAX_MATCH_PATTERN) {
+    return `pattern must be text of at most ${String(MAX_MATCH_PATTERN)} characters`;
+  }
+  if (typeof rule['caseSensitive'] !== 'boolean') return 'caseSensitive must be true or false';
+  if (rule['algorithm'] === 'none') return pattern === '' ? null : 'none takes no pattern';
+  if (pattern.trim() === '') return 'this algorithm needs a pattern';
+  if (rule['algorithm'] === 'regex') {
+    try {
+      new RegExp(pattern, 'u');
+    } catch {
+      return 'pattern is not a valid regular expression';
+    }
+  }
+  return null;
 }
 
 /** `POST /v1/labels/{kind}/{id}/merge`: every document carrying this one carries `into` instead. */
@@ -755,10 +830,20 @@ function validColour(colour: unknown): colour is string {
   return typeof colour === 'string' && LABEL_COLOUR_PATTERN.test(colour);
 }
 
+const LABEL_KEYS = ['name', 'colour', 'matching', 'inbox'];
+
+function validExtras(body: Record<string, unknown>): boolean {
+  return (
+    (body['matching'] === undefined || matchingRuleProblem(body['matching']) === null) &&
+    (body['inbox'] === undefined || typeof body['inbox'] === 'boolean')
+  );
+}
+
 export function isLabelBody(value: unknown): value is LabelBody {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  if (Object.keys(body).some((key) => !LABEL_KEYS.includes(key))) return false;
+  if (!validExtras(body)) return false;
   return (
     validLabelName(body['name']) && (body['colour'] === undefined || validColour(body['colour']))
   );
@@ -767,7 +852,8 @@ export function isLabelBody(value: unknown): value is LabelBody {
 export function isLabelPatch(value: unknown): value is LabelPatch {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  if (Object.keys(body).some((key) => !LABEL_KEYS.includes(key))) return false;
+  if (!validExtras(body)) return false;
   if (body['name'] !== undefined && !validLabelName(body['name'])) return false;
   const colour = body['colour'];
   return colour === undefined || colour === null || validColour(colour);
@@ -777,6 +863,10 @@ export function isLabelMergeBody(value: unknown): value is LabelMergeBody {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const into = (value as Record<string, unknown>)['into'];
   return Object.keys(value).length === 1 && Number.isSafeInteger(into) && (into as number) > 0;
+}
+
+export function isApplyRulesBody(value: unknown): value is ApplyRulesBody {
+  return isTrashActionBody(value);
 }
 
 /** The kind a path segment names, or null. */

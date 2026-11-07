@@ -1,4 +1,12 @@
-import type { Label, LabelBody, LabelKind, LabelPatch } from '@sheaf/protocol';
+import {
+  NO_MATCHING,
+  type Label,
+  type LabelBody,
+  type LabelKind,
+  type LabelPatch,
+  type MatchingAlgorithm,
+  type MatchingRule,
+} from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import type { NameKind, Storage } from './storage.ts';
 
@@ -35,6 +43,10 @@ interface LabelRow {
   name: string;
   colour: string | null;
   documents: number | null;
+  match_algorithm: MatchingAlgorithm;
+  match_pattern: string;
+  match_case: number;
+  inbox: number;
 }
 
 /**
@@ -72,14 +84,25 @@ export class Labels {
   }
 
   async create(kind: LabelKind, body: LabelBody): Promise<Outcome<Label>> {
-    if (body.colour !== undefined && kind !== 'tag') return onlyTags();
+    if ((body.colour !== undefined || body.inbox !== undefined) && kind !== 'tag') {
+      return onlyTags();
+    }
     if ((await this.#idOf(kind, body.name)) !== null) return taken(kind, body.name);
+    const rule = body.matching ?? NO_MATCHING;
     try {
-      await this.#driver.run('INSERT INTO names (kind, name, colour) VALUES (?, ?, ?)', [
-        STORE[kind].name,
-        body.name,
-        body.colour ?? null,
-      ]);
+      await this.#driver.run(
+        `INSERT INTO names (kind, name, colour, match_algorithm, match_pattern, match_case, inbox)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          STORE[kind].name,
+          body.name,
+          body.colour ?? null,
+          rule.algorithm,
+          rule.pattern,
+          rule.caseSensitive ? 1 : 0,
+          body.inbox === true ? 1 : 0,
+        ],
+      );
     } catch (error) {
       // Another request took the name between the check and the insert.
       if (isUniqueViolation(error)) return taken(kind, body.name);
@@ -89,9 +112,14 @@ export class Labels {
     return { ok: true, value: (await this.get(kind, id!))! };
   }
 
-  /** Rename, recolour or both. A new name is written into every document carrying the old. */
+  /**
+   * Rename, recolour, change its rule, or any of these. A new name is written into
+   * every document carrying the old.
+   */
   async update(kind: LabelKind, id: number, patch: LabelPatch): Promise<Outcome<Label>> {
-    if (patch.colour !== undefined && kind !== 'tag') return onlyTags();
+    if ((patch.colour !== undefined || patch.inbox !== undefined) && kind !== 'tag') {
+      return onlyTags();
+    }
     const current = await this.get(kind, id);
     if (current === null) return { ok: false, kind: 'not_found' };
     const name = patch.name;
@@ -107,6 +135,23 @@ export class Labels {
         }
         if (patch.colour !== undefined) {
           await this.#driver.run('UPDATE names SET colour = ? WHERE id = ?', [patch.colour, id]);
+        }
+        if (patch.matching !== undefined) {
+          await this.#driver.run(
+            'UPDATE names SET match_algorithm = ?, match_pattern = ?, match_case = ? WHERE id = ?',
+            [
+              patch.matching.algorithm,
+              patch.matching.pattern,
+              patch.matching.caseSensitive ? 1 : 0,
+              id,
+            ],
+          );
+        }
+        if (patch.inbox !== undefined) {
+          await this.#driver.run('UPDATE names SET inbox = ? WHERE id = ?', [
+            patch.inbox ? 1 : 0,
+            id,
+          ]);
         }
       });
     } catch (error) {
@@ -241,7 +286,8 @@ function select(kind: LabelKind): string {
       : `SELECT ${STORE[kind].column} AS name, COUNT(*) AS n FROM documents
           WHERE trashed_at IS NULL AND ${STORE[kind].column} IS NOT NULL
           GROUP BY ${STORE[kind].column}`;
-  return `SELECT n.id, n.name, n.colour, c.n AS documents
+  return `SELECT n.id, n.name, n.colour, n.match_algorithm, n.match_pattern, n.match_case,
+                 n.inbox, c.n AS documents
             FROM names n LEFT JOIN (${counts}) c ON c.name = n.name
            WHERE n.kind = ?`;
 }
@@ -253,7 +299,18 @@ function toLabel(kind: LabelKind, row: LabelRow): Label {
     name: row.name,
     documents: row.documents ?? 0,
     colour: kind === 'tag' ? row.colour : null,
+    matching: toRule(row),
+    inbox: kind === 'tag' && row.inbox === 1,
   };
+}
+
+function toRule(row: Pick<LabelRow, 'match_algorithm' | 'match_pattern' | 'match_case'>) {
+  const rule: MatchingRule = {
+    algorithm: row.match_algorithm,
+    pattern: row.match_pattern,
+    caseSensitive: row.match_case === 1,
+  };
+  return rule;
 }
 
 function taken(kind: LabelKind, name: string, advice?: string) {
@@ -266,7 +323,11 @@ function taken(kind: LabelKind, name: string, advice?: string) {
 }
 
 function onlyTags() {
-  return { ok: false, kind: 'invalid', message: 'only tags have a colour' } as const;
+  return {
+    ok: false,
+    kind: 'invalid',
+    message: 'only tags have a colour or mark the inbox',
+  } as const;
 }
 
 function isUniqueViolation(error: unknown): boolean {

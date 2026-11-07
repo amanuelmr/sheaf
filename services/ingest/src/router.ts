@@ -20,6 +20,7 @@ import {
   isLabelMergeBody,
   isLabelPatch,
   labelKindOf,
+  matchingRuleProblem,
   isNoteBody,
   isTrashActionBody,
   isPaperlessId,
@@ -525,6 +526,8 @@ async function labelRoutes(
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
     if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token adds labels');
     const body = parseJson<unknown>(request.body);
+    const ruleProblem = ruleProblemOf(body);
+    if (ruleProblem !== null) return fail('bad_request', ruleProblem);
     if (!isLabelBody(body)) {
       return fail(
         'bad_request',
@@ -561,11 +564,23 @@ async function labelRoutes(
   if (method === 'DELETE')
     return (await labels.remove(kind, id)) ? { status: 204 } : fail('not_found');
   const patch = parseJson<unknown>(request.body);
+  const ruleProblem = ruleProblemOf(patch);
+  if (ruleProblem !== null) return fail('bad_request', ruleProblem);
   if (!isLabelPatch(patch)) {
-    return fail('bad_request', 'body may hold only "name" and, for a tag, "colour"');
+    return fail(
+      'bad_request',
+      'body may hold only "name", "matching" and, for a tag, "colour" and "inbox"',
+    );
   }
   const updated = await labels.update(kind, id, patch);
   return updated.ok ? { status: 200, json: updated.value } : labelRefusal(updated);
+}
+
+/** What is wrong with the rule a label body carries, if it carries one. */
+function ruleProblemOf(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const rule = (body as Record<string, unknown>)['matching'];
+  return rule === undefined ? null : matchingRuleProblem(rule);
 }
 
 function labelRefusal(reason: LabelRefusal): IngestResponse {

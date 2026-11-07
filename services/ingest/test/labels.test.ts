@@ -208,3 +208,34 @@ suite('deleting', () => {
     expect(field?.value).toBeNull();
   });
 });
+
+suite('matching rules and the inbox tag', () => {
+  it('keeps a rule and the inbox flag, and every label starts out matching nothing', async () => {
+    expect((await byName('tag', 'home')).matching).toEqual({
+      algorithm: 'none',
+      pattern: '',
+      caseSensitive: false,
+    });
+    const made = await labels.create('tag', {
+      name: 'new',
+      inbox: true,
+      matching: { algorithm: 'any', pattern: 'a b', caseSensitive: true },
+    });
+    expect(made.ok && made.value).toMatchObject({
+      inbox: true,
+      matching: { algorithm: 'any', pattern: 'a b', caseSensitive: true },
+    });
+    const acme = await byName('correspondent', 'ACME');
+    const changed = await labels.update('correspondent', acme.id, {
+      matching: { algorithm: 'exact', pattern: 'ACME Ltd', caseSensitive: false },
+    });
+    expect(changed.ok && changed.value.matching.algorithm).toBe('exact');
+  });
+
+  it('marks the inbox with tags only', async () => {
+    const acme = await byName('correspondent', 'ACME');
+    expect(await labels.update('correspondent', acme.id, { inbox: true })).toMatchObject({
+      kind: 'invalid',
+    });
+  });
+});

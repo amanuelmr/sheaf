@@ -281,6 +281,18 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'label_colours',
     statements: ['ALTER TABLE names ADD COLUMN colour TEXT'],
   },
+  {
+    // How each label finds its own documents, and which tags mark a new document as
+    // not yet looked at. Every existing label starts out matching nothing.
+    id: 13,
+    name: 'label_matching',
+    statements: [
+      `ALTER TABLE names ADD COLUMN match_algorithm TEXT NOT NULL DEFAULT 'none'`,
+      `ALTER TABLE names ADD COLUMN match_pattern TEXT NOT NULL DEFAULT ''`,
+      'ALTER TABLE names ADD COLUMN match_case INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE names ADD COLUMN inbox INTEGER NOT NULL DEFAULT 0',
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
