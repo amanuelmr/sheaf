@@ -232,6 +232,7 @@ if (consumeDir !== undefined && consumeDir !== '') {
   mkdirSync(consumeDir, { recursive: true });
   const consume = new ConsumeFolder(storage, consumeDir, {
     subdirsAsTags: process.env['SHEAF_CONSUME_SUBDIRS_AS_TAGS'] === 'true',
+    doubleSided: process.env['SHEAF_CONSUME_DOUBLE_SIDED_DIR'] ?? 'double-sided',
     now: () => Date.now(),
   });
   let consuming = false;

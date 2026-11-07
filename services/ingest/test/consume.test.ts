@@ -70,3 +70,47 @@ suite('the consume folder', () => {
     expect((await storage.fields(sha)).find((f) => f.name === 'tags')).toBeUndefined();
   });
 });
+
+suite('double-sided scans', () => {
+  it('pairs the fronts with the backs that follow, in reading order', async () => {
+    const { labelled, names } = await import('./pdf-helpers');
+    const consume = new ConsumeFolder(storage, dir, {
+      subdirsAsTags: true,
+      doubleSided: 'double-sided',
+      now: () => NOW,
+    });
+    mkdirSync(join(dir, 'double-sided', 'tax'), { recursive: true });
+    writeFileSync(join(dir, 'double-sided', 'tax', 'fronts.pdf'), await labelled('1', '3'));
+    await consume.tick();
+    expect(await consume.tick()).toEqual({ stored: 0, duplicates: 0, failed: 0 });
+    expect(await storage.count()).toBe(0);
+
+    writeFileSync(join(dir, 'double-sided', 'tax', 'backs.pdf'), await labelled('4', '2'));
+    await consume.tick();
+    expect(await consume.tick()).toEqual({ stored: 1, duplicates: 0, failed: 0 });
+    const [doc] = await storage.list();
+    expect(await names(storage.bytes(doc!.sha256)!)).toEqual(['1', '2', '3', '4']);
+    expect(doc?.tags).toEqual(['tax']);
+    expect(readdirSync(join(dir, 'double-sided'))).toEqual(['tax']);
+  });
+
+  it('moves a pair that does not match to failed/', async () => {
+    const { labelled } = await import('./pdf-helpers');
+    const consume = new ConsumeFolder(storage, dir, {
+      subdirsAsTags: false,
+      doubleSided: 'double-sided',
+      now: () => NOW,
+    });
+    mkdirSync(join(dir, 'double-sided'));
+    writeFileSync(join(dir, 'double-sided', 'a.pdf'), await labelled('1', '3'));
+    await consume.tick();
+    await consume.tick();
+    writeFileSync(join(dir, 'double-sided', 'b.pdf'), await labelled('2'));
+    await consume.tick();
+    expect(await consume.tick()).toEqual({ stored: 0, duplicates: 0, failed: 1 });
+    expect(readdirSync(join(dir, 'failed')).sort()).toEqual([
+      `${String(NOW)}-fronts.pdf`,
+      'double-sided',
+    ]);
+  });
+});

@@ -1,11 +1,25 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { MAX_DOCUMENT_BYTES } from '@sheaf/protocol';
+import { collate } from './pdf-edit.ts';
 import { sha256Hex, type Storage } from './storage.ts';
 
 export interface ConsumeOptions {
   /** Each subfolder a file sits in becomes a tag on it. */
   readonly subdirsAsTags: boolean;
+  /**
+   * A subfolder for double-sided scans from a one-sided feeder: the fronts, then
+   * the backs, as two files. Null: none.
+   */
+  readonly doubleSided?: string | null;
   now(): number;
 }
 
@@ -17,6 +31,11 @@ export interface ConsumeResult {
 
 /** Where files that cannot be taken in are moved, inside the folder itself. */
 export const FAILED_DIR = 'failed';
+
+/** Where the fronts of a double-sided scan wait for their backs, hidden from the folder walk. */
+const FRONTS = '.fronts.pdf';
+/** Fronts older than this are taken to be abandoned: the next file starts a new pair. */
+const PAIR_WINDOW_MS = 30 * 60_000;
 
 /**
  * Takes in PDFs dropped into a folder, as a scanner or a sync tool would leave them.
@@ -58,13 +77,16 @@ export class ConsumeFolder {
       const outcome = await this.#take(path, size);
       if (outcome === 'stored') stored++;
       else if (outcome === 'already-stored') duplicates++;
-      else failed++;
+      else if (outcome === 'failed') failed++;
     }
     this.#sizes = sizes;
     return { stored, duplicates, failed };
   }
 
-  async #take(path: string, size: number): Promise<'stored' | 'already-stored' | 'failed'> {
+  async #take(
+    path: string,
+    size: number,
+  ): Promise<'stored' | 'already-stored' | 'failed' | 'waiting'> {
     if (size === 0 || size > MAX_DOCUMENT_BYTES || !path.toLowerCase().endsWith('.pdf')) {
       this.#fail(path);
       return 'failed';
@@ -74,16 +96,52 @@ export class ConsumeFolder {
       this.#fail(path);
       return 'failed';
     }
-    const sha256 = sha256Hex(bytes);
-    const outcome = await this.#storage.put(sha256, bytes, this.#options.now(), null);
-    if (this.#options.subdirsAsTags) {
-      const folders = relative(this.#dir, dirname(path))
-        .split(sep)
-        .filter((part) => part !== '');
-      if (folders.length > 0) await this.#storage.addTags(sha256, folders);
+    let folders = relative(this.#dir, dirname(path))
+      .split(sep)
+      .filter((part) => part !== '');
+    let document: Uint8Array = bytes;
+    const doubleSided = this.#options.doubleSided ?? null;
+    if (doubleSided !== null && folders[0] === doubleSided) {
+      const paired = await this.#pair(path, bytes);
+      if (paired === 'waiting') return 'waiting';
+      if (paired === 'failed') return 'failed';
+      document = paired;
+      folders = folders.slice(1);
     }
-    unlinkSync(path);
+    const sha256 = sha256Hex(document);
+    const outcome = await this.#storage.put(sha256, document, this.#options.now(), null);
+    if (this.#options.subdirsAsTags && folders.length > 0) {
+      await this.#storage.addTags(sha256, folders);
+    }
+    if (existsSync(path)) unlinkSync(path);
     return outcome;
+  }
+
+  /**
+   * The first file of a pair waits as the fronts; the second is the backs, and the
+   * two become one document. Fronts left waiting too long are replaced.
+   */
+  async #pair(path: string, bytes: Uint8Array): Promise<Uint8Array | 'waiting' | 'failed'> {
+    const fronts = join(this.#dir, this.#options.doubleSided!, FRONTS);
+    const waiting =
+      existsSync(fronts) && this.#options.now() - statSync(fronts).mtimeMs < PAIR_WINDOW_MS;
+    if (!waiting) {
+      mkdirSync(dirname(fronts), { recursive: true });
+      renameSync(path, fronts);
+      return 'waiting';
+    }
+    try {
+      const document = await collate(new Uint8Array(readFileSync(fronts)), bytes);
+      unlinkSync(fronts);
+      return document;
+    } catch {
+      // Not a pair: both go where a person will look, and the next file starts afresh.
+      this.#fail(path);
+      const target = join(this.#dir, FAILED_DIR, `${String(this.#options.now())}-fronts.pdf`);
+      mkdirSync(dirname(target), { recursive: true });
+      renameSync(fronts, target);
+      return 'failed';
+    }
   }
 
   #fail(path: string): void {
