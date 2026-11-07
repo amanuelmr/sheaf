@@ -21,6 +21,8 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type DocumentPermissions,
+  type UserDirectoryResponse,
   type SettingsResponse,
   type NewDocumentsResponse,
   type PageCountResponse,
@@ -124,6 +126,11 @@ export function api(connection: Connection) {
     settings: () => call<SettingsResponse>('GET', paths.settings()),
     updateSettings: (patch: object) => call<SettingsResponse>('PATCH', paths.settings(), patch),
     me: () => call<Me>('GET', paths.me()),
+    userDirectory: () => call<UserDirectoryResponse>('GET', paths.userDirectory()),
+    permissions: (sha256: string) =>
+      call<DocumentPermissions>('GET', paths.documentPermissions(sha256)),
+    setPermissions: (sha256: string, permissions: DocumentPermissions) =>
+      call<DocumentPermissions>('PUT', paths.documentPermissions(sha256), permissions),
     signOut: () => call<undefined>('DELETE', paths.currentSession()),
     users: () => call<UsersResponse>('GET', paths.users()),
     createUser: (body: UserBody) => call<User>('POST', paths.users(), body),

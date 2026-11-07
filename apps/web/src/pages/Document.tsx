@@ -9,6 +9,7 @@ import { DocumentDetails } from './DocumentDetails';
 import { Notes } from './Notes';
 import { Share } from './Share';
 import { Pages } from './Pages';
+import { Access } from './Access';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -174,6 +175,8 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         ) : null}
 
         {record.trashedAt === undefined ? <Share api={api} sha256={sha256} /> : null}
+
+        <Access api={api} sha256={sha256} />
 
         <h2>History</h2>
         <ol className="timeline">
