@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api as makeApi, signIn, type Api } from './api';
-import type { Role } from '@sheaf/protocol';
+import { paths, type Role, type SsoResponse } from '@sheaf/protocol';
 import {
   clearConnection,
   loadConnection,
@@ -20,8 +20,30 @@ import { System } from './pages/System';
 import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
 
+/**
+ * Back from single sign-on: the server put a session token and its own address in
+ * the fragment. Keep them like any connection, and take them out of the address
+ * bar and the history at once.
+ */
+function fromSingleSignOn(): Connection | null {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const token = params.get('sso');
+  const server = params.get('server');
+  if (token === null || server === null || !/^https?:\/\//.test(server)) return null;
+  const connection: Connection = { baseUrl: server, token };
+  saveConnection(connection);
+  window.history.replaceState(
+    null,
+    '',
+    `${window.location.pathname}${window.location.search}#/search`,
+  );
+  return connection;
+}
+
 export default function App() {
-  const [connection, setConnection] = useState<Connection | null>(() => loadConnection());
+  const [connection, setConnection] = useState<Connection | null>(
+    () => fromSingleSignOn() ?? loadConnection(),
+  );
   if (connection === null) return <ConnectScreen onConnect={setConnection} />;
   return (
     <Shell
@@ -132,6 +154,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
         )}
         {error === null ? null : <p className="error">{error}</p>}
         <button type="submit">Connect</button>
+        <SingleSignOn baseUrl={baseUrl} />
         <p className="muted small">The token is forgotten when you close this tab.</p>
       </form>
     </div>
@@ -246,4 +269,33 @@ function useInboxCount(api: Api, route: Route): number {
     return () => window.removeEventListener(INBOX_CHANGED, refresh);
   }, [api, route]);
   return count;
+}
+
+/** "Sign in with …", when the server at the address typed offers single sign-on. */
+function SingleSignOn({ baseUrl }: { baseUrl: string }) {
+  const [provider, setProvider] = useState<string | null>(null);
+  const server = baseUrl.trim().replace(/\/+$/, '');
+  useEffect(() => {
+    setProvider(null);
+    if (!/^https?:\/\/./.test(server)) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      void fetch(new URL(paths.sso(), server).toString())
+        .then((response) => (response.ok ? (response.json() as Promise<SsoResponse>) : null))
+        .then((sso) => {
+          if (current && sso?.enabled === true) setProvider(sso.name ?? 'single sign-on');
+        })
+        .catch(() => undefined);
+    }, 400);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [server]);
+  if (provider === null) return null;
+  return (
+    <a className="button secondary" href={new URL(paths.ssoStart(), server).toString()}>
+      Sign in with {provider}
+    </a>
+  );
 }
