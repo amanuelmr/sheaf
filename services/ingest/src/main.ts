@@ -17,6 +17,8 @@ import { Labels } from './labels.ts';
 import { Rules } from './rules.ts';
 import { BulkEditor } from './bulk.ts';
 import { ConsumeFolder } from './consume.ts';
+import { MailFetcher } from './mail.ts';
+import { connect as tlsConnect } from 'node:tls';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
 import { SavedViews } from './views.ts';
@@ -247,6 +249,65 @@ if (consumeDir !== undefined && consumeDir !== '') {
       });
   }, 5_000);
   log.info(`consume: taking in PDFs from ${consumeDir}`);
+}
+
+// PDFs attached to unread mail, when SHEAF_MAIL_HOST is set. TLS only (port 993):
+// a mail password is not sent in the clear.
+const mailHost = process.env['SHEAF_MAIL_HOST'];
+if (mailHost !== undefined && mailHost !== '') {
+  const user = process.env['SHEAF_MAIL_USER'] ?? '';
+  const password = process.env['SHEAF_MAIL_PASSWORD'] ?? '';
+  const after = process.env['SHEAF_MAIL_AFTER'] ?? 'seen';
+  const mailPort = Number(process.env['SHEAF_MAIL_PORT'] ?? 993);
+  const minutes = Number(process.env['SHEAF_MAIL_INTERVAL_MINUTES'] ?? 5);
+  if (
+    user === '' ||
+    password === '' ||
+    (after !== 'seen' && after !== 'delete') ||
+    !Number.isInteger(mailPort) ||
+    !(minutes >= 1)
+  ) {
+    log.error(
+      'mail: SHEAF_MAIL_USER and SHEAF_MAIL_PASSWORD are required, SHEAF_MAIL_AFTER must be seen or delete, and SHEAF_MAIL_INTERVAL_MINUTES at least 1',
+    );
+    process.exit(1);
+  }
+  const mail = new MailFetcher(storage, {
+    user,
+    password,
+    folder: process.env['SHEAF_MAIL_FOLDER'] ?? 'INBOX',
+    after,
+    tag: process.env['SHEAF_MAIL_TAG'] ?? null,
+    connect: () =>
+      new Promise((resolve, reject) => {
+        const socket = tlsConnect({ host: mailHost, port: mailPort, servername: mailHost }, () =>
+          resolve(socket),
+        );
+        socket.once('error', reject);
+      }),
+    now: () => Date.now(),
+  });
+  let fetchingMail = false;
+  const fetchMail = () => {
+    if (fetchingMail) return;
+    fetchingMail = true;
+    void mail
+      .tick()
+      .then(({ messages, stored, duplicates, failed }) => {
+        if (messages > 0) {
+          log.info(
+            `mail: ${String(messages)} message(s); ${String(stored)} stored, ${String(duplicates)} already here, ${String(failed)} failed`,
+          );
+        }
+      })
+      .catch((error: unknown) => log.error('reading mail failed', { error: String(error) }))
+      .finally(() => {
+        fetchingMail = false;
+      });
+  };
+  fetchMail();
+  setInterval(fetchMail, minutes * 60_000);
+  log.info(`mail: taking in PDFs from ${user} on ${mailHost} every ${String(minutes)} minute(s)`);
 }
 
 if (paperlessClient !== null && vocabulary !== null) {

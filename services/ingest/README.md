@@ -38,6 +38,12 @@ missing prompt fails silently, and looks exactly like a server that is down.
 | `SHEAF_FILENAME_FORMAT`         | `{{created_year}}/{{correspondent}}/{{title}}` | How exported files are named; see "Export and import".                                                                         |
 | `SHEAF_CONSUME_DIR`             | unset                                          | A folder to take PDFs in from. Each is stored once it stops growing, then removed; anything else moves to `failed/` inside it. |
 | `SHEAF_CONSUME_SUBDIRS_AS_TAGS` | `false`                                        | `true`: the subfolders a file was dropped in become tags on it.                                                                |
+| `SHEAF_MAIL_HOST`               | unset                                          | An IMAP server to take PDF attachments from, over TLS. Needs `SHEAF_MAIL_USER` and `SHEAF_MAIL_PASSWORD`.                      |
+| `SHEAF_MAIL_PORT`               | `993`                                          |                                                                                                                                |
+| `SHEAF_MAIL_FOLDER`             | `INBOX`                                        | Only unread mail in it is read.                                                                                                |
+| `SHEAF_MAIL_AFTER`              | `seen`                                         | `seen` marks mail read once its PDFs are stored; `delete` deletes it. Mail with no PDF is marked read either way.              |
+| `SHEAF_MAIL_TAG`                | unset                                          | A tag for every document that came by mail.                                                                                    |
+| `SHEAF_MAIL_INTERVAL_MINUTES`   | `5`                                            | How often to look.                                                                                                             |
 
 There is no default token on purpose. A server holding someone's documents should
 not come up guessable, so it would rather not come up at all.
