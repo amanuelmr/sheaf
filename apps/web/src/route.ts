@@ -10,6 +10,7 @@ export type Route =
   | { readonly page: 'fields' }
   | { readonly page: 'labels' }
   | { readonly page: 'workflows' }
+  | { readonly page: 'users' }
   | { readonly page: 'system' };
 
 /**
@@ -36,6 +37,7 @@ export function parse(hash: string): Route {
     page === 'fields' ||
     page === 'labels' ||
     page === 'workflows' ||
+    page === 'users' ||
     page === 'system'
   ) {
     return { page };

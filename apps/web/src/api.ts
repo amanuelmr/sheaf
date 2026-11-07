@@ -21,6 +21,12 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type Me,
+  type SessionResponse,
+  type User,
+  type UserBody,
+  type UserPatch,
+  type UsersResponse,
   type Workflow,
   type WorkflowBody,
   type WorkflowsResponse,
@@ -104,6 +110,12 @@ export function api(connection: Connection) {
     replaceWorkflow: (id: number, body: WorkflowBody) =>
       call<Workflow>('PUT', paths.workflow(id), body),
     deleteWorkflow: (id: number) => call<undefined>('DELETE', paths.workflow(id)),
+    me: () => call<Me>('GET', paths.me()),
+    signOut: () => call<undefined>('DELETE', paths.currentSession()),
+    users: () => call<UsersResponse>('GET', paths.users()),
+    createUser: (body: UserBody) => call<User>('POST', paths.users(), body),
+    updateUser: (id: number, patch: UserPatch) => call<User>('PATCH', paths.user(id), patch),
+    deleteUser: (id: number) => call<undefined>('DELETE', paths.user(id)),
     nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
@@ -174,6 +186,25 @@ export function api(connection: Connection) {
 }
 
 export type Api = ReturnType<typeof api>;
+
+/** Trade a username and password for a session token. Needs no token itself. */
+export async function signIn(
+  baseUrl: string,
+  username: string,
+  password: string,
+): Promise<Result<SessionResponse>> {
+  try {
+    const response = await fetch(new URL(paths.sessions(), baseUrl).toString(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) return { ok: false, message: await explain(response) };
+    return { ok: true, value: (await response.json()) as SessionResponse };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 async function explain(response: Response): Promise<string> {
   try {
