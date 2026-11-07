@@ -722,6 +722,9 @@ export type MatchingAlgorithm = (typeof MATCHING_ALGORITHMS)[number];
 
 export const MAX_MATCH_PATTERN = 512;
 
+/** Fuzzy matching costs time in proportion to the pattern's length, so it is kept short. */
+export const MAX_FUZZY_PATTERN = 64;
+
 export interface MatchingRule {
   readonly algorithm: MatchingAlgorithm;
   /** Empty for `none`. */
@@ -802,6 +805,9 @@ export function matchingRuleProblem(value: unknown): string | null {
   if (typeof rule['caseSensitive'] !== 'boolean') return 'caseSensitive must be true or false';
   if (rule['algorithm'] === 'none') return pattern === '' ? null : 'none takes no pattern';
   if (pattern.trim() === '') return 'this algorithm needs a pattern';
+  if (rule['algorithm'] === 'fuzzy' && pattern.length > MAX_FUZZY_PATTERN) {
+    return `a fuzzy pattern is at most ${String(MAX_FUZZY_PATTERN)} characters`;
+  }
   if (rule['algorithm'] === 'regex') {
     try {
       new RegExp(pattern, 'u');
