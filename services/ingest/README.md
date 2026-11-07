@@ -28,14 +28,16 @@ iOS will not talk to a plain-HTTP address on a local network without two things 
 `NSLocalNetworkUsageDescription` so the permission prompt can explain itself. A
 missing prompt fails silently, and looks exactly like a server that is down.
 
-| Variable                | Default                                        |                                                                                                     |
-| ----------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `SHEAF_TOKEN`           | —                                              | Required. At least 16 characters; the server refuses to start without it.                           |
-| `SHEAF_DATA_DIR`        | `./.sheaf-data`                                | Documents and the metadata database.                                                                |
-| `PORT`                  | `8787`                                         |                                                                                                     |
-| `SHEAF_RETENTION_DAYS`  | unset                                          | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever. |
-| `SHEAF_TRASH_DAYS`      | `30`                                           | Days a deleted document waits in the trash before it is deleted for good. At least 1.               |
-| `SHEAF_FILENAME_FORMAT` | `{{created_year}}/{{correspondent}}/{{title}}` | How exported files are named; see "Export and import".                                              |
+| Variable                        | Default                                        |                                                                                                                                |
+| ------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `SHEAF_TOKEN`                   | —                                              | Required. At least 16 characters; the server refuses to start without it.                                                      |
+| `SHEAF_DATA_DIR`                | `./.sheaf-data`                                | Documents and the metadata database.                                                                                           |
+| `PORT`                          | `8787`                                         |                                                                                                                                |
+| `SHEAF_RETENTION_DAYS`          | unset                                          | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever.                            |
+| `SHEAF_TRASH_DAYS`              | `30`                                           | Days a deleted document waits in the trash before it is deleted for good. At least 1.                                          |
+| `SHEAF_FILENAME_FORMAT`         | `{{created_year}}/{{correspondent}}/{{title}}` | How exported files are named; see "Export and import".                                                                         |
+| `SHEAF_CONSUME_DIR`             | unset                                          | A folder to take PDFs in from. Each is stored once it stops growing, then removed; anything else moves to `failed/` inside it. |
+| `SHEAF_CONSUME_SUBDIRS_AS_TAGS` | `false`                                        | `true`: the subfolders a file was dropped in become tags on it.                                                                |
 
 There is no default token on purpose. A server holding someone's documents should
 not come up guessable, so it would rather not come up at all.

@@ -869,6 +869,26 @@ export class Storage {
     });
   }
 
+  /**
+   * Add tags without recording them as a person's choice, the way a consume
+   * folder's subfolders do: rules may still add more. Answers the tags now there.
+   */
+  async addTags(sha256: string, tags: readonly string[]): Promise<readonly string[] | null> {
+    const record = await this.record(sha256);
+    if (record === null) return null;
+    const next = [...new Set([...record.tags, ...tags])];
+    if (next.length === record.tags.length) return record.tags;
+    await this.#driver.transaction(async () => {
+      await this.#driver.run('UPDATE documents SET tags = ? WHERE sha256 = ?', [
+        JSON.stringify(next),
+        sha256,
+      ]);
+      for (const tag of tags) await this.#addName('tag', tag);
+      await this.reindex(sha256);
+    });
+    return next;
+  }
+
   /** One more than the highest archive serial number in use, trash included. */
   async nextAsn(): Promise<number> {
     const rows = await this.#driver.all<{ n: number | null }>(

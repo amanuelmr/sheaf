@@ -16,6 +16,7 @@ import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
 import { Rules } from './rules.ts';
 import { BulkEditor } from './bulk.ts';
+import { ConsumeFolder } from './consume.ts';
 import { ShareLinks } from './share-links.ts';
 import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
@@ -210,6 +211,37 @@ setInterval(() => {
     });
 }, 60_000);
 log.info(`trash: deleted documents are kept ${String(trashDays)} day(s)`);
+
+// A folder a scanner or sync tool drops PDFs into, when SHEAF_CONSUME_DIR is set.
+const consumeDir = process.env['SHEAF_CONSUME_DIR'];
+if (consumeDir !== undefined && consumeDir !== '') {
+  mkdirSync(consumeDir, { recursive: true });
+  const consume = new ConsumeFolder(storage, consumeDir, {
+    subdirsAsTags: process.env['SHEAF_CONSUME_SUBDIRS_AS_TAGS'] === 'true',
+    now: () => Date.now(),
+  });
+  let consuming = false;
+  setInterval(() => {
+    if (consuming) return;
+    consuming = true;
+    void consume
+      .tick()
+      .then(({ stored, duplicates, failed }) => {
+        if (stored + duplicates + failed > 0) {
+          log.info(
+            `consume: ${String(stored)} stored, ${String(duplicates)} already here, ${String(failed)} moved to failed/`,
+          );
+        }
+      })
+      .catch((error: unknown) =>
+        log.error('reading the consume folder failed', { error: String(error) }),
+      )
+      .finally(() => {
+        consuming = false;
+      });
+  }, 5_000);
+  log.info(`consume: taking in PDFs from ${consumeDir}`);
+}
 
 if (paperlessClient !== null && vocabulary !== null) {
   const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {
