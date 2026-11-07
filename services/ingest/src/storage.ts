@@ -251,7 +251,12 @@ export class Storage {
     /** The paired phone that sent it, or null for the admin token. */
     deviceId: string | null = null,
   ): Promise<PutOutcome> {
-    if (await this.has(sha256)) return 'already-stored';
+    if (await this.has(sha256)) {
+      // Sending a document again is asking to keep it. One in the trash comes back
+      // rather than being counted as synced and then deleted when the trash expires.
+      await this.restore([sha256]);
+      return 'already-stored';
+    }
 
     const target = this.pathFor(sha256);
     mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });

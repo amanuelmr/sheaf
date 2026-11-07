@@ -106,6 +106,17 @@ suite('restoring', () => {
   });
 });
 
+suite('uploading a trashed document again', () => {
+  it('takes it back out of the trash, so it is not deleted when the trash expires', async () => {
+    await storage.trash(hashA, NOW + 10);
+    expect(await storage.put(hashA, A, NOW + 20, 1)).toBe('already-stored');
+
+    expect((await storage.record(hashA))?.trashedAt).toBeUndefined();
+    expect(await find('cinema')).toEqual([hashA]);
+    expect(await storage.dueForPurge(NOW + 1000 * DAY, DAY)).toEqual([]);
+  });
+});
+
 suite('deleting for good', () => {
   it('removes the file and every row, but only for a trashed document', async () => {
     await storage.addNote(hashA, 'a note', null, NOW);
