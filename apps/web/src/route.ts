@@ -6,11 +6,12 @@ export type Route =
   | { readonly page: 'inbox' }
   | { readonly page: 'devices' }
   | { readonly page: 'trash' }
+  | { readonly page: 'fields' }
   | { readonly page: 'system' };
 
 /**
  * Hash routes: `#/search`, `#/doc/<sha256>`, `#/inbox`, `#/devices`, `#/trash`,
- * `#/system`. A handful of pages do not need a router library, and a hash works when the app is served
+ * `#/fields`, `#/system`. A handful of pages do not need a router library, and a hash works when the app is served
  * from any path or opened as a file.
  */
 export function parse(hash: string): Route {
@@ -18,7 +19,13 @@ export function parse(hash: string): Route {
   if (page === 'doc' && param !== undefined && /^[0-9a-f]{64}$/.test(param)) {
     return { page: 'document', sha256: param };
   }
-  if (page === 'inbox' || page === 'devices' || page === 'trash' || page === 'system') {
+  if (
+    page === 'inbox' ||
+    page === 'devices' ||
+    page === 'trash' ||
+    page === 'fields' ||
+    page === 'system'
+  ) {
     return { page };
   }
   return { page: 'search' };

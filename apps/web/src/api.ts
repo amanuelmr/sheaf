@@ -1,6 +1,13 @@
 import {
   authorization,
   paths,
+  type CustomField,
+  type CustomFieldBody,
+  type CustomFieldPatch,
+  type CustomFieldValue,
+  type CustomFieldValuesBody,
+  type CustomFieldsResponse,
+  type DocumentCustomFieldsResponse,
   type DevicesResponse,
   type DocumentPatch,
   type DocumentRecord,
@@ -82,6 +89,18 @@ export function api(connection: Connection) {
         paths.trashEmpty(),
         (documents === undefined ? {} : { documents }) satisfies TrashActionBody,
       ),
+    customFields: () => call<CustomFieldsResponse>('GET', paths.customFields()),
+    createCustomField: (body: CustomFieldBody) =>
+      call<CustomField>('POST', paths.customFields(), body),
+    updateCustomField: (id: number, patch: CustomFieldPatch) =>
+      call<CustomField>('PATCH', paths.customField(id), patch),
+    deleteCustomField: (id: number) => call<undefined>('DELETE', paths.customField(id)),
+    documentCustomFields: (sha256: string) =>
+      call<DocumentCustomFieldsResponse>('GET', paths.documentCustomFields(sha256)),
+    setDocumentCustomFields: (sha256: string, values: readonly CustomFieldValue[]) =>
+      call<DocumentCustomFieldsResponse>('PUT', paths.documentCustomFields(sha256), {
+        values,
+      } satisfies CustomFieldValuesBody),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
