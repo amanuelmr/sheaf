@@ -15,6 +15,11 @@ import {
   type HealthResponse,
   type HistoryResponse,
   type InboxResponse,
+  type Label,
+  type LabelBody,
+  type LabelKind,
+  type LabelPatch,
+  type LabelsResponse,
   type Note,
   type NoteBody,
   type NotesResponse,
@@ -101,6 +106,14 @@ export function api(connection: Connection) {
       call<DocumentCustomFieldsResponse>('PUT', paths.documentCustomFields(sha256), {
         values,
       } satisfies CustomFieldValuesBody),
+    labels: (kind: LabelKind) => call<LabelsResponse>('GET', paths.labels(kind)),
+    createLabel: (kind: LabelKind, body: LabelBody) =>
+      call<Label>('POST', paths.labels(kind), body),
+    updateLabel: (kind: LabelKind, id: number, patch: LabelPatch) =>
+      call<Label>('PATCH', paths.label(kind, id), patch),
+    mergeLabel: (kind: LabelKind, id: number, into: number) =>
+      call<Label>('POST', paths.labelMerge(kind, id), { into }),
+    deleteLabel: (kind: LabelKind, id: number) => call<undefined>('DELETE', paths.label(kind, id)),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
