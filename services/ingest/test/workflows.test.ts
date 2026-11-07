@@ -172,6 +172,6 @@ suite('workflows', () => {
         body({ conditions: { text: { algorithm: 'none', pattern: '', caseSensitive: false } } }),
       ),
     ).toMatch(/leave it out/);
-    expect(workflowProblem({ ...body({}), trigger: 'scheduled' })).toMatch(/trigger/);
+    expect(workflowProblem({ ...body({}), trigger: 'monthly' })).toMatch(/trigger/);
   });
 });
