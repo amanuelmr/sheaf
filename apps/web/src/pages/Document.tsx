@@ -8,6 +8,7 @@ import { DocumentFields } from './DocumentFields';
 import { DocumentDetails } from './DocumentDetails';
 import { Notes } from './Notes';
 import { Share } from './Share';
+import { Pages } from './Pages';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -167,6 +168,10 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             })
           }
         />
+
+        {record.trashedAt === undefined && !record.bytesReleased ? (
+          <Pages api={api} sha256={sha256} />
+        ) : null}
 
         {record.trashedAt === undefined ? <Share api={api} sha256={sha256} /> : null}
 

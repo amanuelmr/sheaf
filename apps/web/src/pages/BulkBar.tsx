@@ -3,7 +3,13 @@ import type { BulkAction, Label, LabelKind, SearchHit } from '@sheaf/protocol';
 import type { Api } from '../api';
 
 type Choice =
-  'setCorrespondent' | 'setDocumentType' | 'addTag' | 'removeTag' | 'applyRules' | 'trash';
+  | 'setCorrespondent'
+  | 'setDocumentType'
+  | 'addTag'
+  | 'removeTag'
+  | 'applyRules'
+  | 'merge'
+  | 'trash';
 
 const CHOICES: readonly { value: Choice; text: string }[] = [
   { value: 'addTag', text: 'Add a tag' },
@@ -11,6 +17,7 @@ const CHOICES: readonly { value: Choice; text: string }[] = [
   { value: 'setCorrespondent', text: 'Set the correspondent' },
   { value: 'setDocumentType', text: 'Set the document type' },
   { value: 'applyRules', text: 'File by the label rules' },
+  { value: 'merge', text: 'Merge into one document' },
   { value: 'trash', text: 'Move to the trash' },
 ];
 
@@ -28,6 +35,9 @@ export function bulkAction(choice: Choice, value: string): BulkAction | null {
       return name === '' ? null : { kind: 'modifyTags', add: [], remove: [name] };
     case 'applyRules':
       return { kind: 'applyRules' };
+    case 'merge':
+      // Not a bulk edit: the bar sends it to the merge route instead.
+      return null;
     case 'trash':
       return { kind: 'trash' };
   }
@@ -62,11 +72,24 @@ export function BulkBar({
         : choice === 'setDocumentType'
           ? labels.documentType
           : labels.tag;
-  const needsValue = choice !== 'applyRules' && choice !== 'trash';
+  const needsValue = choice !== 'applyRules' && choice !== 'trash' && choice !== 'merge';
   const action = bulkAction(choice, value);
 
   const run = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (choice === 'merge') {
+      // In the order shown, which is the order a person reads them in.
+      const ordered = hits.map((hit) => hit.sha256).filter((sha) => selected.has(sha));
+      const merged = await api.merge(ordered, false);
+      if (!merged.ok) {
+        setMessage({ ok: false, text: merged.message });
+        return;
+      }
+      setSelected(new Set());
+      onDone();
+      window.location.hash = `#/doc/${merged.value.sha256}`;
+      return;
+    }
     if (action === null) return;
     const result = await api.bulkEdit([...selected], action);
     if (!result.ok) {
@@ -134,7 +157,7 @@ export function BulkBar({
           <button
             type="submit"
             className={choice === 'trash' ? 'danger' : undefined}
-            disabled={action === null}
+            disabled={choice === 'merge' ? selected.size < 2 : action === null}
           >
             Apply to {String(selected.size)}
           </button>

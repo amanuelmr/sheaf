@@ -801,3 +801,28 @@ h2 .count {
 nav {
   flex-wrap: wrap;
 }
+
+.page-rows {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+
+.page-rows li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-rows li.removed span:first-child {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.page-rows .actions button.secondary {
+  min-width: 40px;
+}

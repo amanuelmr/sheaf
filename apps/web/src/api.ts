@@ -21,6 +21,10 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type NewDocumentsResponse,
+  type PageCountResponse,
+  type PageSpec,
+  type VersionsResponse,
   type AuditResponse,
   type Me,
   type SessionResponse,
@@ -122,6 +126,28 @@ export function api(connection: Connection) {
     createUser: (body: UserBody) => call<User>('POST', paths.users(), body),
     updateUser: (id: number, patch: UserPatch) => call<User>('PATCH', paths.user(id), patch),
     deleteUser: (id: number) => call<undefined>('DELETE', paths.user(id)),
+    pageCount: (sha256: string) => call<PageCountResponse>('GET', paths.documentPages(sha256)),
+    editPages: (sha256: string, pages: readonly PageSpec[]) =>
+      call<DocumentRecord>('POST', paths.documentPages(sha256), { pages }),
+    split: (sha256: string, parts: readonly (readonly number[])[], keepOriginal: boolean) =>
+      call<NewDocumentsResponse>('POST', paths.documentSplit(sha256), { parts, keepOriginal }),
+    merge: (documents: readonly string[], keepOriginals: boolean) =>
+      call<DocumentRecord>('POST', paths.mergeDocuments(), { documents, keepOriginals }),
+    versions: (sha256: string) => call<VersionsResponse>('GET', paths.documentVersions(sha256)),
+    restoreVersion: (sha256: string, version: string) =>
+      call<DocumentRecord>('POST', paths.restoreVersion(sha256, version)),
+    /** An earlier file as an object URL; revoke it when done. */
+    versionPdf: async (sha256: string, version: string): Promise<Result<string>> => {
+      try {
+        const response = await fetch(url(paths.documentVersion(sha256, version)), {
+          headers: headers(),
+        });
+        if (!response.ok) return { ok: false, message: await explain(response) };
+        return { ok: true, value: URL.createObjectURL(await response.blob()) };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
     nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
