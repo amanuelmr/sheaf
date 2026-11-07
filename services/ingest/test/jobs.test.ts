@@ -265,6 +265,28 @@ suite('JobRunner and the trash', () => {
     expect(await stateOf('extract')).toBeUndefined();
   });
 
+  it('does not let queued work for trashed documents crowd out everyone else', async () => {
+    const step = fakeStep('extract');
+    const later = doc('later');
+    // More trashed documents with pending work than one tick takes.
+    for (let i = 0; i < 25; i++) {
+      const bytes = doc(`trashed-${String(i)}`);
+      const hash = sha256Hex(bytes);
+      await storage.put(hash, bytes, clock - 1_000, 1);
+      await driver.run(
+        `INSERT INTO jobs (sha256, step, version, state, attempts, created_at)
+         VALUES (?, 'extract', 1, 'pending', 0, ?)`,
+        [hash, clock - 1_000],
+      );
+      await storage.trash(hash, clock);
+    }
+    await storage.put(sha256Hex(later), later, clock + 1, 1);
+
+    await runner([step]).tick();
+    expect(step.runs).toEqual(expect.arrayContaining([hashA, sha256Hex(later)]));
+    expect(step.runs).toHaveLength(2);
+  });
+
   it('leaves queued work waiting while trashed, and runs it once restored', async () => {
     const startAt = clock + 10_000;
     const step = fakeStep('extract', { notBefore: () => startAt });

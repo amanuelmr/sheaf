@@ -73,8 +73,6 @@ const FINISHED: readonly JobState[] = ['done', 'skipped', 'given_up'];
 
 /** How often a waiting job is looked at again before its start time. */
 const RECHECK_MS = 5_000;
-/** How long a job for a trashed document waits before it is looked at again. */
-const TRASHED_RECHECK_MS = 60 * 60 * 1000;
 const ENQUEUE_BATCH = 100;
 const RUN_BATCH = 20;
 
@@ -162,6 +160,9 @@ export class JobRunner {
         WHERE state = 'pending'
           AND (next_at IS NULL OR next_at <= ?)
           AND (${current})
+          -- Work for a trashed document waits, untouched, until it is restored.
+          AND NOT EXISTS (SELECT 1 FROM documents d
+                           WHERE d.sha256 = jobs.sha256 AND d.trashed_at IS NOT NULL)
         ORDER BY created_at ASC, sha256 ASC
         LIMIT ?`,
       [this.#ports.now(), ...params, RUN_BATCH],
@@ -189,15 +190,9 @@ export class JobRunner {
       await this.#finish(job, 'given_up', 'the document is no longer stored');
       return 'given_up';
     }
-    // In the trash: left pending, not run and not given up, so a restore picks it
-    // up again where it was. Restoring clears the wait (`Storage.restore`).
-    if (document.trashedAt !== undefined) {
-      await this.#driver.run(
-        'UPDATE jobs SET next_at = ? WHERE sha256 = ? AND step = ? AND version = ?',
-        [now + TRASHED_RECHECK_MS, job.sha256, job.step, job.version],
-      );
-      return 'waiting';
-    }
+    // Trashed since `#due` picked it: left exactly as it is, so a restore finds its
+    // wait and attempts unchanged.
+    if (document.trashedAt !== undefined) return 'waiting';
 
     // Whether the step applies is asked first: a step that stopped applying while it
     // waited (OCR, once the phone's text arrives) is skipped at once, so whatever

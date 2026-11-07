@@ -90,19 +90,19 @@ suite('restoring', () => {
     expect(await storage.restore([hashA, hashB, sha256Hex(pdf('nope'))])).toBe(1);
   });
 
-  it('lets work that waited in the trash go ahead at once', async () => {
+  it('leaves the wait of a job that is backing off after a failure alone', async () => {
     await driver.run(
       `INSERT INTO jobs (sha256, step, version, state, attempts, next_at, created_at)
-       VALUES (?, 'extract', 1, 'pending', 0, ?, ?)`,
+       VALUES (?, 'extract', 1, 'pending', 3, ?, ?)`,
       [hashA, NOW + DAY, NOW],
     );
     await storage.trash(hashA, NOW + 10);
     await storage.restore([hashA]);
-    const rows = await driver.all<{ next_at: number | null }>(
-      'SELECT next_at FROM jobs WHERE sha256 = ?',
+    const rows = await driver.all<{ next_at: number | null; attempts: number }>(
+      'SELECT next_at, attempts FROM jobs WHERE sha256 = ?',
       [hashA],
     );
-    expect(rows[0]?.next_at).toBeNull();
+    expect(rows[0]).toEqual({ next_at: NOW + DAY, attempts: 3 });
   });
 });
 

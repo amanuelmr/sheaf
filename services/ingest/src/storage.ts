@@ -660,11 +660,6 @@ export class Storage {
         );
         if ((trashed[0]?.n ?? 0) === 0) continue;
         await this.#driver.run('UPDATE documents SET trashed_at = NULL WHERE sha256 = ?', [sha256]);
-        // Work that waited while it was in the trash goes ahead now, not in an hour.
-        await this.#driver.run(
-          `UPDATE jobs SET next_at = NULL WHERE sha256 = ? AND state = 'pending'`,
-          [sha256],
-        );
         await this.reindex(sha256);
         restored++;
       }
