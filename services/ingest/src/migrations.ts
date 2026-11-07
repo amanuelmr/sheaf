@@ -186,6 +186,23 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE documents ADD COLUMN device_id TEXT`,
     ],
   },
+  {
+    // Notes people write on a document. Searchable along with its text, and kept
+    // apart from `fields`: a note is something said about a document, not a detail
+    // of it that extraction could ever propose.
+    id: 8,
+    name: 'notes',
+    statements: [
+      `CREATE TABLE notes (
+         id         INTEGER PRIMARY KEY,
+         sha256     TEXT    NOT NULL,
+         text       TEXT    NOT NULL,
+         device_id  TEXT,
+         created_at INTEGER NOT NULL
+       )`,
+      `CREATE INDEX notes_by_document ON notes (sha256, created_at)`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

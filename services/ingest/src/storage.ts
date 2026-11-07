@@ -13,6 +13,7 @@ import type {
   DocumentRecord,
   HistoryEvent,
   InboxEntry,
+  Note,
   PutOutcome,
   SearchHit,
   SearchResponse,
@@ -600,7 +601,71 @@ export class Storage {
     );
     for (const edit of edits)
       events.push({ at: edit.updated_at, text: `You changed: ${edit.names}` });
+    for (const note of await this.notes(sha256)) {
+      events.push({
+        at: note.createdAt,
+        text: note.author === null ? 'Note added' : `Note added from ${note.author}`,
+      });
+    }
     return events.sort((a, b) => a.at - b.at);
+  }
+
+  /**
+   * Keep a note on a document, and make it searchable in the same transaction.
+   * Returns null for a document this server does not hold.
+   */
+  async addNote(
+    sha256: string,
+    text: string,
+    deviceId: string | null,
+    now: number,
+  ): Promise<Note | null> {
+    if (!(await this.has(sha256))) return null;
+    const id = await this.#driver.transaction(async () => {
+      await this.#driver.run(
+        'INSERT INTO notes (sha256, text, device_id, created_at) VALUES (?, ?, ?, ?)',
+        [sha256, text, deviceId, now],
+      );
+      const rows = await this.#driver.all<{ id: number }>('SELECT last_insert_rowid() AS id');
+      await this.reindex(sha256);
+      return rows[0]!.id;
+    });
+    return (await this.notes(sha256)).find((note) => note.id === id) ?? null;
+  }
+
+  /** A document's notes, oldest first, each with the name of the phone that wrote it. */
+  async notes(sha256: string): Promise<readonly Note[]> {
+    const rows = await this.#driver.all<{
+      id: number;
+      text: string;
+      author: string | null;
+      created_at: number;
+    }>(
+      `SELECT n.id, n.text, v.name AS author, n.created_at FROM notes n
+         LEFT JOIN devices v ON v.id = n.device_id
+        WHERE n.sha256 = ? ORDER BY n.created_at, n.id`,
+      [sha256],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      text: row.text,
+      author: row.author,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /** Remove one note of one document. False when there is no such note on it. */
+  async deleteNote(sha256: string, id: number): Promise<boolean> {
+    return this.#driver.transaction(async () => {
+      const found = await this.#driver.all<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM notes WHERE sha256 = ? AND id = ?',
+        [sha256, id],
+      );
+      if ((found[0]?.n ?? 0) === 0) return false;
+      await this.#driver.run('DELETE FROM notes WHERE sha256 = ? AND id = ?', [sha256, id]);
+      await this.reindex(sha256);
+      return true;
+    });
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {
@@ -700,6 +765,8 @@ export class Storage {
               COALESCE(d.document_type, ''), d.tags,
               COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
                          WHERE t.sha256 = d.sha256), '')
+                || COALESCE((SELECT char(10) || group_concat(n.text, char(10)) FROM notes n
+                              WHERE n.sha256 = d.sha256), '')
          FROM documents d
         WHERE d.sha256 = ?`,
       [sha256],

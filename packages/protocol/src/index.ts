@@ -42,6 +42,11 @@ export const paths = {
   documentFields: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/fields`,
   /** What happened to a document on the server, oldest first. */
   documentHistory: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/history`,
+  /** `GET` a document's notes, oldest first; `POST` a `NoteBody` to add one. */
+  documentNotes: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/notes`,
+  /** `DELETE` one note. */
+  documentNote: (sha256: string, id: number) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/notes/${String(id)}`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -336,6 +341,35 @@ export interface HistoryResponse {
 
 export interface ListResponse {
   readonly documents: readonly DocumentRecord[];
+}
+
+/** Longest note accepted, in characters: a paragraph or two, not a second document. */
+export const MAX_NOTE_LENGTH = 5_000;
+
+/** `POST /v1/documents/{sha256}/notes`. */
+export interface NoteBody {
+  readonly text: string;
+}
+
+/** The one check both sides apply: some non-blank text, within `MAX_NOTE_LENGTH`. */
+export function isNoteBody(value: unknown): value is NoteBody {
+  if (typeof value !== 'object' || value === null) return false;
+  const text = (value as Record<string, unknown>)['text'];
+  return typeof text === 'string' && text.trim() !== '' && text.length <= MAX_NOTE_LENGTH;
+}
+
+/** A person's note on a document. */
+export interface Note {
+  readonly id: number;
+  readonly text: string;
+  /** The paired phone that wrote it, by name; null for the admin token. */
+  readonly author: string | null;
+  readonly createdAt: number;
+}
+
+export interface NotesResponse {
+  /** Oldest first. */
+  readonly notes: readonly Note[];
 }
 
 export interface ErrorBody {
