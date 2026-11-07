@@ -18,6 +18,8 @@ import {
   isCustomFieldValuesBody,
   isDocumentTextBody,
   isApplyRulesBody,
+  isSavedViewBody,
+  isSavedViewPatch,
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
@@ -42,6 +44,7 @@ import {
   type HistoryResponse,
   type InboxResponse,
   type LabelsResponse,
+  type SavedViewsResponse,
   type ApplyRulesResponse,
   type NotesResponse,
   type PairRequest,
@@ -56,6 +59,7 @@ import {
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
+import type { SavedViews, ViewRefusal } from './views.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -117,6 +121,8 @@ export interface RouterDeps {
   readonly labels?: Labels;
   /** Filing documents by the labels' rules. Absent, applying them answers 404. */
   readonly rules?: Rules;
+  /** Filters kept under a name. Absent, those routes answer 404. */
+  readonly views?: SavedViews;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -280,6 +286,11 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.customFields() || path.startsWith(`${paths.customFields()}/`)) {
     if (deps.customFields === undefined) return fail('not_found');
     return customFieldDefinitions(request, deps, deps.customFields, principal);
+  }
+
+  if (path === paths.views() || path.startsWith(`${paths.views()}/`)) {
+    if (deps.views === undefined) return fail('not_found');
+    return savedViews(request, deps, deps.views);
   }
 
   if (path === paths.labelsApply()) {
@@ -592,6 +603,57 @@ async function labelRoutes(
   }
   const updated = await labels.update(kind, id, patch);
   return updated.ok ? { status: 200, json: updated.value } : labelRefusal(updated);
+}
+
+/** Saved views: anyone with a token keeps their own shortcuts here. */
+async function savedViews(
+  request: IngestRequest,
+  deps: RouterDeps,
+  views: SavedViews,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  if (path === paths.views()) {
+    if (method === 'GET') {
+      const response: SavedViewsResponse = { views: await views.list() };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    if (!isSavedViewBody(body)) {
+      return fail(
+        'bad_request',
+        'body must be {"name": "...", "filter": {...}, "onDashboard"?: true}',
+      );
+    }
+    const created = await views.create(body, deps.now());
+    return created.ok ? { status: 201, json: created.value } : viewRefusal(created);
+  }
+  const idPart = path.slice(paths.views().length + 1);
+  if (!/^[1-9][0-9]{0,15}$/.test(idPart))
+    return fail('malformed_id', 'view ids are positive integers');
+  const id = Number(idPart);
+  switch (method) {
+    case 'GET': {
+      const view = await views.get(id);
+      return view === null ? fail('not_found') : { status: 200, json: view };
+    }
+    case 'DELETE':
+      return (await views.remove(id)) ? { status: 204 } : fail('not_found');
+    case 'PATCH': {
+      const patch = parseJson<unknown>(request.body);
+      if (!isSavedViewPatch(patch)) {
+        return fail('bad_request', 'body may hold "name", "filter", "onDashboard" and "position"');
+      }
+      const updated = await views.update(id, patch);
+      return updated.ok ? { status: 200, json: updated.value } : viewRefusal(updated);
+    }
+    default:
+      return fail('bad_request', `${method} not allowed here`);
+  }
+}
+
+function viewRefusal(reason: ViewRefusal): IngestResponse {
+  return reason.kind === 'not_found' ? fail('not_found') : fail('conflict', reason.message);
 }
 
 /** What is wrong with the rule a label body carries, if it carries one. */

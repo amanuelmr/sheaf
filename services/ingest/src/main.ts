@@ -15,6 +15,7 @@ import { Retention } from './retention.ts';
 import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
 import { Rules } from './rules.ts';
+import { SavedViews } from './views.ts';
 import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
 import { log } from './log.ts';
@@ -183,6 +184,7 @@ const server = createIngestServer({
   customFields: new CustomFields(driver, storage),
   labels: new Labels(driver, storage),
   rules,
+  views: new SavedViews(driver),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it

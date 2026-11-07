@@ -305,6 +305,21 @@ export const MIGRATIONS: readonly Migration[] = [
        SELECT sha256, 'match', 1, 'done', 0, received_at FROM documents`,
     ],
   },
+  {
+    // Filters kept under a name. The filter is the protocol's DocumentFilter as JSON.
+    id: 15,
+    name: 'saved_views',
+    statements: [
+      `CREATE TABLE saved_views (
+         id           INTEGER PRIMARY KEY,
+         name         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+         filter_json  TEXT    NOT NULL,
+         on_dashboard INTEGER NOT NULL DEFAULT 0,
+         position     INTEGER NOT NULL DEFAULT 0,
+         created_at   INTEGER NOT NULL
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
