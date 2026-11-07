@@ -5,12 +5,14 @@ import {
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
   MAX_DOCUMENT_BYTES,
+  MAX_NOTE_LENGTH,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
   bearerToken,
   isDocumentTextBody,
+  isNoteBody,
   isPaperlessId,
   isSha256,
   paths,
@@ -25,6 +27,7 @@ import {
   type FieldsResponse,
   type HistoryResponse,
   type InboxResponse,
+  type NotesResponse,
   type PairRequest,
   type PairResponse,
   type PairingCodeResponse,
@@ -271,6 +274,13 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return { status: 200, json: await read(id, deps) };
   }
 
+  const notesMatch = /^([^/]+)\/notes(?:\/([^/]+))?$/.exec(rest);
+  if (notesMatch !== null) {
+    const id = notesMatch[1]!;
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    return notes(id, notesMatch[2], request, deps, principal);
+  }
+
   const textSuffix = '/text';
   if (rest.endsWith(textSuffix)) {
     const id = rest.slice(0, -textSuffix.length);
@@ -358,6 +368,46 @@ async function put(
   // 201 when we stored it, 200 when we already had it. Both are success; a client
   // retrying after a lost response gets 200 and can stop worrying.
   return { status: outcome === 'stored' ? 201 : 200, json: record };
+}
+
+/** `…/notes` lists and adds; `…/notes/{id}` deletes one. */
+async function notes(
+  sha256: string,
+  noteId: string | undefined,
+  request: IngestRequest,
+  deps: RouterDeps,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method } = request;
+  if (noteId !== undefined) {
+    if (!/^[1-9][0-9]{0,15}$/.test(noteId)) {
+      return fail('malformed_id', 'note ids are positive integers');
+    }
+    if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
+    return (await deps.storage.deleteNote(sha256, Number(noteId)))
+      ? { status: 204 }
+      : fail('not_found');
+  }
+  if (method === 'GET') {
+    if (!(await deps.storage.has(sha256))) return fail('not_found');
+    const response: NotesResponse = { notes: await deps.storage.notes(sha256) };
+    return { status: 200, json: response };
+  }
+  if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+  const body = parseJson<unknown>(request.body);
+  if (!isNoteBody(body)) {
+    return fail(
+      'bad_request',
+      `body must be {"text": "..."}, not blank, at most ${String(MAX_NOTE_LENGTH)} characters`,
+    );
+  }
+  const note = await deps.storage.addNote(
+    sha256,
+    body.text.trim(),
+    principal.kind === 'device' ? principal.id : null,
+    deps.now(),
+  );
+  return note === null ? fail('not_found') : { status: 201, json: note };
 }
 
 async function readRecord(id: string, deps: RouterDeps): Promise<DocumentRecord | null> {

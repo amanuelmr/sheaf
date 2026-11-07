@@ -899,3 +899,64 @@ suite('metrics', () => {
     expect(asPhone.status).toBe(403);
   });
 });
+
+suite('notes', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+
+  it('adds a note, lists it, and deletes it', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+
+    const added = await handle(
+      req('POST', paths.documentNotes(hashA), json({ text: '  Paid  ' })),
+      deps,
+    );
+    expect(added.status).toBe(201);
+    const note = added.json as { id: number; text: string; author: string | null };
+    expect(note.text).toBe('Paid');
+    expect(note.author).toBeNull();
+
+    const listed = await handle(req('GET', paths.documentNotes(hashA)), deps);
+    expect(listed.json).toEqual({ notes: [note] });
+
+    const deleted = await handle(req('DELETE', paths.documentNote(hashA, note.id)), deps);
+    expect(deleted.status).toBe(204);
+    expect((await handle(req('DELETE', paths.documentNote(hashA, note.id)), deps)).status).toBe(
+      404,
+    );
+  });
+
+  it('refuses a blank note, or one that is not JSON', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    for (const body of [
+      json({ text: ' ' }),
+      json({}),
+      json(['x']),
+      new Uint8Array(Buffer.from('{')),
+    ]) {
+      expect((await handle(req('POST', paths.documentNotes(hashA), body), deps)).status).toBe(400);
+    }
+  });
+
+  it('answers 404 for a document it does not hold', async () => {
+    expect((await handle(req('GET', paths.documentNotes(hashA)), deps)).status).toBe(404);
+    const posted = await handle(req('POST', paths.documentNotes(hashA), json({ text: 'x' })), deps);
+    expect(posted.status).toBe(404);
+  });
+
+  it('rejects a malformed document or note id before touching storage', async () => {
+    expect((await handle(req('GET', '/v1/documents/nothex/notes'), deps)).status).toBe(400);
+    expect((await handle(req('DELETE', `${paths.documentNotes(hashA)}/0`), deps)).status).toBe(400);
+    expect((await handle(req('DELETE', `${paths.documentNotes(hashA)}/x`), deps)).status).toBe(400);
+  });
+
+  it('allows only the methods each route needs', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    expect((await handle(req('PUT', paths.documentNotes(hashA)), deps)).status).toBe(400);
+    expect((await handle(req('GET', paths.documentNote(hashA, 1)), deps)).status).toBe(400);
+  });
+
+  it('needs a token like every other route', async () => {
+    const anonymous = { ...req('GET', paths.documentNotes(hashA)), headers: {} };
+    expect((await handle(anonymous, deps)).status).toBe(401);
+  });
+});
