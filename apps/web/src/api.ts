@@ -20,6 +20,7 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type ApplyRulesResponse,
   type Note,
   type NoteBody,
   type NotesResponse,
@@ -114,6 +115,7 @@ export function api(connection: Connection) {
     mergeLabel: (kind: LabelKind, id: number, into: number) =>
       call<Label>('POST', paths.labelMerge(kind, id), { into }),
     deleteLabel: (kind: LabelKind, id: number) => call<undefined>('DELETE', paths.label(kind, id)),
+    applyRules: () => call<ApplyRulesResponse>('POST', paths.labelsApply(), {}),
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {

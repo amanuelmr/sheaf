@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { LABEL_KINDS, type Label, type LabelKind } from '@sheaf/protocol';
+import {
+  LABEL_KINDS,
+  MATCHING_ALGORITHMS,
+  type Label,
+  type LabelKind,
+  type MatchingAlgorithm,
+  type MatchingRule,
+} from '@sheaf/protocol';
 import type { Api } from '../api';
+import { ALGORITHM_NAMES, describeRule } from '../label-rule';
 
 const KIND_NAMES: Readonly<Record<LabelKind, { plural: string; one: string }>> = {
   tag: { plural: 'Tags', one: 'tag' },
@@ -12,7 +20,13 @@ const KIND_NAMES: Readonly<Record<LabelKind, { plural: string; one: string }>> =
 type Editing =
   | { readonly id: number; readonly mode: 'rename'; readonly text: string }
   | { readonly id: number; readonly mode: 'merge'; readonly into: number | null }
-  | { readonly id: number; readonly mode: 'delete' };
+  | { readonly id: number; readonly mode: 'delete' }
+  | {
+      readonly id: number;
+      readonly mode: 'rule';
+      readonly rule: MatchingRule;
+      readonly inbox: boolean;
+    };
 
 /** Tags, correspondents and document types: add, rename, colour, merge and delete. */
 export function Labels({ api }: { api: Api }) {
@@ -21,6 +35,7 @@ export function Labels({ api }: { api: Api }) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [name, setName] = useState('');
+  const [applied, setApplied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.labels(kind);
@@ -60,6 +75,18 @@ export function Labels({ api }: { api: Api }) {
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     if (await apply(api.createLabel(kind, { name: name.trim() }))) setName('');
+  };
+
+  const applyRules = async () => {
+    setApplied(null);
+    const result = await api.applyRules();
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const { changed } = result.value;
+    setApplied(`Filed ${String(changed)} document${changed === 1 ? '' : 's'}.`);
+    await load();
   };
 
   const { plural, one } = KIND_NAMES[kind];
@@ -115,6 +142,20 @@ export function Labels({ api }: { api: Api }) {
                   Cancel
                 </button>
               </form>
+            ) : editing?.id === label.id && editing.mode === 'rule' ? (
+              <RuleEditor
+                label={label}
+                editing={editing}
+                setEditing={setEditing}
+                onSave={() =>
+                  void apply(
+                    api.updateLabel(kind, label.id, {
+                      matching: editing.rule,
+                      ...(label.kind === 'tag' ? { inbox: editing.inbox } : {}),
+                    }),
+                  )
+                }
+              />
             ) : (
               <div>
                 <strong>
@@ -125,6 +166,10 @@ export function Labels({ api }: { api: Api }) {
                 </strong>
                 <span className="muted">
                   on {String(label.documents)} document{label.documents === 1 ? '' : 's'}
+                  {label.inbox ? ' · added to every new document' : ''}
+                  {describeRule(label.matching) === null
+                    ? ''
+                    : ` · ${describeRule(label.matching)}`}
                 </span>
               </div>
             )}
@@ -141,6 +186,18 @@ export function Labels({ api }: { api: Api }) {
           </li>
         ))}
       </ul>
+
+      <h2>Rules</h2>
+      <p className="muted">
+        New documents are filed by these rules as they arrive. Rules never change what a person
+        chose.
+      </p>
+      <p>
+        <button type="button" className="secondary" onClick={() => void applyRules()}>
+          Apply rules to documents already here
+        </button>{' '}
+        {applied === null ? null : <span className="badge ok">{applied}</span>}
+      </p>
 
       <h2>New {one}</h2>
       <form className="card" onSubmit={(event) => void create(event)}>
@@ -173,7 +230,7 @@ function Actions({
   onMerge: (into: number) => void;
   onDelete: () => void;
 }) {
-  if (editing?.mode === 'rename') return null;
+  if (editing?.mode === 'rename' || editing?.mode === 'rule') return null;
   if (editing?.mode === 'delete') {
     return (
       <div className="actions">
@@ -238,6 +295,15 @@ function Actions({
       >
         Rename
       </button>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() =>
+          setEditing({ id: label.id, mode: 'rule', rule: label.matching, inbox: label.inbox })
+        }
+      >
+        Rule…
+      </button>
       {others.length === 0 ? null : (
         <button
           type="button"
@@ -273,5 +339,90 @@ function ColourPicker({ label, onColour }: { label: Label; onColour: (colour: st
         if (colour !== (label.colour ?? '#888888')) onColour(colour);
       }}
     />
+  );
+}
+
+/** Choose how a label finds its documents, and for a tag whether it marks the inbox. */
+function RuleEditor({
+  label,
+  editing,
+  setEditing,
+  onSave,
+}: {
+  label: Label;
+  editing: Extract<Editing, { mode: 'rule' }>;
+  setEditing: (editing: Editing | null) => void;
+  onSave: () => void;
+}) {
+  const { rule } = editing;
+  const set = (change: Partial<MatchingRule>) => {
+    const next = { ...rule, ...change };
+    setEditing({ ...editing, rule: next.algorithm === 'none' ? { ...next, pattern: '' } : next });
+  };
+  const id = `rule-${String(label.id)}`;
+  return (
+    <form
+      className="rule-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave();
+      }}
+    >
+      <strong>{label.name}</strong>
+      <label htmlFor={`${id}-algorithm`}>Find it by</label>
+      <select
+        id={`${id}-algorithm`}
+        value={rule.algorithm}
+        onChange={(event) => set({ algorithm: event.target.value as MatchingAlgorithm })}
+      >
+        {MATCHING_ALGORITHMS.map((algorithm) => (
+          <option key={algorithm} value={algorithm}>
+            {ALGORITHM_NAMES[algorithm]}
+          </option>
+        ))}
+      </select>
+      {rule.algorithm === 'none' ? null : (
+        <>
+          <label htmlFor={`${id}-pattern`}>
+            {rule.algorithm === 'any' || rule.algorithm === 'all'
+              ? 'Words (put "a phrase" in quotes)'
+              : rule.algorithm === 'regex'
+                ? 'Pattern'
+                : 'Text'}
+          </label>
+          <input
+            id={`${id}-pattern`}
+            value={rule.pattern}
+            onChange={(event) => set({ pattern: event.target.value })}
+          />
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={rule.caseSensitive}
+              onChange={(event) => set({ caseSensitive: event.target.checked })}
+            />{' '}
+            Upper and lower case must match
+          </label>
+        </>
+      )}
+      {label.kind === 'tag' ? (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={editing.inbox}
+            onChange={(event) => setEditing({ ...editing, inbox: event.target.checked })}
+          />{' '}
+          Add to every new document, to mark it as not yet looked at
+        </label>
+      ) : null}
+      <div className="actions">
+        <button type="submit" disabled={rule.algorithm !== 'none' && rule.pattern.trim() === ''}>
+          Save rule
+        </button>
+        <button type="button" className="secondary" onClick={() => setEditing(null)}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

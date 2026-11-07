@@ -563,3 +563,42 @@ input[type='color'] {
     flex-shrink: 1;
   }
 }
+
+.rule-editor {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-editor .check,
+label.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+label.check {
+  justify-content: flex-start;
+  color: var(--text);
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.rule-editor input,
+.rule-editor select {
+  margin-bottom: 4px;
+}
