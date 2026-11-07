@@ -21,6 +21,7 @@ import {
   type LabelKind,
   type LabelPatch,
   type LabelsResponse,
+  type AuditResponse,
   type Me,
   type SessionResponse,
   type User,
@@ -110,6 +111,11 @@ export function api(connection: Connection) {
     replaceWorkflow: (id: number, body: WorkflowBody) =>
       call<Workflow>('PUT', paths.workflow(id), body),
     deleteWorkflow: (id: number) => call<undefined>('DELETE', paths.workflow(id)),
+    audit: (before?: number) =>
+      call<AuditResponse>(
+        'GET',
+        `${paths.audit()}?limit=50${before === undefined ? '' : `&before=${String(before)}`}`,
+      ),
     me: () => call<Me>('GET', paths.me()),
     signOut: () => call<undefined>('DELETE', paths.currentSession()),
     users: () => call<UsersResponse>('GET', paths.users()),

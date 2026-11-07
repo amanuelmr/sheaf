@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { HealthResponse } from '@sheaf/protocol';
+import type { AuditEntry, HealthResponse } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { shortSha, when } from '../format';
+import { href } from '../route';
 
 const POLL_MS = 5_000;
 
@@ -88,6 +90,8 @@ export function System({ api }: { api: Api }) {
           )}
         </>
       )}
+
+      <RecentChanges api={api} />
     </>
   );
 }
@@ -135,5 +139,53 @@ function RetentionRow({
         <span>{retention.released}</span>
       </div>
     </>
+  );
+}
+
+/** The newest changes made through the API, for an admin; nothing for anyone else. */
+function RecentChanges({ api }: { api: Api }) {
+  const [entries, setEntries] = useState<readonly AuditEntry[] | null>(null);
+  const [more, setMore] = useState(true);
+
+  const load = async (before?: number) => {
+    const result = await api.audit(before);
+    if (!result.ok) return;
+    setEntries((current) => [
+      ...(before === undefined ? [] : (current ?? [])),
+      ...result.value.entries,
+    ]);
+    setMore(result.value.entries.length === 50);
+  };
+
+  useEffect(() => {
+    void load();
+  }, [api]);
+
+  if (entries === null) return null;
+  return (
+    <div className="card">
+      <h2>Recent changes</h2>
+      {entries.length === 0 ? <p className="muted">Nothing changed yet.</p> : null}
+      <ol className="timeline">
+        {entries.map((entry) => (
+          <li key={entry.id}>
+            <time>{when(entry.at)}</time> {entry.who}: {entry.what}
+            {entry.sha256 === null ? null : (
+              <>
+                {' '}
+                <a href={href({ page: 'document', sha256: entry.sha256 })}>
+                  {shortSha(entry.sha256)}
+                </a>
+              </>
+            )}
+          </li>
+        ))}
+      </ol>
+      {more && entries.length > 0 ? (
+        <button type="button" className="secondary" onClick={() => void load(entries.at(-1)!.id)}>
+          Older
+        </button>
+      ) : null}
+    </div>
   );
 }
