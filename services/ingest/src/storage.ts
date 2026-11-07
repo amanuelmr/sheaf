@@ -651,20 +651,22 @@ export class Storage {
 
   /** Take documents back out of the trash. Returns how many were in it. */
   async restore(sha256s: readonly string[]): Promise<number> {
-    let restored = 0;
-    await this.#driver.transaction(async () => {
-      for (const sha256 of sha256s) {
-        const trashed = await this.#driver.all<{ n: number }>(
-          'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND trashed_at IS NOT NULL',
-          [sha256],
-        );
-        if ((trashed[0]?.n ?? 0) === 0) continue;
-        await this.#driver.run('UPDATE documents SET trashed_at = NULL WHERE sha256 = ?', [sha256]);
-        await this.reindex(sha256);
-        restored++;
-      }
+    return this.#driver.transaction(async () => {
+      const ids = JSON.stringify(sha256s);
+      const trashed = (
+        await this.#driver.all<{ sha256: string }>(
+          `SELECT sha256 FROM documents
+            WHERE sha256 IN (SELECT value FROM json_each(?)) AND trashed_at IS NOT NULL`,
+          [ids],
+        )
+      ).map((row) => row.sha256);
+      await this.#driver.run(
+        'UPDATE documents SET trashed_at = NULL WHERE sha256 IN (SELECT value FROM json_each(?))',
+        [JSON.stringify(trashed)],
+      );
+      await this.reindexMany(trashed);
+      return trashed.length;
     });
-    return restored;
   }
 
   /** What is in the trash, most recently trashed first. */
@@ -915,7 +917,21 @@ export class Storage {
    * index never describes a state that was not committed.
    */
   async reindex(sha256: string): Promise<void> {
-    await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [sha256]);
+    await this.reindexMany([sha256]);
+  }
+
+  /**
+   * `reindex` for many documents at once. The index's sha256 column is not indexed,
+   * so each delete scans the whole index: one statement for the lot costs one scan,
+   * where a loop of `reindex` would cost one scan per document.
+   */
+  async reindexMany(sha256s: readonly string[]): Promise<void> {
+    if (sha256s.length === 0) return;
+    const ids = JSON.stringify(sha256s);
+    await this.#driver.run(
+      'DELETE FROM documents_fts WHERE sha256 IN (SELECT value FROM json_each(?))',
+      [ids],
+    );
     await this.#driver.run(
       `INSERT INTO documents_fts (sha256, title, correspondent, document_type, tags, body)
        SELECT d.sha256, COALESCE(d.title, ''), COALESCE(d.correspondent, ''),
@@ -930,8 +946,8 @@ export class Storage {
                                 WHERE v.sha256 = d.sha256 AND v.value_json <> 'null'), ''),
                 char(10))
          FROM documents d
-        WHERE d.sha256 = ? AND d.trashed_at IS NULL`,
-      [sha256],
+        WHERE d.sha256 IN (SELECT value FROM json_each(?)) AND d.trashed_at IS NULL`,
+      [ids],
     );
   }
 
@@ -950,7 +966,7 @@ export class Storage {
     const missing = all.map((row) => row.sha256).filter((sha256) => !indexed.has(sha256));
     for (let i = 0; i < missing.length; i += 200) {
       await this.#driver.transaction(async () => {
-        for (const sha256 of missing.slice(i, i + 200)) await this.reindex(sha256);
+        await this.reindexMany(missing.slice(i, i + 200));
       });
     }
     return missing.length;

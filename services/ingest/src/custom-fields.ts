@@ -131,7 +131,7 @@ export class CustomFields {
           [now, id, JSON.stringify(patch.options)],
         );
       }
-      for (const sha256 of await this.#documentsWith(id)) await this.#storage.reindex(sha256);
+      await this.#storage.reindexMany(await this.#documentsWith(id));
     });
   }
 
@@ -142,7 +142,7 @@ export class CustomFields {
       const documents = await this.#documentsWith(id);
       await this.#driver.run('DELETE FROM custom_field_values WHERE field_id = ?', [id]);
       await this.#driver.run('DELETE FROM custom_fields WHERE id = ?', [id]);
-      for (const sha256 of documents) await this.#storage.reindex(sha256);
+      await this.#storage.reindexMany(documents);
       return true;
     });
   }
@@ -255,7 +255,7 @@ export class CustomFields {
           touched.add(target);
         }
       }
-      for (const document of touched) await this.#storage.reindex(document);
+      await this.#storage.reindexMany([...touched]);
       return null;
     });
     if (refused !== null) return { ok: false, kind: 'invalid', message: refused };
