@@ -213,6 +213,30 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX documents_by_trashed ON documents (trashed_at)`,
     ],
   },
+  {
+    // Custom fields: definitions people make, and each document's values of them.
+    // Apart from `fields`, which holds what extraction reads and a person corrects;
+    // these exist only because someone chose to track them.
+    id: 10,
+    name: 'custom_fields',
+    statements: [
+      `CREATE TABLE custom_fields (
+         id           INTEGER PRIMARY KEY,
+         name         TEXT    NOT NULL UNIQUE,
+         data_type    TEXT    NOT NULL,
+         options_json TEXT    NOT NULL DEFAULT '[]',
+         created_at   INTEGER NOT NULL
+       )`,
+      `CREATE TABLE custom_field_values (
+         sha256     TEXT    NOT NULL,
+         field_id   INTEGER NOT NULL,
+         value_json TEXT    NOT NULL,
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (sha256, field_id)
+       )`,
+      `CREATE INDEX custom_field_values_by_field ON custom_field_values (field_id)`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

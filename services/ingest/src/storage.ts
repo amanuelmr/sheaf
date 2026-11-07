@@ -715,6 +715,7 @@ export class Storage {
         'documents_fts',
         'document_text',
         'notes',
+        'custom_field_values',
         'fields',
         'extractions',
         'jobs',
@@ -894,7 +895,10 @@ export class Storage {
                 COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
                            WHERE t.sha256 = d.sha256), '')
                   || COALESCE((SELECT char(10) || group_concat(n.text, char(10)) FROM notes n
-                                WHERE n.sha256 = d.sha256), ''),
+                                WHERE n.sha256 = d.sha256), '')
+                  || COALESCE((SELECT char(10) || group_concat(${CUSTOM_FIELD_TEXT}, char(10))
+                                 FROM custom_field_values v JOIN custom_fields f ON f.id = v.field_id
+                                WHERE v.sha256 = d.sha256 AND v.value_json <> 'null'), ''),
                 char(10))
          FROM documents d
         WHERE d.sha256 = ? AND d.trashed_at IS NULL`,
@@ -1177,6 +1181,17 @@ interface ArchiveSqlRow {
   received_at: number;
   excerpt: string | null;
 }
+
+/**
+ * What of a custom field value is searchable: its field's name and, for the types
+ * that hold words or numbers, the value. Links and yes/no answers say nothing a
+ * search could match.
+ */
+const CUSTOM_FIELD_TEXT = `f.name || ': ' || CASE
+    WHEN f.data_type IN ('text', 'url', 'select', 'date', 'integer', 'number')
+      THEN json_extract(v.value_json, '$')
+    WHEN f.data_type = 'monetary' THEN json_extract(v.value_json, '$.currency')
+    ELSE '' END`;
 
 /** The first 200 characters of a document's text, from whichever source has some. */
 const PLAIN_EXCERPT = `(SELECT substr(group_concat(t.text, ' '), 1, 200)

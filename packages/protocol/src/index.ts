@@ -53,6 +53,13 @@ export const paths = {
   trashRestore: () => `/${PROTOCOL_VERSION}/trash/restore`,
   /** Admin: `POST` a `TrashActionBody` to delete for good; no `documents` empties it all. */
   trashEmpty: () => `/${PROTOCOL_VERSION}/trash/empty`,
+  /** `GET` lists custom field definitions; admin `POST`s a `CustomFieldBody` to add one. */
+  customFields: () => `/${PROTOCOL_VERSION}/custom-fields`,
+  /** Admin: `PATCH` a `CustomFieldPatch`, or `DELETE` the field and every value of it. */
+  customField: (id: number) => `/${PROTOCOL_VERSION}/custom-fields/${String(id)}`,
+  /** `GET` a document's custom field values; `PUT` a `CustomFieldValuesBody` to replace them. */
+  documentCustomFields: (sha256: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/custom-fields`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -395,6 +402,209 @@ export interface ListResponse {
   readonly documents: readonly DocumentRecord[];
 }
 
+/**
+ * The kinds of custom field. A field's type is fixed once
+ * it is created: changing it would silently invalidate every value already stored.
+ */
+export const CUSTOM_FIELD_TYPES = [
+  'text',
+  'boolean',
+  'date',
+  'url',
+  'integer',
+  'number',
+  'monetary',
+  'documentLink',
+  'select',
+] as const;
+
+export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number];
+
+export const MAX_CUSTOM_FIELD_NAME = 128;
+export const MAX_CUSTOM_FIELD_TEXT = 1_000;
+export const MAX_SELECT_OPTIONS = 100;
+export const MAX_DOCUMENT_LINKS = 100;
+
+/** A user-defined field documents can carry. */
+export interface CustomField {
+  readonly id: number;
+  readonly name: string;
+  readonly type: CustomFieldType;
+  /** The choices, for `select`; empty for every other type. */
+  readonly options: readonly string[];
+  /** How many documents carry it, with or without a value. */
+  readonly documentCount: number;
+}
+
+export interface CustomFieldsResponse {
+  /** By name. */
+  readonly fields: readonly CustomField[];
+}
+
+/** `POST /v1/custom-fields`. */
+export interface CustomFieldBody {
+  readonly name: string;
+  readonly type: CustomFieldType;
+  /** Required, and non-empty, for `select`; refused for any other type. */
+  readonly options?: readonly string[];
+}
+
+/** `PATCH /v1/custom-fields/{id}`. The type cannot change. Dropping an option clears it from documents. */
+export interface CustomFieldPatch {
+  readonly name?: string;
+  readonly options?: readonly string[];
+}
+
+/** An amount in minor units, the same shape extraction reads totals as. */
+export interface MonetaryValue {
+  readonly minor: number;
+  /** ISO 4217, upper case. */
+  readonly currency: string;
+}
+
+/**
+ * A value, by field type: `text`, `url`, `select` and `date` (YYYY-MM-DD) are
+ * strings; `boolean` a boolean; `integer` and `number` numbers; `monetary` a
+ * `MonetaryValue`; `documentLink` an array of document sha256s.
+ */
+export type CustomFieldData = string | number | boolean | MonetaryValue | readonly string[];
+
+/** A field on a document. `null`: attached, with no value yet. */
+export interface CustomFieldValue {
+  readonly field: number;
+  readonly value: CustomFieldData | null;
+}
+
+/** A field on a document, as read back. */
+export interface DocumentCustomField extends CustomFieldValue {
+  readonly name: string;
+  readonly type: CustomFieldType;
+}
+
+export interface DocumentCustomFieldsResponse {
+  /** By field name. */
+  readonly values: readonly DocumentCustomField[];
+}
+
+/** `PUT /v1/documents/{sha256}/custom-fields`: the complete set the document should carry. */
+export interface CustomFieldValuesBody {
+  readonly values: readonly CustomFieldValue[];
+}
+
+function validName(name: unknown): name is string {
+  return typeof name === 'string' && name.trim() !== '' && name.length <= MAX_CUSTOM_FIELD_NAME;
+}
+
+function validOptions(options: unknown): options is readonly string[] {
+  return (
+    Array.isArray(options) &&
+    options.length > 0 &&
+    options.length <= MAX_SELECT_OPTIONS &&
+    options.every(validName) &&
+    new Set(options).size === options.length
+  );
+}
+
+export function isCustomFieldBody(value: unknown): value is CustomFieldBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (!validName(body['name'])) return false;
+  if (!(CUSTOM_FIELD_TYPES as readonly unknown[]).includes(body['type'])) return false;
+  return body['type'] === 'select' ? validOptions(body['options']) : body['options'] === undefined;
+}
+
+export function isCustomFieldPatch(value: unknown): value is CustomFieldPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'name' && key !== 'options')) return false;
+  if (body['name'] !== undefined && !validName(body['name'])) return false;
+  return body['options'] === undefined || validOptions(body['options']);
+}
+
+/**
+ * Why a value does not fit a field, or null when it does. `null` always fits: it is
+ * a field attached without a value. Both sides apply this one check.
+ */
+export function customFieldValueProblem(
+  field: Pick<CustomField, 'type' | 'options'>,
+  value: unknown,
+): string | null {
+  if (value === null) return null;
+  switch (field.type) {
+    case 'text':
+      return typeof value === 'string' && value.length <= MAX_CUSTOM_FIELD_TEXT
+        ? null
+        : `text of at most ${String(MAX_CUSTOM_FIELD_TEXT)} characters`;
+    case 'boolean':
+      return typeof value === 'boolean' ? null : 'true or false';
+    case 'date':
+      return typeof value === 'string' && isCalendarDate(value) ? null : 'a date as YYYY-MM-DD';
+    case 'url':
+      return typeof value === 'string' && isUrl(value) ? null : 'a full URL, like https://…';
+    case 'integer':
+      return Number.isSafeInteger(value) ? null : 'a whole number';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value) ? null : 'a number';
+    case 'monetary': {
+      if (typeof value !== 'object' || Array.isArray(value)) return 'an amount and a currency';
+      const { minor, currency } = value as Record<string, unknown>;
+      return Number.isSafeInteger(minor) &&
+        typeof currency === 'string' &&
+        /^[A-Z]{3}$/.test(currency)
+        ? null
+        : 'an amount in minor units and a three-letter currency code';
+    }
+    case 'documentLink':
+      return Array.isArray(value) &&
+        value.length <= MAX_DOCUMENT_LINKS &&
+        value.every((id) => typeof id === 'string' && isSha256(id)) &&
+        new Set(value).size === value.length
+        ? null
+        : `up to ${String(MAX_DOCUMENT_LINKS)} distinct document ids`;
+    case 'select':
+      return typeof value === 'string' && field.options.includes(value)
+        ? null
+        : `one of: ${field.options.join(', ')}`;
+  }
+}
+
+function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match === null) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+}
+
+function isUrl(value: string): boolean {
+  if (value.length > 2_000 || !/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(value)) return false;
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isCustomFieldValuesBody(value: unknown): value is CustomFieldValuesBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const values = (value as Record<string, unknown>)['values'];
+  if (!Array.isArray(values) || values.length > 500) return false;
+  const seen = new Set<number>();
+  for (const entry of values as unknown[]) {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { field } = entry as Record<string, unknown>;
+    if (!Number.isSafeInteger(field) || (field as number) < 1 || seen.has(field as number)) {
+      return false;
+    }
+    if (!('value' in entry)) return false;
+    seen.add(field as number);
+  }
+  return true;
+}
+
 /** Longest note accepted, in characters: a paragraph or two, not a second document. */
 export const MAX_NOTE_LENGTH = 5_000;
 
@@ -442,7 +652,8 @@ export type ErrorCode =
   | 'device_revoked'
   | 'pairing_invalid'
   | 'forbidden'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'conflict';
 
 /**
  * The status code each error maps to. Shared so the server cannot answer with one
@@ -472,6 +683,9 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // A device token asking for an admin-only route.
   forbidden: 403,
   rate_limited: 429,
+  // The request is well formed but clashes with what exists, such as a second
+  // custom field with a name already taken.
+  conflict: 409,
 };
 
 export interface PairingCodeResponse {
