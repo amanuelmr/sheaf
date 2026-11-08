@@ -6,12 +6,14 @@ import { defineConfig } from 'vite';
 // monorepo does -- there is no reason for this package to have its own build
 // step just to be importable.
 const protocol = fileURLToPath(new URL('../../packages/protocol/src/index.ts', import.meta.url));
+const pdf = fileURLToPath(new URL('../../packages/pdf/src/index.ts', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
       '@sheaf/protocol': protocol,
+      '@sheaf/pdf': pdf,
     },
   },
 });

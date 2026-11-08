@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
   "dependencies": {
+    "@sheaf/pdf": "workspace:*",
     "@sheaf/protocol": "workspace:*",
     "qrcode": "^1.5.4",
     "react": "19.2.3",

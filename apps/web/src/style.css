@@ -250,6 +250,40 @@ a.button.secondary {
   border: 1px solid var(--border);
 }
 
+label.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+label.button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+label.button:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.upload.over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+
+.upload-lines {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

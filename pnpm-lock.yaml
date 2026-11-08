@@ -165,6 +165,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@sheaf/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@sheaf/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

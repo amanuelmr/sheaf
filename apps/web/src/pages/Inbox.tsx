@@ -3,6 +3,7 @@ import type { InboxEntry } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { shortSha, when } from '../format';
 import { href } from '../route';
+import { Upload } from './Upload';
 
 /** Fired when the inbox changes, so the count in the navigation can follow. */
 export const INBOX_CHANGED = 'sheaf:inbox-changed';
@@ -11,7 +12,7 @@ export const INBOX_CHANGED = 'sheaf:inbox-changed';
  * Suggested details waiting for a person, keyboard first: j and k move, a accepts,
  * e opens the document to change it.
  */
-export function Inbox({ api }: { api: Api }) {
+export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
   const [entries, setEntries] = useState<readonly InboxEntry[] | null>(null);
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function Inbox({ api }: { api: Api }) {
   return (
     <>
       <h1>To review</h1>
+      {canAdd ? <Upload api={api} onDone={() => void load()} /> : null}
       <p className="muted">
         <kbd>j</kbd> <kbd>k</kbd> to move, <kbd>a</kbd> to accept, <kbd>e</kbd> to edit.
       </p>

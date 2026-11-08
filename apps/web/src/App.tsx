@@ -241,7 +241,9 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
           // the last one: no drafts, notes or half-confirmed delete.
           <Document key={route.sha256} api={api} sha256={route.sha256} />
         ) : null}
-        {route.page === 'inbox' ? <Inbox api={api} /> : null}
+        {route.page === 'inbox' ? (
+          <Inbox api={api} canAdd={role !== null && role !== 'viewer'} />
+        ) : null}
         {route.page === 'devices' && role === 'admin' ? (
           <Devices api={api} serverUrl={connection.baseUrl} />
         ) : null}

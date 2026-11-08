@@ -211,6 +211,27 @@ export function api(connection: Connection) {
       call<Label>('POST', paths.labelMerge(kind, id), { into }),
     deleteLabel: (kind: LabelKind, id: number) => call<undefined>('DELETE', paths.label(kind, id)),
     applyRules: () => call<ApplyRulesResponse>('POST', paths.labelsApply(), {}),
+    /** Stores a PDF under its hash: `stored`, or `known` when the server had it already. */
+    upload: async (
+      sha256: string,
+      bytes: Uint8Array,
+      pageCount: number | null,
+    ): Promise<Result<'stored' | 'known'>> => {
+      try {
+        const response = await fetch(url(paths.document(sha256)), {
+          method: 'PUT',
+          headers: headers({
+            'content-type': 'application/pdf',
+            ...(pageCount === null ? {} : { 'x-sheaf-page-count': String(pageCount) }),
+          }),
+          body: bytes as BodyInit,
+        });
+        if (!response.ok) return { ok: false, message: await explain(response) };
+        return { ok: true, value: response.status === 201 ? 'stored' : 'known' };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
