@@ -16,6 +16,10 @@ import {
   isCustomFieldPatch,
   isCustomFieldValuesBody,
   isDocumentTextBody,
+  isLabelBody,
+  isLabelMergeBody,
+  isLabelPatch,
+  labelKindOf,
   isNoteBody,
   isTrashActionBody,
   isPaperlessId,
@@ -34,6 +38,7 @@ import {
   type FieldsResponse,
   type HistoryResponse,
   type InboxResponse,
+  type LabelsResponse,
   type NotesResponse,
   type PairRequest,
   type PairResponse,
@@ -45,6 +50,7 @@ import {
   type TrashResponse,
 } from '@sheaf/protocol';
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
+import type { LabelRefusal, Labels } from './labels.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -102,6 +108,8 @@ export interface RouterDeps {
   readonly trashDays?: number;
   /** Custom field definitions and values. Absent, those routes answer 404. */
   readonly customFields?: CustomFields;
+  /** Correspondents, document types and tags. Absent, those routes answer 404. */
+  readonly labels?: Labels;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -265,6 +273,11 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
   if (path === paths.customFields() || path.startsWith(`${paths.customFields()}/`)) {
     if (deps.customFields === undefined) return fail('not_found');
     return customFieldDefinitions(request, deps, deps.customFields, principal);
+  }
+
+  if (path.startsWith(`/${PROTOCOL_VERSION}/labels/`)) {
+    if (deps.labels === undefined) return fail('not_found');
+    return labelRoutes(request, deps.labels, principal);
   }
 
   if (path === paths.trash() || path.startsWith(`${paths.trash()}/`)) {
@@ -478,6 +491,84 @@ async function documentCustomFields(
 }
 
 function refusal(reason: CustomFieldRefusal): IngestResponse {
+  switch (reason.kind) {
+    case 'not_found':
+      return fail('not_found');
+    case 'conflict':
+      return fail('conflict', reason.message);
+    case 'invalid':
+      return fail('bad_request', reason.message);
+  }
+}
+
+/**
+ * Correspondents, document types and tags. Anyone may read them; changing one
+ * rewrites every document carrying it, so that is the admin's.
+ */
+async function labelRoutes(
+  request: IngestRequest,
+  labels: Labels,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method } = request;
+  const [segment, idPart, action, ...extra] = request.path
+    .slice(`/${PROTOCOL_VERSION}/labels/`.length)
+    .split('/');
+  const kind = labelKindOf(segment ?? '');
+  if (kind === null || extra.length > 0) return fail('not_found');
+
+  if (idPart === undefined) {
+    if (method === 'GET') {
+      const response: LabelsResponse = { labels: await labels.list(kind) };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token adds labels');
+    const body = parseJson<unknown>(request.body);
+    if (!isLabelBody(body)) {
+      return fail(
+        'bad_request',
+        'body must be {"name": "..."}, with "colour": "#rrggbb" for a tag',
+      );
+    }
+    const created = await labels.create(kind, body);
+    return created.ok ? { status: 201, json: created.value } : labelRefusal(created);
+  }
+
+  if (!/^[1-9][0-9]{0,15}$/.test(idPart)) {
+    return fail('malformed_id', 'label ids are positive integers');
+  }
+  const id = Number(idPart);
+
+  if (action !== undefined) {
+    if (action !== 'merge') return fail('not_found');
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token merges labels');
+    const body = parseJson<unknown>(request.body);
+    if (!isLabelMergeBody(body)) return fail('bad_request', 'body must be {"into": <id>}');
+    const merged = await labels.merge(kind, id, body.into);
+    return merged.ok ? { status: 200, json: merged.value } : labelRefusal(merged);
+  }
+
+  if (method === 'GET') {
+    const label = await labels.get(kind, id);
+    return label === null ? fail('not_found') : { status: 200, json: label };
+  }
+  if (method !== 'PATCH' && method !== 'DELETE') {
+    return fail('bad_request', `${method} not allowed here`);
+  }
+  if (principal.kind !== 'admin') return fail('forbidden', 'only the admin token changes labels');
+  if (method === 'DELETE')
+    return (await labels.remove(kind, id)) ? { status: 204 } : fail('not_found');
+  const patch = parseJson<unknown>(request.body);
+  if (!isLabelPatch(patch)) {
+    return fail('bad_request', 'body may hold only "name" and, for a tag, "colour"');
+  }
+  const updated = await labels.update(kind, id, patch);
+  return updated.ok ? { status: 200, json: updated.value } : labelRefusal(updated);
+}
+
+function labelRefusal(reason: LabelRefusal): IngestResponse {
   switch (reason.kind) {
     case 'not_found':
       return fail('not_found');

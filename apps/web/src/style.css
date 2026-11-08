@@ -510,3 +510,56 @@ select {
 .links a {
   color: var(--accent);
 }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tabs button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: baseline;
+  border: 1px solid var(--border);
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 10em;
+}
+
+input[type='color'] {
+  width: 40px;
+  height: 36px;
+  padding: 2px;
+}
+
+@media (max-width: 600px) {
+  .list li:has(.actions) {
+    flex-wrap: wrap;
+  }
+
+  .list li .actions {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+  }
+}

@@ -13,6 +13,7 @@ import { paperlessSuggestionSource } from './paperless-suggestions.ts';
 import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { CustomFields } from './custom-fields.ts';
+import { Labels } from './labels.ts';
 import { Devices } from './devices.ts';
 import { log } from './log.ts';
 import { ServerMetrics } from './observability.ts';
@@ -177,6 +178,7 @@ const server = createIngestServer({
   ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
   trashDays,
   customFields: new CustomFields(driver, storage),
+  labels: new Labels(driver, storage),
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it

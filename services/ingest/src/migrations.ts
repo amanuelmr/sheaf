@@ -275,6 +275,12 @@ export const MIGRATIONS: readonly Migration[] = [
       ),
     ],
   },
+  {
+    // A colour for each tag, chosen by a person. Null means none was chosen.
+    id: 12,
+    name: 'label_colours',
+    statements: ['ALTER TABLE names ADD COLUMN colour TEXT'],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

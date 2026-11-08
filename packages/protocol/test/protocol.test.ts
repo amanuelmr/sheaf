@@ -6,6 +6,10 @@ import {
   authorization,
   bearerToken,
   isDocumentTextBody,
+  isLabelBody,
+  isLabelMergeBody,
+  isLabelPatch,
+  labelKindOf,
   isPaperlessId,
   isSha256,
   pairingUri,
@@ -147,5 +151,40 @@ suite('minorDigits', () => {
   it('counts anything it does not list as two digits', () => {
     expect(minorDigits('XYZ')).toBe(2);
     expect(minorDigits('constructor')).toBe(2);
+  });
+});
+
+suite('labels', () => {
+  it('addresses each kind by its own path', () => {
+    expect(paths.labels('documentType')).toBe('/v1/labels/document-types');
+    expect(paths.label('tag', 7)).toBe('/v1/labels/tags/7');
+    expect(paths.labelMerge('correspondent', 3)).toBe('/v1/labels/correspondents/3/merge');
+    expect(labelKindOf('tags')).toBe('tag');
+    expect(labelKindOf('tag')).toBeNull();
+  });
+
+  it('takes a trimmed name and, optionally, a #rrggbb colour', () => {
+    expect(isLabelBody({ name: 'Bills' })).toBe(true);
+    expect(isLabelBody({ name: 'Bills', colour: '#a1B2c3' })).toBe(true);
+    expect(isLabelBody({ name: ' Bills' })).toBe(false);
+    expect(isLabelBody({ name: '' })).toBe(false);
+    expect(isLabelBody({ name: 'x'.repeat(129) })).toBe(false);
+    expect(isLabelBody({ name: 'Bills', colour: 'red' })).toBe(false);
+    expect(isLabelBody({ name: 'Bills', extra: 1 })).toBe(false);
+  });
+
+  it('patches a name or a colour, and null clears the colour', () => {
+    expect(isLabelPatch({})).toBe(true);
+    expect(isLabelPatch({ colour: null })).toBe(true);
+    expect(isLabelPatch({ name: 'Rent', colour: '#000000' })).toBe(true);
+    expect(isLabelPatch({ name: null })).toBe(false);
+    expect(isLabelPatch([])).toBe(false);
+  });
+
+  it('merges into a positive id and nothing else', () => {
+    expect(isLabelMergeBody({ into: 2 })).toBe(true);
+    expect(isLabelMergeBody({ into: 0 })).toBe(false);
+    expect(isLabelMergeBody({ into: '2' })).toBe(false);
+    expect(isLabelMergeBody({ into: 2, also: 3 })).toBe(false);
   });
 });

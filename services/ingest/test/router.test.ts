@@ -15,6 +15,7 @@ import { err, ok } from '@sheaf/http';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { CustomFields } from '../src/custom-fields';
 import { Devices } from '../src/devices';
+import { Labels } from '../src/labels';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
 import { METRICS_PATH, handle, type IngestRequest } from '../src/router';
@@ -1204,5 +1205,106 @@ suite('custom fields', () => {
     );
     expect((await handle(set, all)).status).toBe(200);
     expect((await handle(asPhone('DELETE', paths.customField(field.id)), all)).status).toBe(403);
+  });
+});
+
+suite('labels', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+  let all: typeof deps & { labels: Labels; devices: Devices };
+
+  beforeEach(async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-lb-r-')),
+    });
+    all = {
+      ...deps,
+      storage,
+      devices: new Devices(driver, { now: () => clock }),
+      labels: new Labels(driver, storage),
+    };
+  });
+
+  it('creates, lists, renames, merges and deletes a tag', async () => {
+    await handle(req('PUT', paths.document(hashA), A), all);
+    await handle(req('PATCH', paths.document(hashA), json({ tags: ['bills'] })), all);
+    const made = await handle(req('POST', paths.labels('tag'), json({ name: 'rent' })), all);
+    expect(made.status).toBe(201);
+    const rent = made.json as { id: number };
+
+    const listed = (await handle(req('GET', paths.labels('tag')), all)).json as {
+      labels: { id: number; name: string; documents: number }[];
+    };
+    expect(listed.labels.map((l) => [l.name, l.documents])).toEqual([
+      ['bills', 1],
+      ['rent', 0],
+    ]);
+    const bills = listed.labels[0]!;
+
+    const renamed = await handle(
+      req('PATCH', paths.label('tag', bills.id), json({ name: 'utilities', colour: '#00aa00' })),
+      all,
+    );
+    expect(renamed.json).toMatchObject({ name: 'utilities', colour: '#00aa00' });
+
+    const merged = await handle(
+      req('POST', paths.labelMerge('tag', bills.id), json({ into: rent.id })),
+      all,
+    );
+    expect(merged.json).toMatchObject({ name: 'rent', documents: 1 });
+    expect((await handle(req('GET', paths.label('tag', bills.id)), all)).status).toBe(404);
+
+    expect((await handle(req('DELETE', paths.label('tag', rent.id)), all)).status).toBe(204);
+    const record = (await handle(req('GET', paths.documentRecord(hashA)), all)).json as {
+      tags: string[];
+    };
+    expect(record.tags).toEqual([]);
+  });
+
+  it('answers 409 for a taken name, 400 for bad bodies and ids, 404 for unknown kinds', async () => {
+    const body = json({ name: 'ACME' });
+    await handle(req('POST', paths.labels('correspondent'), body), all);
+    expect((await handle(req('POST', paths.labels('correspondent'), body), all)).status).toBe(409);
+    const coloured = json({ name: 'Bank', colour: '#123456' });
+    expect((await handle(req('POST', paths.labels('correspondent'), coloured), all)).status).toBe(
+      400,
+    );
+    expect((await handle(req('GET', '/v1/labels/tags/abc'), all)).status).toBe(400);
+    expect((await handle(req('GET', '/v1/labels/people'), all)).status).toBe(404);
+    expect((await handle(req('GET', '/v1/labels/tags/1/split'), all)).status).toBe(404);
+  });
+
+  it('lets a paired phone read labels but not change them', async () => {
+    const { code } = (await handle(req('POST', paths.pairingCodes()), all)).json as {
+      code: string;
+    };
+    const { token } = (
+      await handle(
+        { ...req('POST', paths.pair(), json({ code, deviceName: 'p' })), headers: {} },
+        all,
+      )
+    ).json as { token: string };
+    const asPhone = (method: string, path: string, body?: Uint8Array) => ({
+      ...req(method, path, body),
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const tag = (await handle(req('POST', paths.labels('tag'), json({ name: 't' })), all)).json as {
+      id: number;
+    };
+
+    expect((await handle(asPhone('GET', paths.labels('tag')), all)).status).toBe(200);
+    for (const [method, path, body] of [
+      ['POST', paths.labels('tag'), json({ name: 'u' })],
+      ['PATCH', paths.label('tag', tag.id), json({ name: 'u' })],
+      ['POST', paths.labelMerge('tag', tag.id), json({ into: tag.id })],
+      ['DELETE', paths.label('tag', tag.id), undefined],
+    ] as const) {
+      expect((await handle(asPhone(method, path, body), all)).status).toBe(403);
+    }
+  });
+
+  it('answers 404 when the server has no labels configured', async () => {
+    expect((await handle(req('GET', paths.labels('tag')), deps)).status).toBe(404);
   });
 });

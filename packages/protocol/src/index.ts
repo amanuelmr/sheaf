@@ -60,6 +60,14 @@ export const paths = {
   /** `GET` a document's custom field values; `PUT` a `CustomFieldValuesBody` to replace them. */
   documentCustomFields: (sha256: string) =>
     `/${PROTOCOL_VERSION}/documents/${sha256}/custom-fields`,
+  /** `GET` lists one kind of label with counts; admin `POST`s a `LabelBody` to add one. */
+  labels: (kind: LabelKind) => `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}`,
+  /** Admin: `PATCH` a `LabelPatch`, or `DELETE` it from every document. */
+  label: (kind: LabelKind, id: number) =>
+    `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}`,
+  /** Admin: `POST` a `LabelMergeBody` to fold this label into another. */
+  labelMerge: (kind: LabelKind, id: number) =>
+    `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
   /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
   search: () => `/${PROTOCOL_VERSION}/search`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
@@ -677,6 +685,103 @@ export interface Note {
 export interface NotesResponse {
   /** Oldest first. */
   readonly notes: readonly Note[];
+}
+
+/**
+ * The three kinds of name a document is filed under. A document has at most one
+ * correspondent and one document type, and any number of tags.
+ */
+export const LABEL_KINDS = ['correspondent', 'documentType', 'tag'] as const;
+export type LabelKind = (typeof LABEL_KINDS)[number];
+
+/** How each kind is spelled in a path. */
+export const LABEL_SEGMENTS: Readonly<Record<LabelKind, string>> = {
+  correspondent: 'correspondents',
+  documentType: 'document-types',
+  tag: 'tags',
+};
+
+export const MAX_LABEL_NAME = 128;
+
+/** `#rrggbb`, lower or upper case. */
+export const LABEL_COLOUR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+/** One correspondent, document type or tag, and how many documents carry it. */
+export interface Label {
+  readonly id: number;
+  readonly kind: LabelKind;
+  readonly name: string;
+  /** Documents filed under it, leaving out those in the trash. */
+  readonly documents: number;
+  /** Tags only; null when none was chosen. */
+  readonly colour: string | null;
+}
+
+export interface LabelsResponse {
+  /** By name. */
+  readonly labels: readonly Label[];
+}
+
+/** `POST /v1/labels/{kind}`. A colour is for tags only. */
+export interface LabelBody {
+  readonly name: string;
+  readonly colour?: string;
+}
+
+/**
+ * `PATCH /v1/labels/{kind}/{id}`. A new name is applied to every document that
+ * carries the label; `colour: null` clears it.
+ */
+export interface LabelPatch {
+  readonly name?: string;
+  readonly colour?: string | null;
+}
+
+/** `POST /v1/labels/{kind}/{id}/merge`: every document carrying this one carries `into` instead. */
+export interface LabelMergeBody {
+  readonly into: number;
+}
+
+function validLabelName(name: unknown): name is string {
+  return (
+    typeof name === 'string' &&
+    name.trim() !== '' &&
+    name.trim() === name &&
+    name.length <= MAX_LABEL_NAME
+  );
+}
+
+function validColour(colour: unknown): colour is string {
+  return typeof colour === 'string' && LABEL_COLOUR_PATTERN.test(colour);
+}
+
+export function isLabelBody(value: unknown): value is LabelBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  return (
+    validLabelName(body['name']) && (body['colour'] === undefined || validColour(body['colour']))
+  );
+}
+
+export function isLabelPatch(value: unknown): value is LabelPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  if (body['name'] !== undefined && !validLabelName(body['name'])) return false;
+  const colour = body['colour'];
+  return colour === undefined || colour === null || validColour(colour);
+}
+
+export function isLabelMergeBody(value: unknown): value is LabelMergeBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const into = (value as Record<string, unknown>)['into'];
+  return Object.keys(value).length === 1 && Number.isSafeInteger(into) && (into as number) > 0;
+}
+
+/** The kind a path segment names, or null. */
+export function labelKindOf(segment: string): LabelKind | null {
+  return LABEL_KINDS.find((kind) => LABEL_SEGMENTS[kind] === segment) ?? null;
 }
 
 export interface ErrorBody {
