@@ -115,6 +115,8 @@ export const paths = {
   documentSplit: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/split`,
   /** `POST` a `MergeBody`: one new document of all their pages. */
   mergeDocuments: () => `/${PROTOCOL_VERSION}/documents/merge`,
+  /** `GET` documents whose text says much the same: re-scans of the same paper. */
+  documentSimilar: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/similar`,
   /** `GET` a document's earlier files. */
   documentVersions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/versions`,
   /** `GET` one earlier file as a PDF. */
@@ -718,6 +720,22 @@ export interface InboxEntry {
   readonly receivedAt: number;
   readonly title: string | null;
   readonly suggestions: Suggestions;
+  /** An earlier document whose text says much the same: likely the same paper scanned again. */
+  readonly looksLike?: SimilarDocument;
+}
+
+/** A document whose words mostly match another's. */
+export interface SimilarDocument {
+  readonly sha256: string;
+  readonly title: string | null;
+  readonly receivedAt: number;
+  /** The share of word pairs the two are estimated to have in common, 0 to 1. */
+  readonly similarity: number;
+}
+
+export interface SimilarResponse {
+  /** Most alike first; only those alike enough to be the same paper. */
+  readonly documents: readonly SimilarDocument[];
 }
 
 export interface InboxResponse {

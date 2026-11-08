@@ -25,6 +25,7 @@ import type {
 import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
+import { NearDuplicates } from './near-duplicates.ts';
 import { describe as describeChange } from './audit.ts';
 
 /**
@@ -418,6 +419,7 @@ export class Storage {
         [sha256, body.source, body.engine, body.text, now],
       );
       await this.reindex(sha256);
+      await new NearDuplicates(this.#driver).update(sha256);
     });
     return 'stored';
   }
@@ -629,25 +631,46 @@ export class Storage {
   /** Documents with suggestions that no person has acted on, newest first. */
   async inbox(limit = 100, viewer: number | null = null): Promise<readonly InboxEntry[]> {
     const visible = visibleTo(viewer);
+    const twinVisible = visibleTo(viewer, 't');
     const rows = await this.#driver.all<{
       sha256: string;
       received_at: number;
       title: string | null;
       suggestions_json: string;
+      twin: string | null;
+      twin_title: string | null;
+      twin_received_at: number | null;
+      twin_similarity: number | null;
     }>(
-      `SELECT sha256, received_at, title, suggestions_json FROM documents d
-        WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
+      `SELECT d.sha256, d.received_at, d.title, d.suggestions_json,
+              t.sha256 AS twin, t.title AS twin_title, t.received_at AS twin_received_at,
+              s.twin_similarity
+         FROM documents d
+         LEFT JOIN text_signatures s ON s.sha256 = d.sha256
+         LEFT JOIN documents t
+           ON t.sha256 = s.twin AND t.trashed_at IS NULL AND ${twinVisible.sql}
+        WHERE d.suggestions_json IS NOT NULL AND d.suggestions_json <> '{}'
           AND d.trashed_at IS NULL AND ${visible.sql}
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
-        ORDER BY received_at DESC, sha256
+        ORDER BY d.received_at DESC, d.sha256
         LIMIT ?`,
-      [...visible.params, limit],
+      [...twinVisible.params, ...visible.params, limit],
     );
     return rows.map((row) => ({
       sha256: row.sha256,
       receivedAt: row.received_at,
       title: row.title,
       suggestions: JSON.parse(row.suggestions_json) as Suggestions,
+      ...(row.twin === null
+        ? {}
+        : {
+            looksLike: {
+              sha256: row.twin,
+              title: row.twin_title,
+              receivedAt: row.twin_received_at!,
+              similarity: row.twin_similarity!,
+            },
+          }),
     }));
   }
 
@@ -841,10 +864,12 @@ export class Storage {
         'share_links',
         'document_grants',
         'workflow_runs',
+        'text_signatures',
         'documents',
       ]) {
         await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);
       }
+      await this.#driver.run('UPDATE text_signatures SET twin = NULL WHERE twin = ?', [sha256]);
       // Links to it from other documents go too. Left in place they would come back
       // to life, one-sided, if the same file were ever uploaded again.
       await this.#driver.run(
@@ -976,9 +1001,11 @@ export class Storage {
       'audit_log',
       'document_grants',
       'workflow_runs',
+      'text_signatures',
     ]) {
       await this.#driver.run(`UPDATE ${table} SET sha256 = ? WHERE sha256 = ?`, [to, from]);
     }
+    await this.#driver.run('UPDATE text_signatures SET twin = ? WHERE twin = ?', [to, from]);
     await this.#driver.run(
       'UPDATE document_versions SET document_sha256 = ? WHERE document_sha256 = ?',
       [to, from],

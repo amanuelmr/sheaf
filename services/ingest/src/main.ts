@@ -19,6 +19,7 @@ import { BulkEditor } from './bulk.ts';
 import { ConsumeFolder } from './consume.ts';
 import { MailFetcher } from './mail.ts';
 import { connect as tlsConnect } from 'node:tls';
+import { NearDuplicates } from './near-duplicates.ts';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
 import { sendMail, type OutgoingMail } from './smtp.ts';
@@ -313,6 +314,16 @@ log.info(
   `archive: /v1/archive browses ${archiveChoice.kind === 'native' ? 'this server' : 'Paperless'}`,
 );
 
+// Text kept before re-scans were looked for gets its summary now, oldest first, so
+// each document is compared with the ones that came before it.
+const nearDuplicates = new NearDuplicates(driver);
+void nearDuplicates.fillMissing().then(
+  (n) => {
+    if (n > 0) log.info(`near-duplicates: summarised the text of ${String(n)} documents`);
+  },
+  (error: unknown) => log.error(`near-duplicates: ${String(error)}`),
+);
+
 const server = createIngestServer({
   storage,
   token,
@@ -337,6 +348,7 @@ const server = createIngestServer({
   audit: new AuditLog(driver),
   edits,
   settings,
+  nearDuplicates,
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it

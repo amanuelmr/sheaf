@@ -478,6 +478,20 @@ export const MIGRATIONS: readonly Migration[] = [
       'CREATE UNIQUE INDEX users_by_sso_subject ON users (sso_subject) WHERE sso_subject IS NOT NULL',
     ],
   },
+  {
+    // A summary of each document's words, to find the same paper scanned twice, and
+    // the earlier document it most looks like when its text arrived.
+    id: 27,
+    name: 'text_signatures',
+    statements: [
+      `CREATE TABLE text_signatures (
+         sha256          TEXT PRIMARY KEY,
+         signature       TEXT NOT NULL,
+         twin            TEXT,
+         twin_similarity REAL
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

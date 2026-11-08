@@ -10,6 +10,7 @@ import { Notes } from './Notes';
 import { Share } from './Share';
 import { Pages } from './Pages';
 import { Access } from './Access';
+import { Similar } from './Similar';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -122,6 +123,8 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             </button>
           </p>
         )}
+
+        {record.trashedAt === undefined ? <Similar api={api} sha256={sha256} /> : null}
 
         <DocumentDetails api={api} record={record} onSaved={(next) => void saved(next)} />
 

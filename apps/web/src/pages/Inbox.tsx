@@ -87,6 +87,14 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
                 {s.tags === undefined || s.tags.length === 0 ? null : (
                   <span className="muted">{s.tags.join(', ')}</span>
                 )}
+                {entry.looksLike === undefined ? null : (
+                  <span className="badge waiting wrap">
+                    Looks like a re-scan of{' '}
+                    <a href={href({ page: 'document', sha256: entry.looksLike.sha256 })}>
+                      {entry.looksLike.title ?? `scan ${shortSha(entry.looksLike.sha256)}`}
+                    </a>
+                  </span>
+                )}
               </div>
               <div className="actions">
                 <button onClick={() => void accept(entry)}>Accept</button>

@@ -80,6 +80,7 @@ import {
   type PairingCodeResponse,
   type ReconciliationProbe,
   type SearchResponse,
+  type SimilarResponse,
   type SuggestionsResponse,
   type TrashActionResponse,
   type TrashResponse,
@@ -101,6 +102,7 @@ import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import { exportCsv } from './csv-export.ts';
+import type { NearDuplicates } from './near-duplicates.ts';
 import type { Storage } from './storage.ts';
 import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 import { DEFAULT_TRASH_DAYS } from './trash.ts';
@@ -176,6 +178,8 @@ export interface RouterDeps {
   readonly settings?: Settings;
   /** Single sign-on through an OpenID Connect provider. Absent, it is off. */
   readonly sso?: Sso;
+  /** Re-scans of the same paper, found by their words. Absent, the route answers 404. */
+  readonly nearDuplicates?: NearDuplicates;
 }
 
 /** Prometheus's conventional path, outside the versioned protocol. */
@@ -747,6 +751,20 @@ async function authenticated(
     if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
     if (method !== 'PUT') return fail('bad_request', `${method} not allowed here`);
     return putText(id, request, deps);
+  }
+
+  const similarSuffix = '/similar';
+  if (rest.endsWith(similarSuffix)) {
+    const id = rest.slice(0, -similarSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    if (deps.nearDuplicates === undefined || !(await deps.storage.has(id))) {
+      return fail('not_found');
+    }
+    const response: SimilarResponse = {
+      documents: await deps.nearDuplicates.similarTo(id, viewer),
+    };
+    return { status: 200, json: response };
   }
 
   const suggestionsSuffix = '/suggestions';
