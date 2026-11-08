@@ -948,6 +948,14 @@ async function documentCustomFields(
   if (!isCustomFieldValuesBody(body)) {
     return fail('bad_request', 'body must be {"values": [{"field": <id>, "value": ...}, ...]}');
   }
+  // A person filling in a document fills in what every document must have.
+  const missing = await fields.missingRequired(body.values);
+  if (missing.length > 0) {
+    return fail(
+      'bad_request',
+      `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} required: give ${missing.length === 1 ? 'it' : 'them'} a value`,
+    );
+  }
   const result = await fields.setValues(sha256, body.values, deps.now());
   if (!result.ok) return refusal(result);
   const response: DocumentCustomFieldsResponse = { values: result.value };

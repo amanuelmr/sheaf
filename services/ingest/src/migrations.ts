@@ -492,6 +492,12 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // A custom field every document should have a value for.
+    id: 28,
+    name: 'required_custom_fields',
+    statements: ['ALTER TABLE custom_fields ADD COLUMN required INTEGER NOT NULL DEFAULT 0'],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

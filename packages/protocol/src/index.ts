@@ -824,6 +824,11 @@ export interface CustomField {
   readonly options: readonly string[];
   /** How many documents carry it, with or without a value. */
   readonly documentCount: number;
+  /**
+   * Every document should have a value. A person saving a document's fields without
+   * one is refused; documents filed by rules or workflows are flagged, not refused.
+   */
+  readonly required: boolean;
 }
 
 export interface CustomFieldsResponse {
@@ -837,12 +842,15 @@ export interface CustomFieldBody {
   readonly type: CustomFieldType;
   /** Required, and non-empty, for `select`; refused for any other type. */
   readonly options?: readonly string[];
+  /** Default false. See `CustomField.required`. */
+  readonly required?: boolean;
 }
 
 /** `PATCH /v1/custom-fields/{id}`. The type cannot change. Dropping an option clears it from documents. */
 export interface CustomFieldPatch {
   readonly name?: string;
   readonly options?: readonly string[];
+  readonly required?: boolean;
 }
 
 /**
@@ -945,14 +953,17 @@ export function isCustomFieldBody(value: unknown): value is CustomFieldBody {
   const body = value as Record<string, unknown>;
   if (!validName(body['name'])) return false;
   if (!(CUSTOM_FIELD_TYPES as readonly unknown[]).includes(body['type'])) return false;
+  if (body['required'] !== undefined && typeof body['required'] !== 'boolean') return false;
   return body['type'] === 'select' ? validOptions(body['options']) : body['options'] === undefined;
 }
 
 export function isCustomFieldPatch(value: unknown): value is CustomFieldPatch {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'options')) return false;
+  if (Object.keys(body).some((key) => key !== 'name' && key !== 'options' && key !== 'required'))
+    return false;
   if (body['name'] !== undefined && !validName(body['name'])) return false;
+  if (body['required'] !== undefined && typeof body['required'] !== 'boolean') return false;
   return body['options'] === undefined || validOptions(body['options']);
 }
 

@@ -3,7 +3,9 @@ import { describe as suite, expect, it } from 'vitest';
 import type { CustomField, Workflow } from '@sheaf/protocol';
 import { EMPTY_FORM, describeWorkflow, toBody, toForm } from '../src/workflow-form';
 
-const fields: CustomField[] = [{ id: 4, name: 'Due', type: 'date', options: [], documentCount: 0 }];
+const fields: CustomField[] = [
+  { id: 4, name: 'Due', type: 'date', options: [], documentCount: 0, required: false },
+];
 
 suite('the workflow form', () => {
   it('makes a scheduled workflow that emails, and reads it back', () => {

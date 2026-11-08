@@ -21,6 +21,7 @@ export function Fields({ api }: { api: Api }) {
   const [name, setName] = useState('');
   const [type, setType] = useState<CustomFieldType>('text');
   const [options, setOptions] = useState('');
+  const [required, setRequired] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -43,6 +44,7 @@ export function Fields({ api }: { api: Api }) {
       name: name.trim(),
       type,
       ...(type === 'select' ? { options: choices } : {}),
+      ...(required ? { required } : {}),
     });
     if (!result.ok) {
       setError(result.message);
@@ -50,6 +52,7 @@ export function Fields({ api }: { api: Api }) {
     }
     setName('');
     setOptions('');
+    setRequired(false);
     setError(null);
     await load();
   };
@@ -81,6 +84,21 @@ export function Fields({ api }: { api: Api }) {
                 {field.type === 'select' ? `: ${field.options.join(', ')}` : ''} · on{' '}
                 {String(field.documentCount)} document{field.documentCount === 1 ? '' : 's'}
               </span>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={field.required}
+                  onChange={(event) =>
+                    void api
+                      .updateCustomField(field.id, { required: event.target.checked })
+                      .then((result) => {
+                        if (!result.ok) setError(result.message);
+                        return load();
+                      })
+                  }
+                />{' '}
+                Every document needs it
+              </label>
             </div>
             {confirming === field.id ? (
               <div className="actions">
@@ -127,6 +145,14 @@ export function Fields({ api }: { api: Api }) {
             />
           </>
         ) : null}
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={required}
+            onChange={(event) => setRequired(event.target.checked)}
+          />{' '}
+          Every document needs it
+        </label>
         <button type="submit" disabled={name.trim() === ''}>
           Add field
         </button>

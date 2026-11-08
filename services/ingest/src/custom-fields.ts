@@ -27,6 +27,7 @@ interface FieldRow {
   data_type: CustomFieldType;
   options_json: string;
   document_count: number;
+  required: number;
 }
 
 /**
@@ -68,8 +69,9 @@ export class CustomFields {
     if (await this.#nameTaken(name, null)) return taken;
     try {
       await this.#driver.run(
-        'INSERT INTO custom_fields (name, data_type, options_json, created_at) VALUES (?, ?, ?, ?)',
-        [name, body.type, JSON.stringify(body.options ?? []), now],
+        `INSERT INTO custom_fields (name, data_type, options_json, required, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [name, body.type, JSON.stringify(body.options ?? []), body.required === true ? 1 : 0, now],
       );
     } catch (error) {
       // Another request took the name between the check and the insert.
@@ -117,6 +119,12 @@ export class CustomFields {
     await this.#driver.transaction(async () => {
       if (name !== undefined) {
         await this.#driver.run('UPDATE custom_fields SET name = ? WHERE id = ?', [name, id]);
+      }
+      if (patch.required !== undefined) {
+        await this.#driver.run('UPDATE custom_fields SET required = ? WHERE id = ?', [
+          patch.required ? 1 : 0,
+          id,
+        ]);
       }
       if (patch.options !== undefined) {
         await this.#driver.run('UPDATE custom_fields SET options_json = ? WHERE id = ?', [
@@ -182,6 +190,14 @@ export class CustomFields {
         ? { ...v, value: asLinks(v.value).filter((id) => present.has(id)) }
         : v,
     );
+  }
+
+  /** The required fields these values leave without a value, by name. */
+  async missingRequired(values: readonly CustomFieldValue[]): Promise<readonly string[]> {
+    const filled = new Set(values.filter((v) => v.value !== null).map((v) => v.field));
+    return (await this.list())
+      .filter((field) => field.required && !filled.has(field.id))
+      .map((field) => field.name);
   }
 
   /**
@@ -335,7 +351,7 @@ function asLinks(value: unknown): readonly string[] {
 }
 
 const FIELD_SELECT = `
-  SELECT f.id, f.name, f.data_type, f.options_json,
+  SELECT f.id, f.name, f.data_type, f.options_json, f.required,
          (SELECT COUNT(*) FROM custom_field_values v WHERE v.field_id = f.id) AS document_count
     FROM custom_fields f`;
 
@@ -346,5 +362,6 @@ function toField(row: FieldRow): CustomField {
     type: row.data_type,
     options: JSON.parse(row.options_json) as string[],
     documentCount: row.document_count,
+    required: row.required === 1,
   };
 }
