@@ -1867,7 +1867,14 @@ export interface ServerSettings {
   readonly barcodeSeparator: string;
   /** A barcode starting with this, then digits, sets the archive serial number. */
   readonly barcodeAsnPrefix: string;
+  /** How a date written in numbers alone is read: 03/04/2026 is 3 April in DMY, March 4 in MDY. */
+  readonly dateOrder: DateOrderSetting;
+  /** The currency an amount with no currency written beside it is taken to be in. ISO 4217. */
+  readonly defaultCurrency: string;
 }
+
+export const DATE_ORDERS = ['DMY', 'MDY', 'YMD'] as const;
+export type DateOrderSetting = (typeof DATE_ORDERS)[number];
 
 export const SETTING_KEYS = [
   'trashDays',
@@ -1875,6 +1882,8 @@ export const SETTING_KEYS = [
   'barcodesEnabled',
   'barcodeSeparator',
   'barcodeAsnPrefix',
+  'dateOrder',
+  'defaultCurrency',
 ] as const;
 
 /** Where a setting's value comes from: built in, the environment, or saved by an admin. */
@@ -1907,6 +1916,14 @@ export function settingProblem(key: string, value: unknown): string | null {
       return typeof value === 'string' && value.trim() !== '' && value.length <= 64
         ? null
         : `${key} must be text of at most 64 characters`;
+    case 'dateOrder':
+      return (DATE_ORDERS as readonly unknown[]).includes(value)
+        ? null
+        : 'dateOrder must be DMY, MDY or YMD';
+    case 'defaultCurrency':
+      return typeof value === 'string' && /^[A-Z]{3}$/.test(value)
+        ? null
+        : 'defaultCurrency must be a three-letter currency code, such as EUR';
     default:
       return `there is no setting "${key}"`;
   }

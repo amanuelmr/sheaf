@@ -26,7 +26,13 @@ const runner = (extractor: Extractor = heuristicExtractor()) =>
   new JobRunner(
     driver,
     storage,
-    [extractStep(storage, { extractor, dateOrder: 'DMY', defaultCurrency: 'MYR', graceMs: GRACE })],
+    [
+      extractStep(storage, {
+        extractor,
+        locale: () => ({ dateOrder: 'DMY', defaultCurrency: 'MYR' }),
+        graceMs: GRACE,
+      }),
+    ],
     { now: () => clock, jitter: () => 0.5 },
   );
 

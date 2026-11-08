@@ -68,4 +68,19 @@ suite('settings', () => {
     await settings.update({ trashDays: 1 }, NOW);
     expect(await sweeper.tick()).toEqual({ purged: 1 });
   });
+
+  it('read numeric dates and bare amounts the way an admin chose', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-st-')),
+    });
+    const settings = await Settings.open(driver, { dateOrder: 'MDY' });
+    const deps = { storage, token: TOKEN, now: () => NOW, settings };
+    expect(settings.current()).toMatchObject({ dateOrder: 'MDY', defaultCurrency: 'EUR' });
+    expect((await handle(req('PATCH', { dateOrder: 'DM' }), deps)).status).toBe(400);
+    expect((await handle(req('PATCH', { defaultCurrency: 'euro' }), deps)).status).toBe(400);
+    await handle(req('PATCH', { dateOrder: 'DMY', defaultCurrency: 'GBP' }), deps);
+    expect(settings.current()).toMatchObject({ dateOrder: 'DMY', defaultCurrency: 'GBP' });
+  });
 });

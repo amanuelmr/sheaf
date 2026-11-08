@@ -3,6 +3,7 @@ import {
   settingProblem,
   type AuditEntry,
   type HealthResponse,
+  type DateOrderSetting,
   type ServerSettings,
   type SettingSource,
 } from '@sheaf/protocol';
@@ -307,6 +308,35 @@ function ServerSettingsCard({ api }: { api: Api }) {
             onChange={(event) => setDraft({ ...draft, barcodeAsnPrefix: event.target.value })}
           />
           {note('barcodeAsnPrefix')}
+        </div>
+      </div>
+      <div className="filter-row">
+        <div>
+          <label htmlFor="set-date-order">Dates written in numbers, like 03/04/2026</label>
+          <select
+            id="set-date-order"
+            value={draft.dateOrder}
+            onChange={(event) =>
+              setDraft({ ...draft, dateOrder: event.target.value as DateOrderSetting })
+            }
+          >
+            <option value="DMY">Day first: 3 April 2026</option>
+            <option value="MDY">Month first: March 4, 2026</option>
+            <option value="YMD">Year first: 2026, March 4</option>
+          </select>
+          {note('dateOrder')}
+        </div>
+        <div>
+          <label htmlFor="set-currency">Currency of amounts with none written</label>
+          <input
+            id="set-currency"
+            maxLength={3}
+            value={draft.defaultCurrency}
+            onChange={(event) =>
+              setDraft({ ...draft, defaultCurrency: event.target.value.toUpperCase() })
+            }
+          />
+          {note('defaultCurrency')}
         </div>
       </div>
       {problem === null ? null : <p className="error">{problem}</p>}

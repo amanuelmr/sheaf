@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
-import type { ReconciliationProbe } from '@sheaf/protocol';
+import type { DateOrderSetting, ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder } from './forwarder.ts';
 import { JobRunner, type Step } from './jobs.ts';
@@ -222,6 +222,14 @@ const settings = await Settings.open(driver, {
   ...(process.env['SHEAF_BARCODE_ASN_PREFIX'] === undefined
     ? {}
     : { barcodeAsnPrefix: process.env['SHEAF_BARCODE_ASN_PREFIX'] }),
+  // Checked with the rest of extraction's settings below, so a bad value stops the
+  // server there with a message.
+  ...(process.env['SHEAF_DATE_ORDER'] === undefined
+    ? {}
+    : { dateOrder: process.env['SHEAF_DATE_ORDER'] as DateOrderSetting }),
+  ...(process.env['SHEAF_CURRENCY'] === undefined
+    ? {}
+    : { defaultCurrency: process.env['SHEAF_CURRENCY'].toUpperCase() }),
 });
 
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
@@ -571,8 +579,11 @@ if (extraction.kind === 'native') {
   steps.push(
     extractStep(storage, {
       extractor: extraction.extractor,
-      dateOrder: extraction.dateOrder,
-      defaultCurrency: extraction.defaultCurrency,
+      // Read on every run, so a change on the settings page applies to the next document.
+      locale: () => {
+        const { dateOrder, defaultCurrency } = settings.current();
+        return { dateOrder, defaultCurrency };
+      },
       graceMs: 120_000,
     }),
   );

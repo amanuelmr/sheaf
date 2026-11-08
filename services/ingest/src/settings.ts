@@ -13,6 +13,8 @@ export const BUILT_IN: ServerSettings = {
   barcodesEnabled: false,
   barcodeSeparator: 'PATCHT',
   barcodeAsnPrefix: 'ASN',
+  dateOrder: 'DMY',
+  defaultCurrency: 'EUR',
 };
 
 /**
