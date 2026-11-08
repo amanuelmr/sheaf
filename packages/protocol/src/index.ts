@@ -135,6 +135,11 @@ export const paths = {
    * the filter lets through.
    */
   search: () => `/${PROTOCOL_VERSION}/search`,
+  /**
+   * `GET` with the same filter as `search`: every matching document as a CSV file,
+   * a column per custom field. `x-sheaf-truncated: true` when there were more.
+   */
+  searchExport: () => `/${PROTOCOL_VERSION}/search/export.csv`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
   /** Text a client already recognised in a stored document. See `DocumentTextBody`. */

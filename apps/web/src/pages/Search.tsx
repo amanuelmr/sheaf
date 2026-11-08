@@ -221,8 +221,20 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
               void loadViews();
             }}
           />
-          <p className="muted small">
+          <p className="muted small result-count">
             {String(total)} document{total === 1 ? '' : 's'}
+            {total === 0 ? null : (
+              <button
+                className="link"
+                onClick={() => {
+                  void api.exportCsv(tidy(filter)).then((result) => {
+                    if (!result.ok) setError(result.message);
+                  });
+                }}
+              >
+                Export CSV
+              </button>
+            )}
           </p>
           {hits.length === 0 ? (
             <p className="muted">Nothing matches.</p>

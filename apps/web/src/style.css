@@ -273,6 +273,12 @@ label.button:focus-within {
   outline-offset: 2px;
 }
 
+.result-count {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .upload.over {
   outline: 2px dashed var(--accent);
   outline-offset: -6px;

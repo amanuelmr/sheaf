@@ -100,6 +100,7 @@ import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
+import { exportCsv } from './csv-export.ts';
 import type { Storage } from './storage.ts';
 import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
 import { DEFAULT_TRASH_DAYS } from './trash.ts';
@@ -529,6 +530,30 @@ async function authenticated(
       documents: await deps.storage.inbox(100, viewerOf(principal)),
     };
     return { status: 200, json: response };
+  }
+
+  if (path === paths.searchExport()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const read = filterFromParams(new URLSearchParams(request.query));
+    if (!read.ok) return fail('bad_request', read.problem);
+    const match = read.filter.text === undefined ? null : toMatch(read.filter.text);
+    const viewer = viewerOf(principal);
+    const { csv, truncated } = await exportCsv(
+      (limit, offset) =>
+        read.filter.text !== undefined && match === null
+          ? Promise.resolve({ hits: [], hasMore: false, total: 0 })
+          : deps.storage.find(match, read.filter, limit, offset, viewer),
+      deps.customFields,
+    );
+    return {
+      status: 200,
+      headers: {
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': 'attachment; filename="documents.csv"',
+        'x-sheaf-truncated': String(truncated),
+      },
+      bytes: new TextEncoder().encode(csv),
+    };
   }
 
   if (path === paths.search()) {
