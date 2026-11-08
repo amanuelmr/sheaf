@@ -278,6 +278,13 @@ label.button:focus-within {
   display: inline;
 }
 
+.badge a,
+.notice a,
+.upload-lines a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .notice {
   border: 1px solid var(--waiting);
   border-radius: 10px;

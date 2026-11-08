@@ -81,4 +81,14 @@ suite('the audit log', () => {
     expect(describeChange('POST', '/v1/labels/tags')).toBe('Added to labels');
     expect(describeChange('PATCH', '/v1/custom-fields/3')).toBe('Changed custom fields');
   });
+
+  it('names page edits, stamps and restores for what they are', () => {
+    const doc = `/v1/documents/${'a'.repeat(64)}`;
+    expect(describeChange('POST', `${doc}/stamp`)).toBe('Stamped it');
+    expect(describeChange('POST', `${doc}/pages`)).toBe('Edited its pages');
+    expect(describeChange('POST', `${doc}/split`)).toBe('Split it into new documents');
+    expect(describeChange('POST', `${doc}/versions/${'b'.repeat(64)}/restore`)).toBe(
+      'Restored an earlier version',
+    );
+  });
 });

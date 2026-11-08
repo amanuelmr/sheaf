@@ -103,6 +103,11 @@ export function describe(method: string, path: string): string {
     if (part === 'notes') return 'Added a note';
     if (part === 'custom-fields') return 'Set its custom fields';
     if (part === 'share-links') return 'Made a share link';
+    if (part === 'pages') return 'Edited its pages';
+    if (part === 'split') return 'Split it into new documents';
+    if (part === 'stamp') return 'Stamped it';
+    if (part === 'versions') return 'Restored an earlier version';
+    if (part === 'permissions') return 'Changed who may see it';
   }
   if (/\/notes\/\d+$/.test(path)) return 'Deleted a note';
   const area = path.replace(/^\/v1\//, '').split('/')[0] ?? path;
