@@ -10,6 +10,7 @@ import {
 import { join } from 'node:path';
 import type {
   AccessLevel,
+  AccuracyResponse,
   DocumentFilter,
   DocumentPermissions,
   DocumentPatch,
@@ -26,6 +27,7 @@ import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
 import { NearDuplicates } from './near-duplicates.ts';
+import { accuracy } from './accuracy.ts';
 import { describe as describeChange } from './audit.ts';
 
 /**
@@ -626,6 +628,11 @@ export class Storage {
         [sha256, name, JSON.stringify(value), now],
       );
     }
+  }
+
+  /** How often each field's suggestion was right, by what people kept. See `accuracy`. */
+  async accuracy(): Promise<AccuracyResponse> {
+    return accuracy(this.#driver);
   }
 
   /** Documents with suggestions that no person has acted on, newest first. */

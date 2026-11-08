@@ -115,6 +115,8 @@ export const paths = {
   documentSplit: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/split`,
   /** `POST` a `MergeBody`: one new document of all their pages. */
   mergeDocuments: () => `/${PROTOCOL_VERSION}/documents/merge`,
+  /** `GET` how often each field's suggestion was right, on the latest documents people filed. */
+  accuracy: () => `/${PROTOCOL_VERSION}/accuracy`,
   /** `GET` documents whose text says much the same: re-scans of the same paper. */
   documentSimilar: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/similar`,
   /** `GET` a document's earlier files. */
@@ -329,6 +331,20 @@ export function isTrashActionBody(value: unknown): value is TrashActionBody {
 /** How many documents a trash action changed. */
 export interface TrashActionResponse {
   readonly count: number;
+}
+
+/** How often one field's suggestions were kept as they were. */
+export interface FieldAccuracy {
+  readonly field: 'title' | 'date' | 'correspondent' | 'documentType' | 'tags';
+  /** Suggestions a person kept unchanged. */
+  readonly right: number;
+  /** Suggestions a person kept or changed, newest first, at most `window`. */
+  readonly judged: number;
+}
+
+export interface AccuracyResponse {
+  readonly window: number;
+  readonly fields: readonly FieldAccuracy[];
 }
 
 export interface SuggestionsResponse {

@@ -536,6 +536,11 @@ async function authenticated(
     return { status: 200, json: response };
   }
 
+  if (path === paths.accuracy()) {
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    return { status: 200, json: await deps.storage.accuracy() };
+  }
+
   if (path === paths.searchExport()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const read = filterFromParams(new URLSearchParams(request.query));

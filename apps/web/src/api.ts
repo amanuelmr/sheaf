@@ -49,6 +49,7 @@ import {
   type SavedViewPatch,
   type SavedViewsResponse,
   type ApplyRulesResponse,
+  type AccuracyResponse,
   type Note,
   type NoteBody,
   type NotesResponse,
@@ -144,6 +145,7 @@ export function api(connection: Connection) {
       call<NewDocumentsResponse>('POST', paths.documentSplit(sha256), { parts, keepOriginal }),
     merge: (documents: readonly string[], keepOriginals: boolean) =>
       call<DocumentRecord>('POST', paths.mergeDocuments(), { documents, keepOriginals }),
+    accuracy: () => call<AccuracyResponse>('GET', paths.accuracy()),
     similar: (sha256: string) => call<SimilarResponse>('GET', paths.documentSimilar(sha256)),
     versions: (sha256: string) => call<VersionsResponse>('GET', paths.documentVersions(sha256)),
     restoreVersion: (sha256: string, version: string) =>
