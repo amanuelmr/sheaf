@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 import {
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
   existsSync,
   unlinkSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AccessLevel,
@@ -26,6 +29,7 @@ import type {
 import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
+import { decrypt, encrypt, isEncrypted } from './encryption.ts';
 import { NearDuplicates } from './near-duplicates.ts';
 import { accuracy } from './accuracy.ts';
 import { describe as describeChange } from './audit.ts';
@@ -38,6 +42,8 @@ import { describe as describeChange } from './audit.ts';
 export interface StorageOptions {
   readonly driver: SqlDriver;
   readonly objectsDir: string;
+  /** With a key, files are written encrypted. See `encryption.ts`. */
+  readonly key?: Buffer;
 }
 
 export type NameKind = 'correspondent' | 'document_type' | 'tag';
@@ -247,12 +253,14 @@ export class Storage {
   // emits code. Anything not erasable fails at startup rather than at build time.
   readonly #driver: SqlDriver;
   readonly #objectsDir: string;
+  readonly #key: Buffer | undefined;
   /** The last operation queued on each document's file; see `#exclusive`. */
   readonly #fileLocks = new Map<string, Promise<unknown>>();
 
-  private constructor(driver: SqlDriver, objectsDir: string) {
+  private constructor(driver: SqlDriver, objectsDir: string, key: Buffer | undefined) {
     this.#driver = driver;
     this.#objectsDir = objectsDir;
+    this.#key = key;
   }
 
   static async open(options: StorageOptions): Promise<Storage> {
@@ -280,7 +288,7 @@ export class Storage {
     await migrate(options.driver, Date.now());
 
     mkdirSync(options.objectsDir, { recursive: true });
-    const storage = new Storage(options.driver, options.objectsDir);
+    const storage = new Storage(options.driver, options.objectsDir, options.key);
     // Documents stored before the index existed, or while a reindex was cut short,
     // become searchable here rather than whenever they next happen to change.
     await storage.reindexMissing();
@@ -367,8 +375,64 @@ export class Storage {
   }
 
   bytes(sha256: string): Uint8Array | null {
+    return this.#readObject(sha256);
+  }
+
+  /** A file as stored, decrypted when it was written encrypted. */
+  #readObject(sha256: string): Uint8Array | null {
     const path = this.pathFor(sha256);
-    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+    if (!existsSync(path)) return null;
+    const file = new Uint8Array(readFileSync(path));
+    if (!isEncrypted(file)) return file;
+    if (this.#key === undefined) {
+      throw new Error(`${sha256} is encrypted and SHEAF_ENCRYPTION_KEY is not set`);
+    }
+    return decrypt(this.#key, file);
+  }
+
+  /**
+   * Encrypts every file still stored in the clear, one at a time. For a server that
+   * turned encryption on with documents already stored. Returns how many it did.
+   */
+  async encryptStored(): Promise<number> {
+    if (this.#key === undefined) return 0;
+    let done = 0;
+    const rows = await this.#driver.all<{ sha256: string }>(
+      `SELECT sha256 FROM documents
+       UNION SELECT version_sha256 FROM document_versions`,
+    );
+    for (const { sha256 } of rows) {
+      const path = this.pathFor(sha256);
+      if (!existsSync(path)) continue;
+      const file = new Uint8Array(readFileSync(path));
+      if (isEncrypted(file)) continue;
+      await this.#exclusive(sha256, () => {
+        this.#writeObject(sha256, file);
+        return Promise.resolve();
+      });
+      done++;
+    }
+    return done;
+  }
+
+  /**
+   * Runs `use` with a path to the document's file in the clear: the stored file
+   * itself, or a copy decrypted for the purpose and removed afterwards.
+   */
+  async withPlainFile<T>(sha256: string, use: (path: string) => Promise<T>): Promise<T | null> {
+    const path = this.pathFor(sha256);
+    if (!existsSync(path)) return null;
+    if (this.#key === undefined) return use(path);
+    const bytes = this.#readObject(sha256);
+    if (bytes === null) return null;
+    const dir = mkdtempSync(join(tmpdir(), 'sheaf-plain-'));
+    const plain = join(dir, `${sha256}.pdf`);
+    writeFileSync(plain, bytes, { mode: 0o600 });
+    try {
+      return await use(plain);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   async list(limit = 200, viewer: number | null = null): Promise<readonly DocumentRecord[]> {
@@ -969,8 +1033,7 @@ export class Storage {
   /** The bytes of one earlier version of a document, or null when it has no such version. */
   async versionBytes(sha256: string, version: string): Promise<Uint8Array | null> {
     if (!(await this.versions(sha256)).some((v) => v.sha256 === version)) return null;
-    const path = this.pathFor(version);
-    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+    return this.#readObject(version);
   }
 
   /** Make an earlier version the document's file again; the current one becomes a version. */
@@ -1039,7 +1102,7 @@ export class Storage {
     const target = this.pathFor(sha256);
     mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
     const temp = `${target}.${process.pid}.tmp`;
-    writeFileSync(temp, bytes);
+    writeFileSync(temp, this.#key === undefined ? bytes : encrypt(this.#key, bytes));
     renameSync(temp, target);
   }
 

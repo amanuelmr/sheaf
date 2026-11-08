@@ -23,6 +23,7 @@ import { ConsumeFolder } from './consume.ts';
 import { MailFetcher } from './mail.ts';
 import { connect as tlsConnect } from 'node:tls';
 import { NearDuplicates } from './near-duplicates.ts';
+import { keyFrom } from './encryption.ts';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
 import { sendMail, type OutgoingMail } from './smtp.ts';
@@ -69,7 +70,32 @@ const port = Number(process.env['PORT'] ?? 8787);
 mkdirSync(dataDir, { recursive: true });
 
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
-const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
+// Document files encrypted on disk, when a passphrase is given. Files already
+// stored in the clear stay readable and are encrypted in the background.
+const passphrase = process.env['SHEAF_ENCRYPTION_KEY'];
+let key: Buffer | undefined;
+if (passphrase !== undefined && passphrase !== '') {
+  try {
+    key = keyFrom(passphrase);
+  } catch (error) {
+    log.error(String(error instanceof Error ? error.message : error));
+    process.exit(1);
+  }
+}
+const storage = await Storage.open({
+  driver,
+  objectsDir: join(dataDir, 'objects'),
+  ...(key === undefined ? {} : { key }),
+});
+if (key !== undefined) {
+  log.info('encryption: document files are encrypted on disk');
+  void storage.encryptStored().then(
+    (n) => {
+      if (n > 0) log.info(`encryption: encrypted ${String(n)} file(s) stored before`);
+    },
+    (error: unknown) => log.error(`encryption: ${String(error)}`),
+  );
+}
 const rules = new Rules(driver, storage);
 const customFields = new CustomFields(driver, storage);
 const edits = new DocumentEdits(storage, driver);

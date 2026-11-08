@@ -46,8 +46,12 @@ export function matchStep(
       const post = options.postConsume;
       const record = post === undefined ? null : await storage.record(document.sha256);
       if (post !== undefined && record !== null && record.trashedAt === undefined) {
-        const result = await runPostConsume(post.script, record, storage.pathFor(document.sha256));
-        if (!result.ok) post.warn(`post-consume script on ${document.sha256}: ${result.detail}`);
+        const result = await storage.withPlainFile(document.sha256, (path) =>
+          runPostConsume(post.script, record, path),
+        );
+        if (result !== null && !result.ok) {
+          post.warn(`post-consume script on ${document.sha256}: ${result.detail}`);
+        }
       }
       return { ok: true, value: null };
     },

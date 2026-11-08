@@ -14,6 +14,7 @@ import { filenameFormatProblem } from './filename.ts';
 import { Labels } from './labels.ts';
 import { Settings } from './settings.ts';
 import { Storage } from './storage.ts';
+import { keyFrom } from './encryption.ts';
 import { SavedViews } from './views.ts';
 
 const [command, dir] = process.argv.slice(2);
@@ -25,7 +26,12 @@ if ((command !== 'export' && command !== 'import') || dir === undefined) {
 const dataDir = process.env['SHEAF_DATA_DIR'] ?? join(process.cwd(), '.sheaf-data');
 mkdirSync(dataDir, { recursive: true });
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
-const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
+const passphrase = process.env['SHEAF_ENCRYPTION_KEY'];
+const storage = await Storage.open({
+  driver,
+  objectsDir: join(dataDir, 'objects'),
+  ...(passphrase === undefined || passphrase === '' ? {} : { key: keyFrom(passphrase) }),
+});
 // The format saved from the web app, unless the environment names one for this run.
 const format =
   process.env['SHEAF_FILENAME_FORMAT'] ??
