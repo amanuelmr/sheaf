@@ -87,3 +87,27 @@ suite('near-duplicate documents', () => {
     expect(await near.similarTo(second, null)).toEqual([]);
   });
 });
+
+suite('summarising text kept before', () => {
+  it('summarises without comparing, and the document page still finds the look-alike', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-nd-')),
+    });
+    const [a, b] = [pdf('one'), pdf('two')];
+    for (const [bytes, text] of [
+      [a, LETTER],
+      [b, RESCAN],
+    ] as const) {
+      await storage.put(sha256Hex(bytes), bytes, NOW, 1);
+      await storage.putText(sha256Hex(bytes), { source: 'edge', engine: 'x', text }, NOW);
+    }
+    await driver.run('DELETE FROM text_signatures');
+    const near = new NearDuplicates(driver);
+    expect(await near.fillMissing()).toBe(2);
+    const rows = await driver.all<{ twin: string | null }>('SELECT twin FROM text_signatures');
+    expect(rows.map((r) => r.twin)).toEqual([null, null]);
+    expect((await near.similarTo(sha256Hex(b), null)).map((d) => d.sha256)).toEqual([sha256Hex(a)]);
+  });
+});

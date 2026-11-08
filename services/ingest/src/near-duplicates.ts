@@ -123,7 +123,7 @@ export class NearDuplicates {
    * Works out a document's signature from its text again, and which earlier
    * document, if any, is most likely the same paper.
    */
-  async update(sha256: string): Promise<void> {
+  async update(sha256: string, compare = true): Promise<void> {
     const texts = await this.#driver.all<{ text: string }>(
       'SELECT text FROM document_text WHERE sha256 = ? ORDER BY source',
       [sha256],
@@ -136,7 +136,7 @@ export class NearDuplicates {
       return;
     }
     const nums = numbers(text);
-    const best = await this.#closest(sha256, sig, nums, null);
+    const best = compare ? await this.#closest(sha256, sig, nums, null) : [];
     await this.#driver.run(
       `INSERT INTO text_signatures (sha256, signature, numbers, twin, twin_similarity)
        VALUES (?, ?, ?, ?, ?)
@@ -153,14 +153,19 @@ export class NearDuplicates {
     );
   }
 
-  /** Gives every document with text but no signature one: for text kept before this existed. */
+  /**
+   * Gives every document with text but no signature one: for text kept before this
+   * existed. Documents arriving from then on are compared as their text comes in.
+   */
   async fillMissing(): Promise<number> {
     const missing = await this.#driver.all<{ sha256: string }>(
       `SELECT DISTINCT t.sha256 FROM document_text t
         WHERE NOT EXISTS (SELECT 1 FROM text_signatures s WHERE s.sha256 = t.sha256)
         ORDER BY t.received_at`,
     );
-    for (const { sha256 } of missing) await this.update(sha256);
+    // Summaries only: comparing each old document with every other would take a
+    // large library's server hours. Its page still finds look-alikes on request.
+    for (const { sha256 } of missing) await this.update(sha256, false);
     return missing.length;
   }
 
