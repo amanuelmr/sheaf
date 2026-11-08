@@ -11,6 +11,7 @@ import { Share } from './Share';
 import { Pages } from './Pages';
 import { Access } from './Access';
 import { Similar } from './Similar';
+import { Stamp } from './Stamp';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: 'Title',
@@ -174,7 +175,10 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         />
 
         {record.trashedAt === undefined && !record.bytesReleased ? (
-          <Pages api={api} sha256={sha256} />
+          <>
+            <Pages api={api} sha256={sha256} />
+            <Stamp api={api} sha256={sha256} />
+          </>
         ) : null}
 
         {record.trashedAt === undefined ? <Share api={api} sha256={sha256} /> : null}

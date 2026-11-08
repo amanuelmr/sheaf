@@ -1,4 +1,4 @@
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 
 /** One page of the result: which page of the original (from 1), and how far to turn it. */
 export interface PageSpec {
@@ -98,4 +98,85 @@ export async function collate(fronts: Uint8Array, backs: Uint8Array): Promise<Ui
     out.addPage(backPages[i]);
   }
   return out.save();
+}
+
+/** A point as the page is shown, turned back into the page's own coordinates. */
+export function unrotate(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  rotation: number,
+): { readonly x: number; readonly y: number } {
+  switch (((rotation % 360) + 360) % 360) {
+    case 90:
+      return { x: width - y, y: x };
+    case 180:
+      return { x: width - x, y: height - y };
+    case 270:
+      return { x: y, y: height - x };
+    default:
+      return { x, y };
+  }
+}
+
+export interface Stamp {
+  readonly lines: readonly string[];
+  readonly position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
+  readonly colour: readonly [number, number, number];
+  readonly allPages: boolean;
+}
+
+/**
+ * Draws a stamp: the lines in a box near a corner, upright as the page is shown,
+ * however the page is turned. Nothing already on the page is changed.
+ */
+export async function stampPdf(bytes: Uint8Array, stamp: Stamp): Promise<Uint8Array> {
+  const document = await open(bytes);
+  const font = await document.embedFont(StandardFonts.HelveticaBold);
+  const colour = rgb(...stamp.colour);
+  const pages = document.getPages();
+  for (const page of stamp.allPages ? pages : pages.slice(0, 1)) {
+    const { width, height } = page.getSize();
+    const rotation = page.getRotation().angle;
+    const turned = rotation % 180 !== 0;
+    const [shownWidth, shownHeight] = turned ? [height, width] : [width, height];
+    // Sized to the page, so a receipt and a poster both get a stamp that reads.
+    const size = Math.max(8, Math.min(18, Math.min(shownWidth, shownHeight) / 30));
+    const padding = size * 0.6;
+    const gap = size * 0.3;
+    const boxWidth =
+      Math.max(...stamp.lines.map((line) => font.widthOfTextAtSize(line, size))) + padding * 2;
+    const boxHeight = stamp.lines.length * size + (stamp.lines.length - 1) * gap + padding * 2;
+    const margin = Math.min(shownWidth, shownHeight) * 0.04;
+    const left = stamp.position.endsWith('left') ? margin : shownWidth - margin - boxWidth;
+    const bottom = stamp.position.startsWith('bottom') ? margin : shownHeight - margin - boxHeight;
+    const corner = unrotate(left, bottom, width, height, rotation);
+    page.drawRectangle({
+      x: corner.x,
+      y: corner.y,
+      width: boxWidth,
+      height: boxHeight,
+      borderColor: colour,
+      borderWidth: Math.max(1, size / 8),
+      rotate: degrees(rotation),
+      opacity: 0,
+      borderOpacity: 0.9,
+    });
+    stamp.lines.forEach((line, i) => {
+      const lineWidth = font.widthOfTextAtSize(line, size);
+      const baseline = bottom + boxHeight - padding - (i + 1) * size - i * gap + size * 0.2;
+      const at = unrotate(left + (boxWidth - lineWidth) / 2, baseline, width, height, rotation);
+      page.drawText(line, {
+        x: at.x,
+        y: at.y,
+        size,
+        font,
+        color: colour,
+        rotate: degrees(rotation),
+        opacity: 0.9,
+      });
+    });
+  }
+  return document.save();
 }

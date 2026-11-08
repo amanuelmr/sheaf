@@ -56,6 +56,7 @@ import {
   type PairingCodeResponse,
   type SearchResponse,
   type SimilarResponse,
+  type StampBody,
   type TrashActionBody,
   type TrashActionResponse,
   type TrashResponse,
@@ -141,6 +142,8 @@ export function api(connection: Connection) {
     pageCount: (sha256: string) => call<PageCountResponse>('GET', paths.documentPages(sha256)),
     editPages: (sha256: string, pages: readonly PageSpec[]) =>
       call<DocumentRecord>('POST', paths.documentPages(sha256), { pages }),
+    stamp: (sha256: string, body: StampBody) =>
+      call<DocumentRecord>('POST', paths.documentStamp(sha256), body),
     split: (sha256: string, parts: readonly (readonly number[])[], keepOriginal: boolean) =>
       call<NewDocumentsResponse>('POST', paths.documentSplit(sha256), { parts, keepOriginal }),
     merge: (documents: readonly string[], keepOriginals: boolean) =>

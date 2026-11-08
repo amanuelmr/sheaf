@@ -1,6 +1,14 @@
-import type { PageSpec } from '@sheaf/protocol';
+import type { PageSpec, StampBody, StampColour } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
-import { editPages, mergePdfs, pageCount, splitPdf } from './pdf-edit.ts';
+import { editPages, mergePdfs, pageCount, splitPdf, stampPdf } from './pdf-edit.ts';
+
+/** Ink colours, as a stamp pad would have them. */
+const STAMP_RGB: Readonly<Record<StampColour, readonly [number, number, number]>> = {
+  red: [0.75, 0.1, 0.1],
+  blue: [0.1, 0.25, 0.7],
+  green: [0.1, 0.5, 0.25],
+  black: [0.1, 0.1, 0.1],
+};
 import { sha256Hex, type ReplaceOutcome, type Storage } from './storage.ts';
 
 export type EditRefusal =
@@ -44,6 +52,30 @@ export class DocumentEdits {
       return { ok: false, kind: 'invalid', message: reason(error) };
     }
     return answer(await this.#storage.replaceFile(sha256, edited, pages.length, now));
+  }
+
+  /** Stamps the document, keeping the unstamped file as an earlier version. */
+  async stamp(
+    sha256: string,
+    body: StampBody,
+    now: number,
+  ): Promise<{ ok: true; sha256: string } | EditRefusal> {
+    const bytes = await this.#live(sha256);
+    if (bytes === null) return { ok: false, kind: 'not_found' };
+    const lines = [body.text.trim().toUpperCase()];
+    if (body.withDate !== false) lines.push(new Date(now).toISOString().slice(0, 10));
+    let stamped: Uint8Array;
+    try {
+      stamped = await stampPdf(bytes, {
+        lines,
+        position: body.position ?? 'top-right',
+        colour: STAMP_RGB[body.colour ?? 'red'],
+        allPages: body.pages === 'all',
+      });
+    } catch (error) {
+      return { ok: false, kind: 'invalid', message: reason(error) };
+    }
+    return answer(await this.#storage.replaceFile(sha256, stamped, await pageCount(stamped), now));
   }
 
   async split(

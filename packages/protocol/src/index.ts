@@ -111,6 +111,8 @@ export const paths = {
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
   /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
   documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
+  /** `POST` a `StampBody`: words in a box on the page, kept as a new version. */
+  documentStamp: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/stamp`,
   /** `POST` a `SplitBody`: one new document per part. */
   documentSplit: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/split`,
   /** `POST` a `MergeBody`: one new document of all their pages. */
@@ -1817,6 +1819,67 @@ export function isPagesBody(value: unknown): value is PagesBody {
       );
     })
   );
+}
+
+export const STAMP_POSITIONS = ['top-right', 'top-left', 'bottom-right', 'bottom-left'] as const;
+export type StampPosition = (typeof STAMP_POSITIONS)[number];
+export const STAMP_COLOURS = ['red', 'blue', 'green', 'black'] as const;
+export type StampColour = (typeof STAMP_COLOURS)[number];
+export const MAX_STAMP_TEXT = 40;
+
+/**
+ * `POST /v1/documents/{sha256}/stamp`: words such as PAID or RECEIVED drawn in a
+ * box on the page, as a rubber stamp would. Like a page edit, the document moves to
+ * the stamped file and the unstamped one is kept as an earlier version.
+ */
+export interface StampBody {
+  /** Latin letters, digits and punctuation, up to `MAX_STAMP_TEXT`. */
+  readonly text: string;
+  /** Today's date under the words, as the server sees it. Default true. */
+  readonly withDate?: boolean;
+  /** Default `top-right`, as the page is seen, whichever way it is turned. */
+  readonly position?: StampPosition;
+  /** Default `red`. */
+  readonly colour?: StampColour;
+  /** Only the first page, the default, or every page. */
+  readonly pages?: 'first' | 'all';
+}
+
+export function stampProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const body = value as Record<string, unknown>;
+  const known = ['text', 'withDate', 'position', 'colour', 'pages'];
+  const unknown = Object.keys(body).find((key) => !known.includes(key));
+  if (unknown !== undefined) return `unknown field "${unknown}"`;
+  const text = body['text'];
+  if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_STAMP_TEXT) {
+    return `text must be 1 to ${String(MAX_STAMP_TEXT)} characters`;
+  }
+  // The stamp's font has Latin letters only; anything else could not be drawn.
+  if (!/^[\x20-\x7E\u00A0-\u00FF]+$/.test(text)) {
+    return 'text can use Latin letters, digits and punctuation only';
+  }
+  if (body['withDate'] !== undefined && typeof body['withDate'] !== 'boolean') {
+    return 'withDate must be true or false';
+  }
+  if (
+    body['position'] !== undefined &&
+    !(STAMP_POSITIONS as readonly unknown[]).includes(body['position'])
+  ) {
+    return `position must be one of ${STAMP_POSITIONS.join(', ')}`;
+  }
+  if (
+    body['colour'] !== undefined &&
+    !(STAMP_COLOURS as readonly unknown[]).includes(body['colour'])
+  ) {
+    return `colour must be one of ${STAMP_COLOURS.join(', ')}`;
+  }
+  if (body['pages'] !== undefined && body['pages'] !== 'first' && body['pages'] !== 'all') {
+    return 'pages must be "first" or "all"';
+  }
+  return null;
 }
 
 export function isSplitBody(value: unknown): value is SplitBody {

@@ -81,6 +81,8 @@ import {
   type ReconciliationProbe,
   type SearchResponse,
   type SimilarResponse,
+  type StampBody,
+  stampProblem,
   type SuggestionsResponse,
   type TrashActionResponse,
   type TrashResponse,
@@ -696,7 +698,7 @@ async function authenticated(
     deps.edits !== undefined &&
     docId !== undefined &&
     isSha256(docId) &&
-    (area === 'pages' || area === 'split' || area === 'versions') &&
+    (area === 'pages' || area === 'split' || area === 'versions' || area === 'stamp') &&
     extra.length === 0
   ) {
     return editRoutes(request, deps, deps.edits, docId, area, versionId, versionAction);
@@ -1238,7 +1240,7 @@ async function editRoutes(
   deps: RouterDeps,
   edits: DocumentEdits,
   sha256: string,
-  area: 'pages' | 'split' | 'versions',
+  area: 'pages' | 'split' | 'versions' | 'stamp',
   version: string | undefined,
   action: string | undefined,
 ): Promise<IngestResponse> {
@@ -1258,6 +1260,15 @@ async function editRoutes(
     const edited = await edits.editPages(sha256, body.pages, deps.now());
     if (!edited.ok) return editRefusal(edited);
     return { status: 200, json: await deps.storage.record(edited.sha256) };
+  }
+  if (area === 'stamp' && version === undefined) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    const body = parseJson<unknown>(request.body);
+    const problem = stampProblem(body);
+    if (problem !== null) return fail('bad_request', problem);
+    const stamped = await edits.stamp(sha256, body as StampBody, deps.now());
+    if (!stamped.ok) return editRefusal(stamped);
+    return { status: 200, json: await deps.storage.record(stamped.sha256) };
   }
   if (area === 'split' && version === undefined) {
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
