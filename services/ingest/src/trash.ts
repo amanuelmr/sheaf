@@ -16,19 +16,20 @@ export const DEFAULT_TRASH_DAYS = 30;
  */
 export class TrashSweeper {
   readonly #storage: Storage;
-  readonly #keepMs: number;
+  readonly #keepMs: () => number;
   readonly #ports: TrashSweeperPorts;
 
-  constructor(storage: Storage, keepMs: number, ports: TrashSweeperPorts) {
+  /** `keepMs` may be a function, read on every pass, for a setting that can change. */
+  constructor(storage: Storage, keepMs: number | (() => number), ports: TrashSweeperPorts) {
     this.#storage = storage;
-    this.#keepMs = keepMs;
+    this.#keepMs = typeof keepMs === 'number' ? () => keepMs : keepMs;
     this.#ports = ports;
   }
 
   /** One pass: purge everything currently due. */
   async tick(): Promise<{ purged: number }> {
     let purged = 0;
-    for (const sha256 of await this.#storage.dueForPurge(this.#ports.now(), this.#keepMs)) {
+    for (const sha256 of await this.#storage.dueForPurge(this.#ports.now(), this.#keepMs())) {
       if (await this.#storage.purge(sha256)) purged++;
     }
     return { purged };

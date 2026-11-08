@@ -140,8 +140,9 @@ function resolve(row: ArchiveRow): ResolvedDocument {
     correspondent: row.correspondent,
     documentType: row.documentType,
     tags: row.tags,
-    // A date, as Paperless gives one: when the server received it, in UTC.
-    created: new Date(row.receivedAt).toISOString().slice(0, 10),
+    // The date on the document when a person set one; otherwise when the server
+    // received it, in UTC.
+    created: row.created ?? new Date(row.receivedAt).toISOString().slice(0, 10),
     contentSnippet: row.excerpt,
   };
 }

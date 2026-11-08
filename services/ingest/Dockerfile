@@ -4,10 +4,11 @@ FROM node:24-alpine
 
 WORKDIR /srv
 
-# The service has no third-party runtime dependencies -- node:http, node:sqlite and
-# node:fs are all of it -- so there is nothing to install. The only resolution it
-# needs is for its two workspace packages, which is exactly what these symlinks are:
-# what pnpm would have linked, without an install step, a lockfile, or a network.
+# Three third-party packages, all pure JavaScript with no install scripts: pdf-lib
+# for page edits, double-sided collation and barcode splitting, jpeg-js and
+# @zxing/library for reading barcodes. Installed at /srv, where Node finds them by
+# walking up from the service; the versions match services/ingest/package.json.
+# The workspace packages are symlinked below: what pnpm would have linked.
 COPY packages/core/package.json      packages/core/package.json
 COPY packages/core/src               packages/core/src
 COPY packages/extract/package.json   packages/extract/package.json
@@ -30,6 +31,10 @@ RUN mkdir -p node_modules/@sheaf \
   && for pkg in core extract http protocol paperless store; do \
        ln -s "/srv/packages/$pkg" "node_modules/@sheaf/$pkg"; \
      done
+
+RUN npm install --no-save --no-package-lock --ignore-scripts --omit=dev \
+      pdf-lib@1.17.1 jpeg-js@0.4.4 @zxing/library@0.21.3 \
+  && npm cache clean --force
 
 ENV SHEAF_DATA_DIR=/data
 ENV PORT=8787

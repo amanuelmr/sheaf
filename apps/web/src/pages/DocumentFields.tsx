@@ -100,19 +100,24 @@ export function DocumentFields({
       <form className="custom-fields" onSubmit={(event) => void save(event)}>
         {drafts.map((draft) => (
           <div key={draft.field.id} className="custom-field">
-            <label htmlFor={`cf-${String(draft.field.id)}`}>{draft.field.name}</label>
+            <label htmlFor={`cf-${String(draft.field.id)}`}>
+              {draft.field.name}
+              {draft.field.required ? <span className="muted"> · needed</span> : null}
+            </label>
             <div className="custom-field-row">
               <FieldInput api={api} sha256={sha256} draft={draft} update={update} />
-              <button
-                type="button"
-                className="link"
-                aria-label={`Remove ${draft.field.name}`}
-                onClick={() =>
-                  setDrafts((current) => current.filter((d) => d.field.id !== draft.field.id))
-                }
-              >
-                Remove
-              </button>
+              {draft.field.required ? null : (
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Remove ${draft.field.name}`}
+                  onClick={() =>
+                    setDrafts((current) => current.filter((d) => d.field.id !== draft.field.id))
+                  }
+                >
+                  Remove
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -299,7 +304,7 @@ function toDrafts(
   definitions: readonly CustomField[],
   values: readonly DocumentCustomField[],
 ): Draft[] {
-  return values.flatMap((value) => {
+  const drafts = values.flatMap((value) => {
     const field = definitions.find((d) => d.id === value.field);
     if (field === undefined) return [];
     const currency =
@@ -308,4 +313,11 @@ function toDrafts(
         : 'EUR';
     return [{ field, text: toInput(field.type, value.value), currency }];
   });
+  // A field every document needs is always there to fill in, even before it has a value.
+  for (const field of definitions) {
+    if (field.required && !drafts.some((d) => d.field.id === field.id)) {
+      drafts.push({ field, text: '', currency: 'EUR' });
+    }
+  }
+  return drafts;
 }

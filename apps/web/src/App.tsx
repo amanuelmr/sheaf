@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api as makeApi, type Api } from './api';
+import { api as makeApi, signIn, type Api } from './api';
+import { paths, type Role, type SsoResponse } from '@sheaf/protocol';
 import {
   clearConnection,
   loadConnection,
@@ -12,13 +13,37 @@ import { Fields } from './pages/Fields';
 import { Document } from './pages/Document';
 import { INBOX_CHANGED, Inbox } from './pages/Inbox';
 import { Labels } from './pages/Labels';
+import { Workflows } from './pages/Workflows';
+import { Users } from './pages/Users';
 import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
 
+/**
+ * Back from single sign-on: the server put a session token and its own address in
+ * the fragment. Keep them like any connection, and take them out of the address
+ * bar and the history at once.
+ */
+function fromSingleSignOn(): Connection | null {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const token = params.get('sso');
+  const server = params.get('server');
+  if (token === null || server === null || !/^https?:\/\//.test(server)) return null;
+  const connection: Connection = { baseUrl: server, token };
+  saveConnection(connection);
+  window.history.replaceState(
+    null,
+    '',
+    `${window.location.pathname}${window.location.search}#/search`,
+  );
+  return connection;
+}
+
 export default function App() {
-  const [connection, setConnection] = useState<Connection | null>(() => loadConnection());
+  const [connection, setConnection] = useState<Connection | null>(
+    () => fromSingleSignOn() ?? loadConnection(),
+  );
   if (connection === null) return <ConnectScreen onConnect={setConnection} />;
   return (
     <Shell
@@ -34,14 +59,25 @@ export default function App() {
 function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => void }) {
   const [baseUrl, setBaseUrl] = useState(rememberedUrl);
   const [token, setToken] = useState('');
+  const [useAccount, setUseAccount] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const connection: Connection = {
-      baseUrl: baseUrl.trim().replace(/\/+$/, ''),
-      token: token.trim(),
-    };
+    const server = baseUrl.trim().replace(/\/+$/, '');
+    let secret = token.trim();
+    if (useAccount) {
+      if (server === '' || username.trim() === '' || password === '') return;
+      const signed = await signIn(server, username.trim().toLowerCase(), password);
+      if (!signed.ok) {
+        setError(`Couldn’t sign in: ${signed.message}`);
+        return;
+      }
+      secret = signed.value.token;
+    }
+    const connection: Connection = { baseUrl: server, token: secret };
     if (connection.baseUrl === '' || connection.token === '') return;
     // Check before keeping it, so a typo is caught here rather than on every page.
     const health = await makeApi(connection).health();
@@ -68,21 +104,65 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
           placeholder="http://192.168.1.20:8787"
           autoComplete="url"
         />
-        <label htmlFor="token">Admin token (SHEAF_TOKEN)</label>
-        <input
-          id="token"
-          type="password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          autoComplete="off"
-        />
+        <div className="tabs" role="group" aria-label="How to connect">
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={!useAccount}
+            onClick={() => setUseAccount(false)}
+          >
+            Admin token
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={useAccount}
+            onClick={() => setUseAccount(true)}
+          >
+            Username and password
+          </button>
+        </div>
+        {useAccount ? (
+          <>
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+            />
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </>
+        ) : (
+          <>
+            <label htmlFor="token">Admin token (SHEAF_TOKEN)</label>
+            <input
+              id="token"
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              autoComplete="off"
+            />
+          </>
+        )}
         {error === null ? null : <p className="error">{error}</p>}
         <button type="submit">Connect</button>
+        <SingleSignOn baseUrl={baseUrl} />
         <p className="muted small">The token is forgotten when you close this tab.</p>
       </form>
     </div>
   );
 }
+
+/** Pages only an admin can use; a phone or a non-admin person does not see them. */
+const ADMIN_PAGES: ReadonlySet<Route['page']> = new Set(['devices', 'workflows', 'users']);
 
 const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'search' }, label: 'Search' },
@@ -90,7 +170,9 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'devices' }, label: 'Phones' },
   { route: { page: 'labels' }, label: 'Labels' },
   { route: { page: 'fields' }, label: 'Fields' },
+  { route: { page: 'workflows' }, label: 'Workflows' },
   { route: { page: 'trash' }, label: 'Trash' },
+  { route: { page: 'users' }, label: 'Users' },
   { route: { page: 'system' }, label: 'System' },
 ];
 
@@ -98,6 +180,20 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
   const api = useMemo(() => makeApi(connection), [connection]);
   const route = useRoute();
   const toReview = useInboxCount(api, route);
+  const [role, setRole] = useState<Role | null>(null);
+  const [who, setWho] = useState<string | null>(null);
+  useEffect(() => {
+    void api.me().then((result) => {
+      if (result.ok) {
+        setRole(result.value.role);
+        setWho(result.value.name);
+      }
+    });
+  }, [api]);
+  const signOut = async () => {
+    if (who !== null) await api.signOut();
+    onDisconnect();
+  };
 
   return (
     <div className="page">
@@ -106,35 +202,56 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
           Sheaf
         </a>
         <nav>
-          {NAV.map(({ route: target, label }) => (
-            <a
-              key={label}
-              href={href(target)}
-              aria-current={route.page === target.page ? 'page' : undefined}
-            >
-              {label}
-              {target.page === 'inbox' && toReview > 0 ? (
-                <span className="count">{toReview}</span>
-              ) : null}
-            </a>
-          ))}
+          {NAV.filter(({ route: target }) => role === 'admin' || !ADMIN_PAGES.has(target.page)).map(
+            ({ route: target, label }) => (
+              <a
+                key={label}
+                href={href(target)}
+                aria-current={route.page === target.page ? 'page' : undefined}
+              >
+                {label}
+                {target.page === 'inbox' && toReview > 0 ? (
+                  <span className="count">{toReview}</span>
+                ) : null}
+              </a>
+            ),
+          )}
         </nav>
-        <button className="link" onClick={onDisconnect}>
-          Disconnect
+        <button className="link" onClick={() => void signOut()}>
+          {who === null ? 'Disconnect' : `Sign out ${who}`}
         </button>
       </header>
       <main>
-        {route.page === 'search' ? <Search api={api} /> : null}
+        {role !== null && role !== 'admin' && ADMIN_PAGES.has(route.page) ? (
+          <p className="muted">
+            This page is for admins. <a href={href({ page: 'search' })}>Go to search</a>.
+          </p>
+        ) : null}
+        {route.page === 'search' ? (
+          // Keyed by the address it opened with, so following a link to a filtered
+          // search starts from that filter. Typing only rewrites the address in place.
+          <Search
+            key={href(route)}
+            api={api}
+            {...(route.filter ? { initial: route.filter } : {})}
+          />
+        ) : null}
         {route.page === 'document' ? (
           // Keyed, so moving to another document starts with nothing left over from
           // the last one: no drafts, notes or half-confirmed delete.
           <Document key={route.sha256} api={api} sha256={route.sha256} />
         ) : null}
-        {route.page === 'inbox' ? <Inbox api={api} /> : null}
-        {route.page === 'devices' ? <Devices api={api} serverUrl={connection.baseUrl} /> : null}
+        {route.page === 'inbox' ? (
+          <Inbox api={api} canAdd={role !== null && role !== 'viewer'} />
+        ) : null}
+        {route.page === 'devices' && role === 'admin' ? (
+          <Devices api={api} serverUrl={connection.baseUrl} />
+        ) : null}
         {route.page === 'trash' ? <Trash api={api} /> : null}
         {route.page === 'labels' ? <Labels api={api} /> : null}
         {route.page === 'fields' ? <Fields api={api} /> : null}
+        {route.page === 'workflows' && role === 'admin' ? <Workflows api={api} /> : null}
+        {route.page === 'users' && role === 'admin' ? <Users api={api} /> : null}
         {route.page === 'system' ? <System api={api} /> : null}
       </main>
     </div>
@@ -154,4 +271,33 @@ function useInboxCount(api: Api, route: Route): number {
     return () => window.removeEventListener(INBOX_CHANGED, refresh);
   }, [api, route]);
   return count;
+}
+
+/** "Sign in with …", when the server at the address typed offers single sign-on. */
+function SingleSignOn({ baseUrl }: { baseUrl: string }) {
+  const [provider, setProvider] = useState<string | null>(null);
+  const server = baseUrl.trim().replace(/\/+$/, '');
+  useEffect(() => {
+    setProvider(null);
+    if (!/^https?:\/\/./.test(server)) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      void fetch(new URL(paths.sso(), server).toString())
+        .then((response) => (response.ok ? (response.json() as Promise<SsoResponse>) : null))
+        .then((sso) => {
+          if (current && sso?.enabled === true) setProvider(sso.name ?? 'single sign-on');
+        })
+        .catch(() => undefined);
+    }, 400);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [server]);
+  if (provider === null) return null;
+  return (
+    <a className="button secondary" href={new URL(paths.ssoStart(), server).toString()}>
+      Sign in with {provider}
+    </a>
+  );
 }

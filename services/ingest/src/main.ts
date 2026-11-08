@@ -2,9 +2,12 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
-import type { ReconciliationProbe } from '@sheaf/protocol';
+import type { DateOrderSetting, ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
-import { Forwarder } from './forwarder.ts';
+import { Forwarder, type Connector } from './forwarder.ts';
+import { folderTarget } from './folder-target.ts';
+import { webdavTarget } from './webdav-target.ts';
+import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
 import { ocrStep } from './steps/ocr.ts';
@@ -14,6 +17,27 @@ import { paperlessVocabulary } from './paperless-vocabulary.ts';
 import { Retention } from './retention.ts';
 import { CustomFields } from './custom-fields.ts';
 import { Labels } from './labels.ts';
+import { Rules } from './rules.ts';
+import { BulkEditor } from './bulk.ts';
+import { ConsumeFolder } from './consume.ts';
+import { MailFetcher } from './mail.ts';
+import { connect as tlsConnect } from 'node:tls';
+import { NearDuplicates } from './near-duplicates.ts';
+import { keyFrom } from './encryption.ts';
+import { ShareLinks } from './share-links.ts';
+import { Workflows } from './workflows.ts';
+import { sendMail, type OutgoingMail } from './smtp.ts';
+import { EMAIL_PATTERN } from '@sheaf/protocol';
+import { connect as netConnect } from 'node:net';
+import type { Duplex } from 'node:stream';
+import { Users } from './users.ts';
+import { AuditLog } from './audit.ts';
+import { DocumentEdits } from './document-edits.ts';
+import { Settings } from './settings.ts';
+import { Sso } from './sso.ts';
+import { barcodeStep } from './steps/barcodes.ts';
+import { SavedViews } from './views.ts';
+import { matchStep } from './steps/match.ts';
 import { Devices } from './devices.ts';
 import { log } from './log.ts';
 import { ServerMetrics } from './observability.ts';
@@ -46,7 +70,143 @@ const port = Number(process.env['PORT'] ?? 8787);
 mkdirSync(dataDir, { recursive: true });
 
 const driver = nodeSqliteDriver(join(dataDir, 'ingest.db'));
-const storage = await Storage.open({ driver, objectsDir: join(dataDir, 'objects') });
+// Document files encrypted on disk, when a passphrase is given. Files already
+// stored in the clear stay readable and are encrypted in the background.
+const passphrase = process.env['SHEAF_ENCRYPTION_KEY'];
+let key: Buffer | undefined;
+if (passphrase !== undefined && passphrase !== '') {
+  try {
+    key = keyFrom(passphrase);
+  } catch (error) {
+    log.error(String(error instanceof Error ? error.message : error));
+    process.exit(1);
+  }
+}
+const storage = await Storage.open({
+  driver,
+  objectsDir: join(dataDir, 'objects'),
+  ...(key === undefined ? {} : { key }),
+});
+if (key !== undefined) {
+  log.info('encryption: document files are encrypted on disk');
+  void storage.encryptStored().then(
+    (n) => {
+      if (n > 0) log.info(`encryption: encrypted ${String(n)} file(s) stored before`);
+    },
+    (error: unknown) => log.error(`encryption: ${String(error)}`),
+  );
+}
+const rules = new Rules(driver, storage);
+const customFields = new CustomFields(driver, storage);
+const edits = new DocumentEdits(storage, driver);
+// Email for workflows, when SHEAF_SMTP_HOST is set: STARTTLS on 587 by default,
+// TLS from the start with SHEAF_SMTP_SECURITY=tls (465).
+const smtpHost = process.env['SHEAF_SMTP_HOST'];
+const smtp =
+  smtpHost === undefined || smtpHost === ''
+    ? null
+    : (() => {
+        const security = process.env['SHEAF_SMTP_SECURITY'] ?? 'starttls';
+        const smtpPort = Number(process.env['SHEAF_SMTP_PORT'] ?? (security === 'tls' ? 465 : 587));
+        const from = process.env['SHEAF_SMTP_FROM'] ?? '';
+        if ((security !== 'tls' && security !== 'starttls') || !EMAIL_PATTERN.test(from)) {
+          log.error(
+            'smtp: SHEAF_SMTP_FROM must be an address, and SHEAF_SMTP_SECURITY tls or starttls',
+          );
+          process.exit(1);
+        }
+        return {
+          from,
+          user: process.env['SHEAF_SMTP_USER'] ?? null,
+          password: process.env['SHEAF_SMTP_PASSWORD'] ?? null,
+          hostname: 'sheaf.local',
+          connect: (): Promise<Duplex> =>
+            new Promise((resolve, reject) => {
+              const socket =
+                security === 'tls'
+                  ? tlsConnect({ host: smtpHost, port: smtpPort, servername: smtpHost }, () =>
+                      resolve(socket),
+                    )
+                  : netConnect(smtpPort, smtpHost, () => resolve(socket));
+              socket.once('error', reject);
+            }),
+          ...(security === 'starttls'
+            ? {
+                upgrade: (plain: Duplex): Promise<Duplex> =>
+                  new Promise((resolve, reject) => {
+                    const secure = tlsConnect({ socket: plain, servername: smtpHost }, () =>
+                      resolve(secure),
+                    );
+                    secure.once('error', reject);
+                  }),
+              }
+            : {}),
+        };
+      })();
+const users = new Users(driver);
+
+// Single sign-on, when SHEAF_OIDC_ISSUER is set.
+const oidcIssuer = process.env['SHEAF_OIDC_ISSUER'];
+let sso: Sso | null = null;
+if (oidcIssuer !== undefined && oidcIssuer !== '') {
+  const clientId = process.env['SHEAF_OIDC_CLIENT_ID'] ?? '';
+  const clientSecret = process.env['SHEAF_OIDC_CLIENT_SECRET'] ?? '';
+  const redirectUri = process.env['SHEAF_OIDC_REDIRECT_URI'] ?? '';
+  const webUrl = process.env['SHEAF_WEB_URL'] ?? '';
+  const role = process.env['SHEAF_OIDC_DEFAULT_ROLE'] ?? 'viewer';
+  if (
+    clientId === '' ||
+    clientSecret === '' ||
+    !/^https?:\/\//.test(redirectUri) ||
+    !/^https?:\/\//.test(webUrl) ||
+    !['admin', 'editor', 'viewer', 'none'].includes(role)
+  ) {
+    log.error(
+      'sso: SHEAF_OIDC_CLIENT_ID, SHEAF_OIDC_CLIENT_SECRET, SHEAF_OIDC_REDIRECT_URI and SHEAF_WEB_URL are required, and SHEAF_OIDC_DEFAULT_ROLE must be admin, editor, viewer or none',
+    );
+    process.exit(1);
+  }
+  sso = new Sso(
+    {
+      issuer: oidcIssuer,
+      clientId,
+      clientSecret,
+      redirectUri,
+      webUrl,
+      defaultRole: role === 'none' ? null : (role as 'admin' | 'editor' | 'viewer'),
+      usernameClaim: process.env['SHEAF_OIDC_USERNAME_CLAIM'] ?? 'preferred_username',
+      name: process.env['SHEAF_OIDC_NAME'] ?? 'single sign-on',
+      fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
+    },
+    users,
+  );
+  log.info(`sso: signing in through ${oidcIssuer}`);
+}
+
+const workflows = new Workflows(driver, storage, customFields, {
+  fetch: (url, init) => fetch(url, init),
+  warn: (message) => log.error(message),
+  ...(smtp === null ? {} : { sendMail: (mail: OutgoingMail) => sendMail(smtp, mail) }),
+});
+if (smtp !== null) log.info(`smtp: workflows send email through ${smtpHost} as ${smtp.from}`);
+
+// Scheduled workflows look at documents that reached their age, every hour.
+let schedulingWorkflows = false;
+const runScheduledWorkflows = () => {
+  if (schedulingWorkflows) return;
+  schedulingWorkflows = true;
+  void workflows
+    .runScheduled(Date.now())
+    .then((acted) => {
+      if (acted > 0) log.info(`workflows: scheduled ones acted on ${String(acted)} document(s)`);
+    })
+    .catch((error: unknown) => log.error('scheduled workflows failed', { error: String(error) }))
+    .finally(() => {
+      schedulingWorkflows = false;
+    });
+};
+setTimeout(runScheduledWorkflows, 60_000);
+setInterval(runScheduledWorkflows, 60 * 60_000);
 
 /**
  * Forwarding is opt-in. Without it this server stores documents and nothing more,
@@ -74,6 +234,32 @@ if (trashSetting.kind === 'invalid') {
   process.exit(1);
 }
 const trashDays = trashSetting.days;
+
+// What an admin may change from the web app. The environment gives the starting
+// values; a value saved from the web app wins over it.
+const settings = await Settings.open(driver, {
+  ...(process.env['SHEAF_TRASH_DAYS'] === undefined ? {} : { trashDays }),
+  ...(process.env['SHEAF_FILENAME_FORMAT'] === undefined
+    ? {}
+    : { filenameFormat: process.env['SHEAF_FILENAME_FORMAT'] }),
+  ...(process.env['SHEAF_BARCODES'] === undefined
+    ? {}
+    : { barcodesEnabled: process.env['SHEAF_BARCODES'] === 'true' }),
+  ...(process.env['SHEAF_BARCODE_SEPARATOR'] === undefined
+    ? {}
+    : { barcodeSeparator: process.env['SHEAF_BARCODE_SEPARATOR'] }),
+  ...(process.env['SHEAF_BARCODE_ASN_PREFIX'] === undefined
+    ? {}
+    : { barcodeAsnPrefix: process.env['SHEAF_BARCODE_ASN_PREFIX'] }),
+  // Checked with the rest of extraction's settings below, so a bad value stops the
+  // server there with a message.
+  ...(process.env['SHEAF_DATE_ORDER'] === undefined
+    ? {}
+    : { dateOrder: process.env['SHEAF_DATE_ORDER'] as DateOrderSetting }),
+  ...(process.env['SHEAF_CURRENCY'] === undefined
+    ? {}
+    : { defaultCurrency: process.env['SHEAF_CURRENCY'].toUpperCase() }),
+});
 
 const archiveChoice = archiveFromEnv(process.env, paperlessUrl !== undefined);
 if (archiveChoice.kind === 'invalid') {
@@ -165,6 +351,16 @@ log.info(
   `archive: /v1/archive browses ${archiveChoice.kind === 'native' ? 'this server' : 'Paperless'}`,
 );
 
+// Text kept before re-scans were looked for gets its summary now, oldest first, so
+// each document is compared with the ones that came before it.
+const nearDuplicates = new NearDuplicates(driver);
+void nearDuplicates.fillMissing().then(
+  (n) => {
+    if (n > 0) log.info(`near-duplicates: summarised the text of ${String(n)} documents`);
+  },
+  (error: unknown) => log.error(`near-duplicates: ${String(error)}`),
+);
+
 const server = createIngestServer({
   storage,
   token,
@@ -177,13 +373,26 @@ const server = createIngestServer({
   ...(archiveSource === null ? {} : { archive: archiveSource }),
   ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
   trashDays,
-  customFields: new CustomFields(driver, storage),
+  customFields,
   labels: new Labels(driver, storage),
+  rules,
+  views: new SavedViews(driver),
+  bulk: new BulkEditor(storage, customFields, rules),
+  shareLinks: new ShareLinks(driver, storage),
+  workflows,
+  users,
+  ...(sso === null ? {} : { sso }),
+  audit: new AuditLog(driver),
+  edits,
+  settings,
+  nearDuplicates,
 });
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
 // deletes, a person deleted first).
-const trashSweeper = new TrashSweeper(storage, trashDays * 86_400_000, { now: () => Date.now() });
+const trashSweeper = new TrashSweeper(storage, () => settings.current().trashDays * 86_400_000, {
+  now: () => Date.now(),
+});
 let sweepingTrash = false;
 setInterval(() => {
   if (sweepingTrash) return;
@@ -198,7 +407,98 @@ setInterval(() => {
       sweepingTrash = false;
     });
 }, 60_000);
-log.info(`trash: deleted documents are kept ${String(trashDays)} day(s)`);
+log.info(`trash: deleted documents are kept ${String(settings.current().trashDays)} day(s)`);
+
+// A folder a scanner or sync tool drops PDFs into, when SHEAF_CONSUME_DIR is set.
+const consumeDir = process.env['SHEAF_CONSUME_DIR'];
+if (consumeDir !== undefined && consumeDir !== '') {
+  mkdirSync(consumeDir, { recursive: true });
+  const consume = new ConsumeFolder(storage, consumeDir, {
+    subdirsAsTags: process.env['SHEAF_CONSUME_SUBDIRS_AS_TAGS'] === 'true',
+    doubleSided: process.env['SHEAF_CONSUME_DOUBLE_SIDED_DIR'] ?? 'double-sided',
+    now: () => Date.now(),
+  });
+  let consuming = false;
+  setInterval(() => {
+    if (consuming) return;
+    consuming = true;
+    void consume
+      .tick()
+      .then(({ stored, duplicates, failed }) => {
+        if (stored + duplicates + failed > 0) {
+          log.info(
+            `consume: ${String(stored)} stored, ${String(duplicates)} already here, ${String(failed)} moved to failed/`,
+          );
+        }
+      })
+      .catch((error: unknown) =>
+        log.error('reading the consume folder failed', { error: String(error) }),
+      )
+      .finally(() => {
+        consuming = false;
+      });
+  }, 5_000);
+  log.info(`consume: taking in PDFs from ${consumeDir}`);
+}
+
+// PDFs attached to unread mail, when SHEAF_MAIL_HOST is set. TLS only (port 993):
+// a mail password is not sent in the clear.
+const mailHost = process.env['SHEAF_MAIL_HOST'];
+if (mailHost !== undefined && mailHost !== '') {
+  const user = process.env['SHEAF_MAIL_USER'] ?? '';
+  const password = process.env['SHEAF_MAIL_PASSWORD'] ?? '';
+  const after = process.env['SHEAF_MAIL_AFTER'] ?? 'seen';
+  const mailPort = Number(process.env['SHEAF_MAIL_PORT'] ?? 993);
+  const minutes = Number(process.env['SHEAF_MAIL_INTERVAL_MINUTES'] ?? 5);
+  if (
+    user === '' ||
+    password === '' ||
+    (after !== 'seen' && after !== 'delete') ||
+    !Number.isInteger(mailPort) ||
+    !(minutes >= 1)
+  ) {
+    log.error(
+      'mail: SHEAF_MAIL_USER and SHEAF_MAIL_PASSWORD are required, SHEAF_MAIL_AFTER must be seen or delete, and SHEAF_MAIL_INTERVAL_MINUTES at least 1',
+    );
+    process.exit(1);
+  }
+  const mail = new MailFetcher(storage, {
+    user,
+    password,
+    folder: process.env['SHEAF_MAIL_FOLDER'] ?? 'INBOX',
+    after,
+    tag: process.env['SHEAF_MAIL_TAG'] ?? null,
+    connect: () =>
+      new Promise((resolve, reject) => {
+        const socket = tlsConnect({ host: mailHost, port: mailPort, servername: mailHost }, () =>
+          resolve(socket),
+        );
+        socket.once('error', reject);
+      }),
+    now: () => Date.now(),
+  });
+  let fetchingMail = false;
+  const fetchMail = () => {
+    if (fetchingMail) return;
+    fetchingMail = true;
+    void mail
+      .tick()
+      .then(({ messages, stored, duplicates, failed }) => {
+        if (messages > 0) {
+          log.info(
+            `mail: ${String(messages)} message(s); ${String(stored)} stored, ${String(duplicates)} already here, ${String(failed)} failed`,
+          );
+        }
+      })
+      .catch((error: unknown) => log.error('reading mail failed', { error: String(error) }))
+      .finally(() => {
+        fetchingMail = false;
+      });
+  };
+  fetchMail();
+  setInterval(fetchMail, minutes * 60_000);
+  log.info(`mail: taking in PDFs from ${user} on ${mailHost} every ${String(minutes)} minute(s)`);
+}
 
 if (paperlessClient !== null && vocabulary !== null) {
   const forwarder = new Forwarder(storage, paperlessTarget(paperlessClient), {
@@ -276,6 +576,55 @@ if (paperlessClient !== null && vocabulary !== null) {
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
   );
 }
+// Copies to a WebDAV server and to a folder, each beside Paperless or on its own.
+// Each keeps its own delivery record, so adding one later sends it everything.
+function copyEverything(target: Connector, where: string): void {
+  const forwarder = new Forwarder(storage, target, {
+    now: () => Date.now(),
+    jitter: () => Math.random(),
+  });
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    void forwarder
+      .tick()
+      .catch((error: unknown) => log.error(`copying to ${where} failed`, { error: String(error) }))
+      .finally(() => {
+        running = false;
+      });
+  }, 10_000);
+  log.info(`copying every document to ${where}`);
+}
+const webdavUrl = process.env['SHEAF_WEBDAV_URL'];
+if (webdavUrl !== undefined && webdavUrl !== '') {
+  copyEverything(
+    webdavTarget({
+      url: webdavUrl,
+      username: process.env['SHEAF_WEBDAV_USER'] ?? '',
+      password: process.env['SHEAF_WEBDAV_PASSWORD'] ?? '',
+      filenameFormat: () => settings.current().filenameFormat,
+      record: (sha256) => storage.record(sha256),
+      // Copies carry their recognised text inside, so they are searchable there too.
+      prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
+    }),
+    new URL(webdavUrl).host,
+  );
+}
+const copyDir = process.env['SHEAF_COPY_DIR'];
+if (copyDir !== undefined && copyDir !== '') {
+  copyEverything(
+    folderTarget({
+      dir: copyDir,
+      filenameFormat: () => settings.current().filenameFormat,
+      record: (sha256) => storage.record(sha256),
+      // Copies carry their recognised text inside, so they are searchable there too.
+      prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
+    }),
+    copyDir,
+  );
+}
+
 /**
  * Work each stored document goes through after it is safe: reading its text,
  * extracting its details. Empty until those steps exist; the loop only starts once
@@ -283,13 +632,36 @@ if (paperlessClient !== null && vocabulary !== null) {
  */
 const steps: Step[] = [];
 
+// Barcodes on new documents, when the setting is on: separator sheets and serial numbers.
+steps.push(barcodeStep(storage, driver, edits, settings, (message) => log.error(message)));
+
+// Filing each new document by the labels' own rules, once its text is in.
+const postConsumeScript = process.env['SHEAF_POST_CONSUME_SCRIPT'];
+steps.push(
+  matchStep(storage, rules, {
+    graceMs: 120_000,
+    workflows,
+    ...(postConsumeScript === undefined || postConsumeScript === ''
+      ? {}
+      : {
+          postConsume: { script: postConsumeScript, warn: (message: string) => log.error(message) },
+        }),
+  }),
+);
+if (postConsumeScript !== undefined && postConsumeScript !== '') {
+  log.info(`post-consume: running ${postConsumeScript} for each new document`);
+}
+
 // Reading each document's details (ADR 0010), unless Paperless's suggestions were chosen.
 if (extraction.kind === 'native') {
   steps.push(
     extractStep(storage, {
       extractor: extraction.extractor,
-      dateOrder: extraction.dateOrder,
-      defaultCurrency: extraction.defaultCurrency,
+      // Read on every run, so a change on the settings page applies to the next document.
+      locale: () => {
+        const { dateOrder, defaultCurrency } = settings.current();
+        return { dateOrder, defaultCurrency };
+      },
       graceMs: 120_000,
     }),
   );

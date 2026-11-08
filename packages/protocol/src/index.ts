@@ -68,8 +68,89 @@ export const paths = {
   /** Admin: `POST` a `LabelMergeBody` to fold this label into another. */
   labelMerge: (kind: LabelKind, id: number) =>
     `/${PROTOCOL_VERSION}/labels/${LABEL_SEGMENTS[kind]}/${String(id)}/merge`,
-  /** `GET ?q=&limit=&offset=`: full-text search of the server's own catalog. */
+  /** Admin: `POST` an `ApplyRulesBody` to run every label's matching rule again. */
+  labelsApply: () => `/${PROTOCOL_VERSION}/labels/apply`,
+  /** `GET` a document's share links; admin `POST`s a `ShareLinkBody` to make one. */
+  documentShareLinks: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/share-links`,
+  /** Admin: `DELETE` stops a share link working. */
+  shareLink: (id: number) => `/${PROTOCOL_VERSION}/share-links/${String(id)}`,
+  /**
+   * The document behind a share link, for anyone holding it: no token. Outside the
+   * versioned protocol, because it is a link people open, not an API call.
+   */
+  shared: (slug: string) => `/share/${slug}`,
+  /** `POST` a `SessionBody` to sign in as a user: needs no token. */
+  sessions: () => `/${PROTOCOL_VERSION}/sessions`,
+  /** `DELETE` signs this session out. */
+  currentSession: () => `/${PROTOCOL_VERSION}/sessions/current`,
+  /** `GET` whether single sign-on is on, needing no token. */
+  sso: () => `/${PROTOCOL_VERSION}/sso`,
+  /** Opened in the browser: goes to the identity provider to sign in. */
+  ssoStart: () => `/${PROTOCOL_VERSION}/sso/start`,
+  /** Where the provider sends the person back. */
+  ssoCallback: () => `/${PROTOCOL_VERSION}/sso/callback`,
+  /** `GET` who this token belongs to and what it may do. */
+  me: () => `/${PROTOCOL_VERSION}/me`,
+  /** `GET` every user's id and name, for choosing whom to share a document with. */
+  userDirectory: () => `/${PROTOCOL_VERSION}/users/directory`,
+  /** `GET` who may see and change a document; its owner or an admin `PUT`s `DocumentPermissions`. */
+  documentPermissions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/permissions`,
+  /** Admin: `GET` lists users, `POST` a `UserBody` adds one. */
+  users: () => `/${PROTOCOL_VERSION}/users`,
+  /** Admin: `PATCH` a `UserPatch`, or `DELETE` the user and their sessions. */
+  user: (id: number) => `/${PROTOCOL_VERSION}/users/${String(id)}`,
+  /** Admin: `GET ?limit=&before=` the newest changes made through the API. */
+  audit: () => `/${PROTOCOL_VERSION}/audit`,
+  /** Admin: `GET` the server's settings; `PATCH` a `SettingsPatch` to change some. */
+  settings: () => `/${PROTOCOL_VERSION}/settings`,
+  /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
+  workflows: () => `/${PROTOCOL_VERSION}/workflows`,
+  /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
+  workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
+  /** `GET` the lowest archive serial number above every one in use. */
+  nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
+  /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
+  documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
+  /**
+   * `GET` the PDF with its recognised text laid invisibly inside, so other apps find
+   * it by its words. Made on request; the stored file is unchanged.
+   */
+  documentSearchable: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/searchable.pdf`,
+  /** `POST` a `StampBody`: words in a box on the page, kept as a new version. */
+  documentStamp: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/stamp`,
+  /** `POST` a `SplitBody`: one new document per part. */
+  documentSplit: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/split`,
+  /** `POST` a `MergeBody`: one new document of all their pages. */
+  mergeDocuments: () => `/${PROTOCOL_VERSION}/documents/merge`,
+  /** `GET` how often each field's suggestion was right, on the latest documents people filed. */
+  accuracy: () => `/${PROTOCOL_VERSION}/accuracy`,
+  /** `GET` documents whose text says much the same: re-scans of the same paper. */
+  documentSimilar: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/similar`,
+  /** `GET` a document's earlier files. */
+  documentVersions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/versions`,
+  /** `GET` one earlier file as a PDF. */
+  documentVersion: (sha256: string, version: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}`,
+  /** `POST`: make that earlier file the document's again. */
+  restoreVersion: (sha256: string, version: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}/restore`,
+  /** `POST` a `BulkEditBody`: one change to many documents. */
+  bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
+  /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
+  views: () => `/${PROTOCOL_VERSION}/views`,
+  /** `PATCH` a `SavedViewPatch`, or `DELETE` it. */
+  view: (id: number) => `/${PROTOCOL_VERSION}/views/${String(id)}`,
+  /**
+   * `GET ?q=&limit=&offset=` plus a `DocumentFilter` (see `filterToParams`):
+   * full-text search of the server's own catalog, or with no `q`, every document
+   * the filter lets through.
+   */
   search: () => `/${PROTOCOL_VERSION}/search`,
+  /**
+   * `GET` with the same filter as `search`: every matching document as a CSV file,
+   * a column per custom field. `x-sheaf-truncated: true` when there were more.
+   */
+  searchExport: () => `/${PROTOCOL_VERSION}/search/export.csv`,
   document: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}`,
   suggestions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/suggestions`,
   /** Text a client already recognised in a stored document. See `DocumentTextBody`. */
@@ -187,6 +268,15 @@ export interface DocumentRecord {
   readonly correspondent: string | null;
   readonly documentType: string | null;
   readonly tags: readonly string[];
+  /** The date on the document itself, YYYY-MM-DD, as a person set it; null until then. */
+  readonly created: string | null;
+  /** Archive serial number: ties the document to its paper original. Unique. */
+  readonly asn: number | null;
+  /**
+   * The user it belongs to, or null when it is shared with everyone. A document a
+   * person uploads is theirs; one from a phone or the admin token is shared.
+   */
+  readonly owner: number | null;
   readonly forward: ForwardStatus;
   /**
    * True once the server has freed the bytes for this document, which it will only
@@ -250,6 +340,20 @@ export interface TrashActionResponse {
   readonly count: number;
 }
 
+/** How often one field's suggestions were kept as they were. */
+export interface FieldAccuracy {
+  readonly field: 'title' | 'date' | 'correspondent' | 'documentType' | 'tags';
+  /** Suggestions a person kept unchanged. */
+  readonly right: number;
+  /** Suggestions a person kept or changed, newest first, at most `window`. */
+  readonly judged: number;
+}
+
+export interface AccuracyResponse {
+  readonly window: number;
+  readonly fields: readonly FieldAccuracy[];
+}
+
 export interface SuggestionsResponse {
   readonly suggestions: Suggestions | null;
 }
@@ -260,6 +364,53 @@ export interface DocumentPatch {
   readonly correspondent?: string | null;
   readonly documentType?: string | null;
   readonly tags?: readonly string[];
+  /** YYYY-MM-DD. */
+  readonly created?: string | null;
+  /** 1 to `MAX_ASN`; another document's number is refused with 409. */
+  readonly asn?: number | null;
+}
+
+export const MAX_ASN = 2_147_483_647;
+
+export interface NextAsnResponse {
+  readonly asn: number;
+}
+
+/**
+ * The shape `PATCH /v1/documents/{sha256}` accepts. Keys it does not know are
+ * left alone rather than refused, so an older or newer client still works.
+ */
+export function documentPatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const patch = value as Record<string, unknown>;
+  for (const key of ['title', 'correspondent', 'documentType']) {
+    const v = patch[key];
+    if (v !== undefined && v !== null && typeof v !== 'string')
+      return `${key} must be text or null`;
+  }
+  const tags = patch['tags'];
+  if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
+    return 'tags must be a list of names';
+  }
+  const created = patch['created'];
+  if (
+    created !== undefined &&
+    created !== null &&
+    (typeof created !== 'string' || !isDay(created))
+  ) {
+    return 'created must be a day, YYYY-MM-DD, or null';
+  }
+  const asn = patch['asn'];
+  if (
+    asn !== undefined &&
+    asn !== null &&
+    !(Number.isSafeInteger(asn) && (asn as number) >= 1 && (asn as number) <= MAX_ASN)
+  ) {
+    return `asn must be a whole number from 1 to ${String(MAX_ASN)}, or null`;
+  }
+  return null;
 }
 
 /**
@@ -355,6 +506,8 @@ export interface SearchHit {
   readonly documentType: string | null;
   readonly tags: readonly string[];
   readonly receivedAt: number;
+  readonly created: string | null;
+  readonly asn: number | null;
   /**
    * A short excerpt around the match, with each matched word wrapped in « and ».
    * Document text: escape it before putting it in HTML.
@@ -367,9 +520,222 @@ export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_MAX_LIMIT = 100;
 
 export interface SearchResponse {
-  /** Best match first. */
+  /** In the order asked for; best match first by default when searching for words. */
   readonly hits: readonly SearchHit[];
   readonly hasMore: boolean;
+  /** How many documents match in all, across every page. */
+  readonly total: number;
+}
+
+export const SEARCH_SORTS = ['relevance', 'newest', 'oldest', 'title', 'created', 'asn'] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
+
+/**
+ * Which documents to show. Every part is optional and they all apply together.
+ * Within a list, `correspondents` and `documentTypes` mean any one of them, tags in
+ * `tags` must all be there, one of `anyTags` must be, and none of `notTags` may be.
+ */
+export interface DocumentFilter {
+  /** Words to search for, as typed. */
+  readonly text?: string;
+  readonly correspondents?: readonly string[];
+  readonly documentTypes?: readonly string[];
+  readonly tags?: readonly string[];
+  readonly anyTags?: readonly string[];
+  readonly notTags?: readonly string[];
+  /** Received on or after this day, YYYY-MM-DD, in UTC. */
+  readonly receivedFrom?: string;
+  /** Received on or before this day, YYYY-MM-DD, in UTC. */
+  readonly receivedTo?: string;
+  /** Dated on or after this day, by the date on the document. */
+  readonly createdFrom?: string;
+  /** Dated on or before this day. */
+  readonly createdTo?: string;
+  /** This archive serial number. */
+  readonly asn?: number;
+  /** Carries each of these custom fields, by id. */
+  readonly fields?: readonly number[];
+  /** Relevance needs words; without any, it falls back to newest. */
+  readonly sort?: SearchSort;
+}
+
+const FILTER_LISTS = {
+  correspondents: 'correspondent',
+  documentTypes: 'type',
+  tags: 'tag',
+  anyTags: 'anyTag',
+  notTags: 'notTag',
+} as const;
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A real calendar day as YYYY-MM-DD: not 2026-02-30. */
+function isDay(day: string): boolean {
+  if (!DAY.test(day)) return false;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
+}
+
+/** A filter as query parameters, the way `GET /v1/search` reads it. */
+export function filterToParams(filter: DocumentFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.text !== undefined && filter.text.trim() !== '') params.set('q', filter.text);
+  for (const [key, param] of Object.entries(FILTER_LISTS)) {
+    for (const value of filter[key as keyof typeof FILTER_LISTS] ?? []) params.append(param, value);
+  }
+  if (filter.receivedFrom !== undefined) params.set('from', filter.receivedFrom);
+  if (filter.receivedTo !== undefined) params.set('to', filter.receivedTo);
+  if (filter.createdFrom !== undefined) params.set('createdFrom', filter.createdFrom);
+  if (filter.createdTo !== undefined) params.set('createdTo', filter.createdTo);
+  if (filter.asn !== undefined) params.set('asn', String(filter.asn));
+  for (const id of filter.fields ?? []) params.append('field', String(id));
+  if (filter.sort !== undefined) params.set('sort', filter.sort);
+  return params;
+}
+
+/** Reads `filterToParams` back, or says what is wrong with the parameters. */
+export function filterFromParams(
+  params: URLSearchParams,
+): { ok: true; filter: DocumentFilter } | { ok: false; problem: string } {
+  const filter: { -readonly [K in keyof DocumentFilter]: DocumentFilter[K] } = {};
+  const q = params.get('q');
+  if (q !== null && q.trim() !== '') filter.text = q;
+  for (const [key, param] of Object.entries(FILTER_LISTS)) {
+    const values = params.getAll(param);
+    if (values.length > MAX_FILTER_VALUES) return { ok: false, problem: `too many ${param}s` };
+    if (values.some((v) => v === '' || v.length > MAX_LABEL_NAME)) {
+      return { ok: false, problem: `each ${param} must be a name` };
+    }
+    if (values.length > 0) filter[key as keyof typeof FILTER_LISTS] = values;
+  }
+  for (const [param, key] of [
+    ['from', 'receivedFrom'],
+    ['to', 'receivedTo'],
+    ['createdFrom', 'createdFrom'],
+    ['createdTo', 'createdTo'],
+  ] as const) {
+    const day = params.get(param);
+    if (day === null) continue;
+    if (!isDay(day)) {
+      return { ok: false, problem: `${param} must be a day, YYYY-MM-DD` };
+    }
+    filter[key] = day;
+  }
+  const asn = params.get('asn');
+  if (asn !== null) {
+    if (!/^[1-9][0-9]{0,9}$/.test(asn) || Number(asn) > MAX_ASN) {
+      return { ok: false, problem: 'asn must be an archive serial number' };
+    }
+    filter.asn = Number(asn);
+  }
+  const fields = params.getAll('field');
+  if (fields.length > MAX_FILTER_VALUES || fields.some((f) => !/^[1-9][0-9]{0,15}$/.test(f))) {
+    return { ok: false, problem: 'each field must be a custom field id' };
+  }
+  if (fields.length > 0) filter.fields = fields.map(Number);
+  const sort = params.get('sort');
+  if (sort !== null) {
+    if (!(SEARCH_SORTS as readonly string[]).includes(sort)) {
+      return { ok: false, problem: `sort must be one of ${SEARCH_SORTS.join(', ')}` };
+    }
+    filter.sort = sort as SearchSort;
+  }
+  return { ok: true, filter };
+}
+
+export const MAX_FILTER_VALUES = 50;
+
+export function isDocumentFilter(value: unknown): value is DocumentFilter {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const filter = value as Record<string, unknown>;
+  const known = [
+    'text',
+    ...Object.keys(FILTER_LISTS),
+    'receivedFrom',
+    'receivedTo',
+    'createdFrom',
+    'createdTo',
+    'asn',
+    'fields',
+    'sort',
+  ];
+  if (Object.keys(filter).some((key) => !known.includes(key))) return false;
+  if (filter['text'] !== undefined && typeof filter['text'] !== 'string') return false;
+  for (const key of Object.keys(FILTER_LISTS)) {
+    const list = filter[key];
+    if (list !== undefined && (!Array.isArray(list) || !list.every((v) => typeof v === 'string'))) {
+      return false;
+    }
+  }
+  const fields = filter['fields'];
+  if (
+    fields !== undefined &&
+    (!Array.isArray(fields) || !fields.every((f) => Number.isSafeInteger(f) && (f as number) > 0))
+  ) {
+    return false;
+  }
+  for (const key of ['receivedFrom', 'receivedTo', 'createdFrom', 'createdTo']) {
+    if (filter[key] !== undefined && typeof filter[key] !== 'string') return false;
+  }
+  if (filter['asn'] !== undefined && typeof filter['asn'] !== 'number') return false;
+  if (filter['sort'] !== undefined && typeof filter['sort'] !== 'string') return false;
+  // Everything else is the same check the query parameters get.
+  return filterFromParams(filterToParams(value)).ok;
+}
+
+/** A filter kept under a name, to come back to. */
+export interface SavedView {
+  readonly id: number;
+  readonly name: string;
+  readonly filter: DocumentFilter;
+  /** Shown on the home page with its count. */
+  readonly onDashboard: boolean;
+  /** Smaller first, among views on the dashboard. */
+  readonly position: number;
+}
+
+export interface SavedViewsResponse {
+  /** Dashboard order first, then by name. */
+  readonly views: readonly SavedView[];
+}
+
+export interface SavedViewBody {
+  readonly name: string;
+  readonly filter: DocumentFilter;
+  readonly onDashboard?: boolean;
+}
+
+export interface SavedViewPatch {
+  readonly name?: string;
+  readonly filter?: DocumentFilter;
+  readonly onDashboard?: boolean;
+  readonly position?: number;
+}
+
+export function isSavedViewBody(value: unknown): value is SavedViewBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => !['name', 'filter', 'onDashboard'].includes(key)))
+    return false;
+  return (
+    validLabelName(body['name']) &&
+    isDocumentFilter(body['filter']) &&
+    (body['onDashboard'] === undefined || typeof body['onDashboard'] === 'boolean')
+  );
+}
+
+export function isSavedViewPatch(value: unknown): value is SavedViewPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const keys = ['name', 'filter', 'onDashboard', 'position'];
+  if (Object.keys(body).some((key) => !keys.includes(key))) return false;
+  return (
+    (body['name'] === undefined || validLabelName(body['name'])) &&
+    (body['filter'] === undefined || isDocumentFilter(body['filter'])) &&
+    (body['onDashboard'] === undefined || typeof body['onDashboard'] === 'boolean') &&
+    (body['position'] === undefined ||
+      (Number.isSafeInteger(body['position']) && Math.abs(body['position'] as number) < 1e9))
+  );
 }
 
 export interface InboxEntry {
@@ -377,6 +743,22 @@ export interface InboxEntry {
   readonly receivedAt: number;
   readonly title: string | null;
   readonly suggestions: Suggestions;
+  /** An earlier document whose text says much the same: likely the same paper scanned again. */
+  readonly looksLike?: SimilarDocument;
+}
+
+/** A document whose words mostly match another's. */
+export interface SimilarDocument {
+  readonly sha256: string;
+  readonly title: string | null;
+  readonly receivedAt: number;
+  /** The share of word pairs the two are estimated to have in common, 0 to 1. */
+  readonly similarity: number;
+}
+
+export interface SimilarResponse {
+  /** Most alike first; only those alike enough to be the same paper. */
+  readonly documents: readonly SimilarDocument[];
 }
 
 export interface InboxResponse {
@@ -442,6 +824,11 @@ export interface CustomField {
   readonly options: readonly string[];
   /** How many documents carry it, with or without a value. */
   readonly documentCount: number;
+  /**
+   * Every document should have a value. A person saving a document's fields without
+   * one is refused; documents filed by rules or workflows are flagged, not refused.
+   */
+  readonly required: boolean;
 }
 
 export interface CustomFieldsResponse {
@@ -455,12 +842,15 @@ export interface CustomFieldBody {
   readonly type: CustomFieldType;
   /** Required, and non-empty, for `select`; refused for any other type. */
   readonly options?: readonly string[];
+  /** Default false. See `CustomField.required`. */
+  readonly required?: boolean;
 }
 
 /** `PATCH /v1/custom-fields/{id}`. The type cannot change. Dropping an option clears it from documents. */
 export interface CustomFieldPatch {
   readonly name?: string;
   readonly options?: readonly string[];
+  readonly required?: boolean;
 }
 
 /**
@@ -563,14 +953,17 @@ export function isCustomFieldBody(value: unknown): value is CustomFieldBody {
   const body = value as Record<string, unknown>;
   if (!validName(body['name'])) return false;
   if (!(CUSTOM_FIELD_TYPES as readonly unknown[]).includes(body['type'])) return false;
+  if (body['required'] !== undefined && typeof body['required'] !== 'boolean') return false;
   return body['type'] === 'select' ? validOptions(body['options']) : body['options'] === undefined;
 }
 
 export function isCustomFieldPatch(value: unknown): value is CustomFieldPatch {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'options')) return false;
+  if (Object.keys(body).some((key) => key !== 'name' && key !== 'options' && key !== 'required'))
+    return false;
   if (body['name'] !== undefined && !validName(body['name'])) return false;
+  if (body['required'] !== undefined && typeof body['required'] !== 'boolean') return false;
   return body['options'] === undefined || validOptions(body['options']);
 }
 
@@ -706,6 +1099,32 @@ export const MAX_LABEL_NAME = 128;
 /** `#rrggbb`, lower or upper case. */
 export const LABEL_COLOUR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * How a label finds its own documents in their text:
+ * - `none`: never on its own;
+ * - `any`: any one of the words, where a "quoted phrase" counts as one word;
+ * - `all`: every one of the words, in any order;
+ * - `exact`: the pattern as written, anywhere;
+ * - `regex`: a JavaScript regular expression;
+ * - `fuzzy`: the pattern, allowing for a few misread letters.
+ */
+export const MATCHING_ALGORITHMS = ['none', 'any', 'all', 'exact', 'regex', 'fuzzy'] as const;
+export type MatchingAlgorithm = (typeof MATCHING_ALGORITHMS)[number];
+
+export const MAX_MATCH_PATTERN = 512;
+
+/** Fuzzy matching costs time in proportion to the pattern's length, so it is kept short. */
+export const MAX_FUZZY_PATTERN = 64;
+
+export interface MatchingRule {
+  readonly algorithm: MatchingAlgorithm;
+  /** Empty for `none`. */
+  readonly pattern: string;
+  readonly caseSensitive: boolean;
+}
+
+export const NO_MATCHING: MatchingRule = { algorithm: 'none', pattern: '', caseSensitive: false };
+
 /** One correspondent, document type or tag, and how many documents carry it. */
 export interface Label {
   readonly id: number;
@@ -715,7 +1134,15 @@ export interface Label {
   readonly documents: number;
   /** Tags only; null when none was chosen. */
   readonly colour: string | null;
+  readonly matching: MatchingRule;
+  /** Tags only: put on every new document, to mark it as not yet looked at. */
+  readonly inbox: boolean;
+  /** Tags only: the tag this one sits inside, whose name every document with this one also has. */
+  readonly parent: number | null;
 }
+
+/** How deep tags may nest: a tag, its parent, and so on, five in all. */
+export const MAX_TAG_DEPTH = 5;
 
 export interface LabelsResponse {
   /** By name. */
@@ -726,6 +1153,11 @@ export interface LabelsResponse {
 export interface LabelBody {
   readonly name: string;
   readonly colour?: string;
+  readonly matching?: MatchingRule;
+  /** Tags only. */
+  readonly inbox?: boolean;
+  /** Tags only: a parent tag's id. */
+  readonly parent?: number | null;
 }
 
 /**
@@ -735,6 +1167,55 @@ export interface LabelBody {
 export interface LabelPatch {
   readonly name?: string;
   readonly colour?: string | null;
+  readonly matching?: MatchingRule;
+  readonly inbox?: boolean;
+  /** Tags only: a parent tag's id, or null for none. */
+  readonly parent?: number | null;
+}
+
+/** `POST /v1/labels/apply`. Leaving out `documents` means every document. */
+export interface ApplyRulesBody {
+  readonly documents?: readonly string[];
+}
+
+export interface ApplyRulesResponse {
+  /** Documents that gained a label. */
+  readonly changed: number;
+}
+
+/**
+ * Why a rule cannot be used, or null when it can. `none` takes no pattern; the
+ * others need one, and a regex must compile.
+ */
+export function matchingRuleProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'matching must be {"algorithm", "pattern", "caseSensitive"}';
+  }
+  const rule = value as Record<string, unknown>;
+  if (Object.keys(rule).some((k) => !['algorithm', 'pattern', 'caseSensitive'].includes(k))) {
+    return 'matching may hold only "algorithm", "pattern" and "caseSensitive"';
+  }
+  if (!(MATCHING_ALGORITHMS as readonly unknown[]).includes(rule['algorithm'])) {
+    return `algorithm must be one of ${MATCHING_ALGORITHMS.join(', ')}`;
+  }
+  const pattern = rule['pattern'];
+  if (typeof pattern !== 'string' || pattern.length > MAX_MATCH_PATTERN) {
+    return `pattern must be text of at most ${String(MAX_MATCH_PATTERN)} characters`;
+  }
+  if (typeof rule['caseSensitive'] !== 'boolean') return 'caseSensitive must be true or false';
+  if (rule['algorithm'] === 'none') return pattern === '' ? null : 'none takes no pattern';
+  if (pattern.trim() === '') return 'this algorithm needs a pattern';
+  if (rule['algorithm'] === 'fuzzy' && pattern.length > MAX_FUZZY_PATTERN) {
+    return `a fuzzy pattern is at most ${String(MAX_FUZZY_PATTERN)} characters`;
+  }
+  if (rule['algorithm'] === 'regex') {
+    try {
+      new RegExp(pattern, 'u');
+    } catch {
+      return 'pattern is not a valid regular expression';
+    }
+  }
+  return null;
 }
 
 /** `POST /v1/labels/{kind}/{id}/merge`: every document carrying this one carries `into` instead. */
@@ -755,10 +1236,23 @@ function validColour(colour: unknown): colour is string {
   return typeof colour === 'string' && LABEL_COLOUR_PATTERN.test(colour);
 }
 
+const LABEL_KEYS = ['name', 'colour', 'matching', 'inbox', 'parent'];
+
+function validExtras(body: Record<string, unknown>): boolean {
+  return (
+    (body['matching'] === undefined || matchingRuleProblem(body['matching']) === null) &&
+    (body['inbox'] === undefined || typeof body['inbox'] === 'boolean') &&
+    (body['parent'] === undefined ||
+      body['parent'] === null ||
+      (Number.isSafeInteger(body['parent']) && (body['parent'] as number) > 0))
+  );
+}
+
 export function isLabelBody(value: unknown): value is LabelBody {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  if (Object.keys(body).some((key) => !LABEL_KEYS.includes(key))) return false;
+  if (!validExtras(body)) return false;
   return (
     validLabelName(body['name']) && (body['colour'] === undefined || validColour(body['colour']))
   );
@@ -767,7 +1261,8 @@ export function isLabelBody(value: unknown): value is LabelBody {
 export function isLabelPatch(value: unknown): value is LabelPatch {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== 'name' && key !== 'colour')) return false;
+  if (Object.keys(body).some((key) => !LABEL_KEYS.includes(key))) return false;
+  if (!validExtras(body)) return false;
   if (body['name'] !== undefined && !validLabelName(body['name'])) return false;
   const colour = body['colour'];
   return colour === undefined || colour === null || validColour(colour);
@@ -779,9 +1274,799 @@ export function isLabelMergeBody(value: unknown): value is LabelMergeBody {
   return Object.keys(value).length === 1 && Number.isSafeInteger(into) && (into as number) > 0;
 }
 
+export function isApplyRulesBody(value: unknown): value is ApplyRulesBody {
+  return isTrashActionBody(value);
+}
+
 /** The kind a path segment names, or null. */
 export function labelKindOf(segment: string): LabelKind | null {
   return LABEL_KINDS.find((kind) => LABEL_SEGMENTS[kind] === segment) ?? null;
+}
+
+/** One change, made to every document in a bulk edit. */
+export type BulkAction =
+  | { readonly kind: 'setCorrespondent'; readonly value: string | null }
+  | { readonly kind: 'setDocumentType'; readonly value: string | null }
+  | {
+      readonly kind: 'modifyTags';
+      readonly add: readonly string[];
+      readonly remove: readonly string[];
+    }
+  | {
+      readonly kind: 'setCustomField';
+      readonly field: number;
+      readonly value: CustomFieldData | null;
+    }
+  | { readonly kind: 'removeCustomField'; readonly field: number }
+  | { readonly kind: 'applyRules' }
+  | { readonly kind: 'trash' };
+
+export const MAX_BULK_DOCUMENTS = 1_000;
+
+/** `POST /v1/documents/bulk`. */
+export interface BulkEditBody {
+  readonly documents: readonly string[];
+  readonly action: BulkAction;
+}
+
+export interface BulkEditResponse {
+  /** Documents the action changed; those it found already so, or did not hold, are left out. */
+  readonly changed: number;
+}
+
+function labelOrNull(value: unknown): boolean {
+  return value === null || validLabelName(value);
+}
+
+function labelList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length <= MAX_FILTER_VALUES && value.every(validLabelName);
+}
+
+function isBulkAction(value: unknown): value is BulkAction {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const action = value as Record<string, unknown>;
+  const keys = (...allowed: string[]) =>
+    Object.keys(action).every((key) => key === 'kind' || allowed.includes(key));
+  const fieldId = (id: unknown) => Number.isSafeInteger(id) && (id as number) > 0;
+  switch (action['kind']) {
+    case 'setCorrespondent':
+    case 'setDocumentType':
+      return keys('value') && labelOrNull(action['value']);
+    case 'modifyTags':
+      return (
+        keys('add', 'remove') &&
+        labelList(action['add']) &&
+        labelList(action['remove']) &&
+        action['add'].length + action['remove'].length > 0
+      );
+    case 'setCustomField':
+      return keys('field', 'value') && fieldId(action['field']) && action['value'] !== undefined;
+    case 'removeCustomField':
+      return keys('field') && fieldId(action['field']);
+    case 'applyRules':
+    case 'trash':
+      return keys();
+    default:
+      return false;
+  }
+}
+
+export function isBulkEditBody(value: unknown): value is BulkEditBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const documents = body['documents'];
+  return (
+    Object.keys(body).every((key) => key === 'documents' || key === 'action') &&
+    Array.isArray(documents) &&
+    documents.length > 0 &&
+    documents.length <= MAX_BULK_DOCUMENTS &&
+    documents.every((id) => typeof id === 'string' && isSha256(id)) &&
+    isBulkAction(body['action'])
+  );
+}
+
+/** A share link's secret part: 32 URL-safe characters, 192 random bits. */
+export const SHARE_SLUG_PATTERN = /^[A-Za-z0-9_-]{32}$/;
+
+export const MAX_SHARE_DAYS = 3650;
+
+/** A link that opens one document without a token, until it expires or is revoked. */
+export interface ShareLink {
+  readonly id: number;
+  readonly sha256: string;
+  readonly slug: string;
+  readonly createdAt: number;
+  /** Null: until revoked. */
+  readonly expiresAt: number | null;
+}
+
+export interface ShareLinksResponse {
+  /** Newest first. */
+  readonly links: readonly ShareLink[];
+}
+
+/** `POST /v1/documents/{sha256}/share-links`. No `expiresInDays`: until revoked. */
+export interface ShareLinkBody {
+  readonly expiresInDays?: number | null;
+}
+
+export function isShareLinkBody(value: unknown): value is ShareLinkBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'expiresInDays')) return false;
+  const days = body['expiresInDays'];
+  return (
+    days === undefined ||
+    days === null ||
+    (Number.isSafeInteger(days) && (days as number) >= 1 && (days as number) <= MAX_SHARE_DAYS)
+  );
+}
+
+/**
+ * When a workflow runs: as a new document is filed, after a person edits one, or
+ * once for each document as it reaches an age (`scheduled`, see `olderThanDays`).
+ */
+export const WORKFLOW_TRIGGERS = ['added', 'updated', 'scheduled'] as const;
+export type WorkflowTrigger = (typeof WORKFLOW_TRIGGERS)[number];
+
+/** Which documents a workflow is for. Every part given must hold. */
+export interface WorkflowConditions {
+  readonly tags?: readonly string[];
+  readonly anyTags?: readonly string[];
+  readonly notTags?: readonly string[];
+  readonly correspondent?: string;
+  readonly documentType?: string;
+  /** A rule over the document's text, as a label's (`none` is not allowed here). */
+  readonly text?: MatchingRule;
+  /** Scheduled only: run once a document is this many days old. Required for `scheduled`. */
+  readonly olderThanDays?: number;
+  /** Scheduled only: counted from when it arrived (the default) or from its date. */
+  readonly dateField?: 'added' | 'created';
+}
+
+/** What a workflow does to each document it is for, in this order. */
+export interface WorkflowActions {
+  /** The same placeholders as file names, e.g. `{{correspondent}} {{created}}`. */
+  readonly title?: string;
+  readonly addTags?: readonly string[];
+  readonly removeTags?: readonly string[];
+  /** `null` clears it. */
+  readonly correspondent?: string | null;
+  readonly documentType?: string | null;
+  readonly customField?: { readonly field: number; readonly value: CustomFieldData | null };
+  /** POSTed the document's record as JSON; a failure is logged, never retried. */
+  readonly webhook?: string;
+  /** An email, with the same placeholders as titles; needs the server's SMTP settings. */
+  readonly email?: {
+    readonly to: readonly string[];
+    readonly subject: string;
+    readonly body: string;
+    /** Attach the PDF. */
+    readonly attach: boolean;
+  };
+}
+
+export const EMAIL_PATTERN = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
+
+export interface Workflow {
+  readonly id: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly trigger: WorkflowTrigger;
+  readonly conditions: WorkflowConditions;
+  readonly actions: WorkflowActions;
+  /** Smaller runs first. */
+  readonly position: number;
+}
+
+export interface WorkflowsResponse {
+  readonly workflows: readonly Workflow[];
+}
+
+export interface WorkflowBody {
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly trigger: WorkflowTrigger;
+  readonly conditions: WorkflowConditions;
+  readonly actions: WorkflowActions;
+  readonly position?: number;
+}
+
+/** Placeholders a title template or file name may use. */
+export const TEMPLATE_PLACEHOLDERS = [
+  'title',
+  'correspondent',
+  'document_type',
+  'tag_list',
+  'created',
+  'created_year',
+  'created_month',
+  'created_day',
+  'added',
+  'added_year',
+  'asn',
+  'sha256',
+] as const;
+
+/** Why a template cannot be used, or null. An unknown placeholder is refused, not left in. */
+export function templateProblem(template: string): string | null {
+  if (template.trim() === '') return 'the template is empty';
+  for (const match of template.matchAll(/\{\{\s*([^}]*?)\s*\}\}/g)) {
+    if (!(TEMPLATE_PLACEHOLDERS as readonly string[]).includes(match[1] ?? '')) {
+      return `unknown placeholder {{${match[1] ?? ''}}}; use ${TEMPLATE_PLACEHOLDERS.map((p) => `{{${p}}}`).join(', ')}`;
+    }
+  }
+  return null;
+}
+
+/** Why a workflow body cannot be used, or null. */
+export function workflowProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const body = value as Record<string, unknown>;
+  const allowed = ['name', 'enabled', 'trigger', 'conditions', 'actions', 'position'];
+  const extra = Object.keys(body).find((key) => !allowed.includes(key));
+  if (extra !== undefined) return `unknown key "${extra}"`;
+  if (!validLabelName(body['name']))
+    return 'name must be non-empty text without surrounding spaces';
+  if (typeof body['enabled'] !== 'boolean') return 'enabled must be true or false';
+  if (!(WORKFLOW_TRIGGERS as readonly unknown[]).includes(body['trigger'])) {
+    return `trigger must be one of ${WORKFLOW_TRIGGERS.join(', ')}`;
+  }
+  const position = body['position'];
+  if (
+    position !== undefined &&
+    !(Number.isSafeInteger(position) && Math.abs(position as number) < 1e9)
+  ) {
+    return 'position must be a whole number';
+  }
+
+  const conditions = body['conditions'];
+  if (typeof conditions !== 'object' || conditions === null || Array.isArray(conditions)) {
+    return 'conditions must be an object';
+  }
+  const c = conditions as Record<string, unknown>;
+  const conditionKeys = [
+    'tags',
+    'anyTags',
+    'notTags',
+    'correspondent',
+    'documentType',
+    'text',
+    'olderThanDays',
+    'dateField',
+  ];
+  const extraCondition = Object.keys(c).find((key) => !conditionKeys.includes(key));
+  if (extraCondition !== undefined) return `unknown condition "${extraCondition}"`;
+  for (const key of ['tags', 'anyTags', 'notTags']) {
+    if (c[key] !== undefined && !labelList(c[key])) return `${key} must be a list of names`;
+  }
+  for (const key of ['correspondent', 'documentType']) {
+    if (c[key] !== undefined && !validLabelName(c[key])) return `${key} must be a name`;
+  }
+  const days = c['olderThanDays'];
+  if (body['trigger'] === 'scheduled') {
+    if (!(Number.isInteger(days) && (days as number) >= 0 && (days as number) <= 36_500)) {
+      return 'a scheduled workflow needs olderThanDays: a whole number of days';
+    }
+    if (
+      c['dateField'] !== undefined &&
+      c['dateField'] !== 'added' &&
+      c['dateField'] !== 'created'
+    ) {
+      return 'dateField must be added or created';
+    }
+  } else if (days !== undefined || c['dateField'] !== undefined) {
+    return 'olderThanDays and dateField are for scheduled workflows';
+  }
+  if (c['text'] !== undefined) {
+    const problem = matchingRuleProblem(c['text']);
+    if (problem !== null) return `text: ${problem}`;
+    if ((c['text'] as MatchingRule).algorithm === 'none')
+      return 'text: leave it out instead of none';
+  }
+
+  const actions = body['actions'];
+  if (typeof actions !== 'object' || actions === null || Array.isArray(actions)) {
+    return 'actions must be an object';
+  }
+  const a = actions as Record<string, unknown>;
+  const actionKeys = [
+    'title',
+    'addTags',
+    'removeTags',
+    'correspondent',
+    'documentType',
+    'customField',
+    'webhook',
+    'email',
+  ];
+  const extraAction = Object.keys(a).find((key) => !actionKeys.includes(key));
+  if (extraAction !== undefined) return `unknown action "${extraAction}"`;
+  if (Object.keys(a).length === 0) return 'a workflow needs at least one action';
+  if (a['title'] !== undefined) {
+    if (typeof a['title'] !== 'string') return 'title must be a template';
+    const problem = templateProblem(a['title']);
+    if (problem !== null) return `title: ${problem}`;
+  }
+  for (const key of ['addTags', 'removeTags']) {
+    if (a[key] !== undefined && !labelList(a[key])) return `${key} must be a list of names`;
+  }
+  for (const key of ['correspondent', 'documentType']) {
+    if (a[key] !== undefined && !labelOrNull(a[key])) return `${key} must be a name or null`;
+  }
+  const field = a['customField'];
+  if (field !== undefined) {
+    if (typeof field !== 'object' || field === null) return 'customField must be {field, value}';
+    const f = field as Record<string, unknown>;
+    if (
+      !(Number.isSafeInteger(f['field']) && (f['field'] as number) > 0) ||
+      f['value'] === undefined
+    ) {
+      return 'customField must be {field: <id>, value}';
+    }
+  }
+  const email = a['email'];
+  if (email !== undefined) {
+    if (typeof email !== 'object' || email === null)
+      return 'email must be {to, subject, body, attach}';
+    const e = email as Record<string, unknown>;
+    const to = e['to'];
+    if (
+      !Array.isArray(to) ||
+      to.length === 0 ||
+      to.length > 20 ||
+      !to.every((address) => typeof address === 'string' && EMAIL_PATTERN.test(address))
+    ) {
+      return 'email.to must be one to twenty email addresses';
+    }
+    for (const key of ['subject', 'body']) {
+      if (typeof e[key] !== 'string') return `email.${key} must be a template`;
+      const problem = templateProblem(e[key]);
+      if (problem !== null) return `email.${key}: ${problem}`;
+    }
+    if (typeof e['attach'] !== 'boolean') return 'email.attach must be true or false';
+  }
+  const webhook = a['webhook'];
+  if (webhook !== undefined) {
+    if (typeof webhook !== 'string') return 'webhook must be a URL';
+    try {
+      const url = new URL(webhook);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:')
+        return 'webhook must be http or https';
+    } catch {
+      return 'webhook must be a URL';
+    }
+  }
+  return null;
+}
+
+/**
+ * What a signed-in person may do. `admin`: everything the admin token can.
+ * `editor`: what a paired phone can, reading and changing documents. `viewer`:
+ * read only.
+ */
+export const ROLES = ['admin', 'editor', 'viewer'] as const;
+export type Role = (typeof ROLES)[number];
+
+export const MIN_PASSWORD_LENGTH = 10;
+export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,31}$/;
+
+export interface User {
+  readonly id: number;
+  readonly username: string;
+  readonly role: Role;
+  readonly createdAt: number;
+  /** Null while the user may sign in. */
+  readonly disabledAt: number | null;
+  readonly lastSignIn: number | null;
+}
+
+export interface UsersResponse {
+  readonly users: readonly User[];
+}
+
+/** `POST /v1/users`. Usernames are lower case: letters, digits, `.`, `_`, `-`. */
+export interface UserBody {
+  readonly username: string;
+  readonly password: string;
+  readonly role: Role;
+}
+
+export interface UserPatch {
+  readonly password?: string;
+  readonly role?: Role;
+  readonly disabled?: boolean;
+}
+
+/** `POST /v1/sessions`. */
+export interface SessionBody {
+  readonly username: string;
+  readonly password: string;
+}
+
+export interface SessionResponse {
+  /** A bearer token, like the admin token, that ends at `expiresAt`. */
+  readonly token: string;
+  readonly expiresAt: number;
+  readonly user: User;
+}
+
+export interface SsoResponse {
+  readonly enabled: boolean;
+  /** What to call the provider on a button, e.g. "Sign in with Keycloak". */
+  readonly name: string | null;
+}
+
+/** `GET /v1/me`. */
+export interface Me {
+  readonly kind: 'admin-token' | 'device' | 'user';
+  /** The user's id, for a user. */
+  readonly id: number | null;
+  readonly role: Role;
+  /** For a user; for a device, its name. */
+  readonly name: string | null;
+}
+
+function validPassword(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= MIN_PASSWORD_LENGTH && value.length <= 1024;
+}
+
+export function isUserBody(value: unknown): value is UserBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    Object.keys(body).every((key) => ['username', 'password', 'role'].includes(key)) &&
+    typeof body['username'] === 'string' &&
+    USERNAME_PATTERN.test(body['username']) &&
+    validPassword(body['password']) &&
+    (ROLES as readonly unknown[]).includes(body['role'])
+  );
+}
+
+export function isUserPatch(value: unknown): value is UserPatch {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    Object.keys(body).every((key) => ['password', 'role', 'disabled'].includes(key)) &&
+    (body['password'] === undefined || validPassword(body['password'])) &&
+    (body['role'] === undefined || (ROLES as readonly unknown[]).includes(body['role'])) &&
+    (body['disabled'] === undefined || typeof body['disabled'] === 'boolean')
+  );
+}
+
+export function isSessionBody(value: unknown): value is SessionBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    typeof body['username'] === 'string' &&
+    body['username'].length <= 64 &&
+    typeof body['password'] === 'string' &&
+    body['password'].length <= 1024
+  );
+}
+
+/** One change someone made through the API. */
+export interface AuditEntry {
+  readonly id: number;
+  readonly at: number;
+  /** A username, a phone's name, or "admin token". */
+  readonly who: string;
+  /** What was done, in a few words. */
+  readonly what: string;
+  /** The document it was done to, when there was one. */
+  readonly sha256: string | null;
+}
+
+export interface AuditResponse {
+  /** Newest first. Ask again with `before` set to the last id for older ones. */
+  readonly entries: readonly AuditEntry[];
+}
+
+/** A page of an edited document: which page it was (from 1), and how far to turn it clockwise. */
+export interface PageSpec {
+  readonly page: number;
+  readonly rotate?: 0 | 90 | 180 | 270;
+}
+
+export const MAX_PAGES = 2_000;
+
+/**
+ * `POST /v1/documents/{sha256}/pages`: the pages the document should have, in
+ * order. Leaving a page out removes it. The answer is the document, now under the
+ * new file's hash; the old file is kept as an earlier version.
+ */
+export interface PagesBody {
+  readonly pages: readonly PageSpec[];
+}
+
+export interface PageCountResponse {
+  readonly pages: number;
+}
+
+/** `POST /v1/documents/{sha256}/split`. By default the original goes to the trash. */
+export interface SplitBody {
+  readonly parts: readonly (readonly number[])[];
+  readonly keepOriginal?: boolean;
+}
+
+/** `POST /v1/documents/merge`, in reading order. By default the originals go to the trash. */
+export interface MergeBody {
+  readonly documents: readonly string[];
+  readonly keepOriginals?: boolean;
+}
+
+export interface NewDocumentsResponse {
+  readonly documents: readonly string[];
+}
+
+export interface DocumentVersion {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly pageCount: number | null;
+  /** When the document moved on from this file. */
+  readonly replacedAt: number;
+}
+
+export interface VersionsResponse {
+  /** Newest first. */
+  readonly versions: readonly DocumentVersion[];
+}
+
+function isPageNumber(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_PAGES;
+}
+
+export function isPagesBody(value: unknown): value is PagesBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const pages = (value as Record<string, unknown>)['pages'];
+  return (
+    Array.isArray(pages) &&
+    pages.length > 0 &&
+    pages.length <= MAX_PAGES &&
+    pages.every((spec: unknown) => {
+      if (typeof spec !== 'object' || spec === null) return false;
+      const s = spec as Record<string, unknown>;
+      return (
+        Object.keys(s).every((key) => key === 'page' || key === 'rotate') &&
+        isPageNumber(s['page']) &&
+        (s['rotate'] === undefined || [0, 90, 180, 270].includes(s['rotate'] as number))
+      );
+    })
+  );
+}
+
+export const STAMP_POSITIONS = ['top-right', 'top-left', 'bottom-right', 'bottom-left'] as const;
+export type StampPosition = (typeof STAMP_POSITIONS)[number];
+export const STAMP_COLOURS = ['red', 'blue', 'green', 'black'] as const;
+export type StampColour = (typeof STAMP_COLOURS)[number];
+export const MAX_STAMP_TEXT = 40;
+
+/**
+ * `POST /v1/documents/{sha256}/stamp`: words such as PAID or RECEIVED drawn in a
+ * box on the page, as a rubber stamp would. Like a page edit, the document moves to
+ * the stamped file and the unstamped one is kept as an earlier version.
+ */
+export interface StampBody {
+  /** Latin letters, digits and punctuation, up to `MAX_STAMP_TEXT`. */
+  readonly text: string;
+  /** Today's date under the words, as the server sees it. Default true. */
+  readonly withDate?: boolean;
+  /** Default `top-right`, as the page is seen, whichever way it is turned. */
+  readonly position?: StampPosition;
+  /** Default `red`. */
+  readonly colour?: StampColour;
+  /** Only the first page, the default, or every page. */
+  readonly pages?: 'first' | 'all';
+}
+
+export function stampProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const body = value as Record<string, unknown>;
+  const known = ['text', 'withDate', 'position', 'colour', 'pages'];
+  const unknown = Object.keys(body).find((key) => !known.includes(key));
+  if (unknown !== undefined) return `unknown field "${unknown}"`;
+  const text = body['text'];
+  if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_STAMP_TEXT) {
+    return `text must be 1 to ${String(MAX_STAMP_TEXT)} characters`;
+  }
+  // The stamp's font has Latin letters only; anything else could not be drawn.
+  if (!/^[\x20-\x7E\u00A0-\u00FF]+$/.test(text)) {
+    return 'text can use Latin letters, digits and punctuation only';
+  }
+  if (body['withDate'] !== undefined && typeof body['withDate'] !== 'boolean') {
+    return 'withDate must be true or false';
+  }
+  if (
+    body['position'] !== undefined &&
+    !(STAMP_POSITIONS as readonly unknown[]).includes(body['position'])
+  ) {
+    return `position must be one of ${STAMP_POSITIONS.join(', ')}`;
+  }
+  if (
+    body['colour'] !== undefined &&
+    !(STAMP_COLOURS as readonly unknown[]).includes(body['colour'])
+  ) {
+    return `colour must be one of ${STAMP_COLOURS.join(', ')}`;
+  }
+  if (body['pages'] !== undefined && body['pages'] !== 'first' && body['pages'] !== 'all') {
+    return 'pages must be "first" or "all"';
+  }
+  return null;
+}
+
+export function isSplitBody(value: unknown): value is SplitBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const parts = body['parts'];
+  return (
+    Object.keys(body).every((key) => key === 'parts' || key === 'keepOriginal') &&
+    Array.isArray(parts) &&
+    parts.length >= 1 &&
+    parts.length <= 200 &&
+    parts.every(
+      (part: unknown) => Array.isArray(part) && part.length > 0 && part.every(isPageNumber),
+    ) &&
+    (body['keepOriginal'] === undefined || typeof body['keepOriginal'] === 'boolean')
+  );
+}
+
+export function isMergeBody(value: unknown): value is MergeBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const documents = body['documents'];
+  return (
+    Object.keys(body).every((key) => key === 'documents' || key === 'keepOriginals') &&
+    Array.isArray(documents) &&
+    documents.length >= 2 &&
+    documents.length <= 100 &&
+    new Set(documents).size === documents.length &&
+    documents.every((id) => typeof id === 'string' && isSha256(id)) &&
+    (body['keepOriginals'] === undefined || typeof body['keepOriginals'] === 'boolean')
+  );
+}
+
+/** "1-3, 5" as pages [1, 2, 3, 5]; null for anything else. */
+export function parsePageList(text: string): number[] | null {
+  const pages: number[] = [];
+  for (const piece of text
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p !== '')) {
+    const range = /^(\d+)\s*-\s*(\d+)$/.exec(piece);
+    if (range !== null) {
+      const [from, to] = [Number(range[1]), Number(range[2])];
+      if (from < 1 || to < from || to - from > MAX_PAGES) return null;
+      for (let page = from; page <= to; page++) pages.push(page);
+    } else if (/^\d+$/.test(piece) && Number(piece) >= 1) {
+      pages.push(Number(piece));
+    } else {
+      return null;
+    }
+  }
+  return pages.length === 0 ? null : pages;
+}
+
+/** What an admin can change while the server runs. */
+export interface ServerSettings {
+  /** Days a deleted document waits in the trash. At least 1. */
+  readonly trashDays: number;
+  /** How exported files are named; see `TEMPLATE_PLACEHOLDERS`. */
+  readonly filenameFormat: string;
+  /** Read barcodes on new documents: separator pages and archive serial numbers. */
+  readonly barcodesEnabled: boolean;
+  /** A page whose barcode reads exactly this splits the document there, and is dropped. */
+  readonly barcodeSeparator: string;
+  /** A barcode starting with this, then digits, sets the archive serial number. */
+  readonly barcodeAsnPrefix: string;
+  /** How a date written in numbers alone is read: 03/04/2026 is 3 April in DMY, March 4 in MDY. */
+  readonly dateOrder: DateOrderSetting;
+  /** The currency an amount with no currency written beside it is taken to be in. ISO 4217. */
+  readonly defaultCurrency: string;
+}
+
+export const DATE_ORDERS = ['DMY', 'MDY', 'YMD'] as const;
+export type DateOrderSetting = (typeof DATE_ORDERS)[number];
+
+export const SETTING_KEYS = [
+  'trashDays',
+  'filenameFormat',
+  'barcodesEnabled',
+  'barcodeSeparator',
+  'barcodeAsnPrefix',
+  'dateOrder',
+  'defaultCurrency',
+] as const;
+
+/** Where a setting's value comes from: built in, the environment, or saved by an admin. */
+export type SettingSource = 'default' | 'environment' | 'saved';
+
+export interface SettingsResponse {
+  readonly settings: ServerSettings;
+  readonly sources: Readonly<Record<keyof ServerSettings, SettingSource>>;
+}
+
+/** Each key given is saved; `null` forgets the saved value and goes back to the environment's. */
+export type SettingsPatch = {
+  readonly [K in keyof ServerSettings]?: ServerSettings[K] | null;
+};
+
+/** Why a value cannot be used for a setting, or null. */
+export function settingProblem(key: string, value: unknown): string | null {
+  if (value === null) return null;
+  switch (key) {
+    case 'trashDays':
+      return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 3650
+        ? null
+        : 'trashDays must be a number of days from 1 to 3650';
+    case 'filenameFormat':
+      return typeof value === 'string' ? templateProblem(value) : 'filenameFormat must be text';
+    case 'barcodesEnabled':
+      return typeof value === 'boolean' ? null : 'barcodesEnabled must be true or false';
+    case 'barcodeSeparator':
+    case 'barcodeAsnPrefix':
+      return typeof value === 'string' && value.trim() !== '' && value.length <= 64
+        ? null
+        : `${key} must be text of at most 64 characters`;
+    case 'dateOrder':
+      return (DATE_ORDERS as readonly unknown[]).includes(value)
+        ? null
+        : 'dateOrder must be DMY, MDY or YMD';
+    case 'defaultCurrency':
+      return typeof value === 'string' && /^[A-Z]{3}$/.test(value)
+        ? null
+        : 'defaultCurrency must be a three-letter currency code, such as EUR';
+    default:
+      return `there is no setting "${key}"`;
+  }
+}
+
+export function settingsPatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  for (const [key, setting] of Object.entries(value)) {
+    const problem = settingProblem(key, setting);
+    if (problem !== null) return problem;
+  }
+  return null;
+}
+
+/** What another user may do with a document: read it, or read and change it. */
+export type AccessLevel = 'view' | 'change';
+
+export interface DocumentPermissions {
+  /** Null: shared with everyone, as documents were before there were users. */
+  readonly owner: number | null;
+  /** Others the owner shared it with. */
+  readonly grants: readonly { readonly user: number; readonly level: AccessLevel }[];
+}
+
+export interface UserDirectoryResponse {
+  readonly users: readonly { readonly id: number; readonly username: string }[];
+}
+
+export function isDocumentPermissions(value: unknown): value is DocumentPermissions {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const owner = body['owner'];
+  const grants = body['grants'];
+  const id = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
+  return (
+    Object.keys(body).every((key) => key === 'owner' || key === 'grants') &&
+    (owner === null || id(owner)) &&
+    Array.isArray(grants) &&
+    grants.length <= 200 &&
+    grants.every((grant: unknown) => {
+      if (typeof grant !== 'object' || grant === null) return false;
+      const g = grant as Record<string, unknown>;
+      return id(g['user']) && (g['level'] === 'view' || g['level'] === 'change');
+    }) &&
+    new Set(grants.map((g: { user: number }) => g.user)).size === grants.length
+  );
 }
 
 export interface ErrorBody {

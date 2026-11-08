@@ -3,6 +3,8 @@ import type { InboxEntry } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { shortSha, when } from '../format';
 import { href } from '../route';
+import { Upload } from './Upload';
+import { Accuracy } from './Accuracy';
 
 /** Fired when the inbox changes, so the count in the navigation can follow. */
 export const INBOX_CHANGED = 'sheaf:inbox-changed';
@@ -11,7 +13,7 @@ export const INBOX_CHANGED = 'sheaf:inbox-changed';
  * Suggested details waiting for a person, keyboard first: j and k move, a accepts,
  * e opens the document to change it.
  */
-export function Inbox({ api }: { api: Api }) {
+export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
   const [entries, setEntries] = useState<readonly InboxEntry[] | null>(null);
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +65,8 @@ export function Inbox({ api }: { api: Api }) {
   return (
     <>
       <h1>To review</h1>
+      {canAdd ? <Upload api={api} onDone={() => void load()} /> : null}
+      <Accuracy api={api} />
       <p className="muted">
         <kbd>j</kbd> <kbd>k</kbd> to move, <kbd>a</kbd> to accept, <kbd>e</kbd> to edit.
       </p>
@@ -84,6 +88,14 @@ export function Inbox({ api }: { api: Api }) {
                 </span>
                 {s.tags === undefined || s.tags.length === 0 ? null : (
                   <span className="muted">{s.tags.join(', ')}</span>
+                )}
+                {entry.looksLike === undefined ? null : (
+                  <span className="badge waiting wrap">
+                    Looks like a re-scan of{' '}
+                    <a href={href({ page: 'document', sha256: entry.looksLike.sha256 })}>
+                      {entry.looksLike.title ?? `scan ${shortSha(entry.looksLike.sha256)}`}
+                    </a>
+                  </span>
                 )}
               </div>
               <div className="actions">

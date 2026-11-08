@@ -5,8 +5,8 @@ import type { Storage } from '../storage.ts';
 
 export interface ExtractStepOptions {
   readonly extractor: Extractor;
-  readonly dateOrder: DateOrder;
-  readonly defaultCurrency: string;
+  /** How to read numeric dates, and the currency of a bare amount: asked on each run. */
+  readonly locale: () => { readonly dateOrder: DateOrder; readonly defaultCurrency: string };
   /**
    * How long a document with no text yet waits for some before extraction runs on
    * nothing. The phone sends its text seconds after the document, so this only
@@ -70,8 +70,7 @@ export function extractStep(storage: Storage, options: ExtractStepOptions): Step
           tags: tags.map((n) => n.name),
         },
         today: new Date(context.now).toISOString().slice(0, 10),
-        dateOrder: options.dateOrder,
-        defaultCurrency: options.defaultCurrency,
+        ...options.locale(),
       });
       if (!result.ok) return result;
 

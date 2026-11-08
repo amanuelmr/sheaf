@@ -10,7 +10,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "node --experimental-strip-types src/main.ts"
+    "start": "node --experimental-strip-types src/main.ts",
+    "export": "node --experimental-strip-types src/backup-cli.ts export",
+    "import": "node --experimental-strip-types src/backup-cli.ts import"
   },
   "dependencies": {
     "@sheaf/core": "workspace:*",
@@ -18,7 +20,10 @@
     "@sheaf/http": "workspace:*",
     "@sheaf/paperless": "workspace:*",
     "@sheaf/protocol": "workspace:*",
-    "@sheaf/store": "workspace:*"
+    "@sheaf/store": "workspace:*",
+    "@zxing/library": "0.21.3",
+    "jpeg-js": "0.4.4",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
     "@sheaf/sim": "workspace:*"

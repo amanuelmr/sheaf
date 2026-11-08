@@ -9,6 +9,13 @@ import {
   isLabelBody,
   isLabelMergeBody,
   isLabelPatch,
+  documentPatchProblem,
+  isBulkEditBody,
+  filterFromParams,
+  filterToParams,
+  isSavedViewBody,
+  isSavedViewPatch,
+  matchingRuleProblem,
   labelKindOf,
   isPaperlessId,
   isSha256,
@@ -186,5 +193,127 @@ suite('labels', () => {
     expect(isLabelMergeBody({ into: 0 })).toBe(false);
     expect(isLabelMergeBody({ into: '2' })).toBe(false);
     expect(isLabelMergeBody({ into: 2, also: 3 })).toBe(false);
+  });
+});
+
+suite('matching rules', () => {
+  const rule = (algorithm: string, pattern: string) => ({
+    algorithm,
+    pattern,
+    caseSensitive: false,
+  });
+
+  it('accepts each algorithm with a pattern, and none without', () => {
+    for (const algorithm of ['any', 'all', 'exact', 'regex', 'fuzzy']) {
+      expect(matchingRuleProblem(rule(algorithm, 'city power'))).toBeNull();
+    }
+    expect(matchingRuleProblem(rule('none', ''))).toBeNull();
+  });
+
+  it('says what is wrong with a rule it cannot use', () => {
+    expect(matchingRuleProblem(rule('any', '  '))).toMatch(/needs a pattern/);
+    expect(matchingRuleProblem(rule('none', 'x'))).toMatch(/no pattern/);
+    expect(matchingRuleProblem(rule('regex', '(unclosed'))).toMatch(/regular expression/);
+    expect(matchingRuleProblem(rule('auto', 'x'))).toMatch(/algorithm/);
+    expect(matchingRuleProblem({ ...rule('any', 'x'), extra: 1 })).toMatch(/only/);
+  });
+
+  it('lets a label body carry a rule and the inbox flag', () => {
+    expect(isLabelBody({ name: 'Inbox', inbox: true, matching: rule('any', 'a b') })).toBe(true);
+    expect(isLabelBody({ name: 'Inbox', matching: rule('regex', '[') })).toBe(false);
+    expect(isLabelPatch({ inbox: 'yes' })).toBe(false);
+  });
+});
+
+suite('document filters', () => {
+  const full = {
+    text: 'gas bill',
+    correspondents: ['City Power', 'Water Co'],
+    documentTypes: ['Invoice'],
+    tags: ['bills'],
+    anyTags: ['home', 'office'],
+    notTags: ['paid'],
+    receivedFrom: '2026-01-01',
+    receivedTo: '2026-03-31',
+    createdFrom: '2025-12-01',
+    createdTo: '2026-01-31',
+    asn: 42,
+    fields: [3],
+    sort: 'oldest' as const,
+  };
+
+  it('goes to query parameters and comes back the same', () => {
+    const params = filterToParams(full);
+    expect(params.getAll('correspondent')).toEqual(['City Power', 'Water Co']);
+    expect(filterFromParams(params)).toEqual({ ok: true, filter: full });
+    expect(filterFromParams(new URLSearchParams())).toEqual({ ok: true, filter: {} });
+  });
+
+  it('says what is wrong with parameters it cannot use', () => {
+    const bad = (query: string) => {
+      const read = filterFromParams(new URLSearchParams(query));
+      return read.ok ? null : read.problem;
+    };
+    expect(bad('from=2026-02-30')).toMatch(/day/);
+    expect(bad('to=yesterday')).toMatch(/day/);
+    expect(bad('sort=random')).toMatch(/sort/);
+    expect(bad('field=abc')).toMatch(/field/);
+    expect(bad('tag=')).toMatch(/tag/);
+  });
+
+  it('checks a saved view body and patch', () => {
+    expect(isSavedViewBody({ name: 'Unpaid', filter: full, onDashboard: true })).toBe(true);
+    expect(isSavedViewBody({ name: 'Unpaid', filter: { sort: 'random' } })).toBe(false);
+    expect(isSavedViewBody({ name: '', filter: {} })).toBe(false);
+    expect(isSavedViewBody({ name: 'x', filter: { tags: 'bills' } })).toBe(false);
+    expect(isSavedViewPatch({ position: 2 })).toBe(true);
+    expect(isSavedViewPatch({ position: 1.5 })).toBe(false);
+  });
+});
+
+suite('bulk edit bodies', () => {
+  const docs = ['a'.repeat(64)];
+  it('takes documents and one action', () => {
+    for (const action of [
+      { kind: 'setCorrespondent', value: 'City Power' },
+      { kind: 'setDocumentType', value: null },
+      { kind: 'modifyTags', add: ['bills'], remove: ['unread'] },
+      { kind: 'setCustomField', field: 2, value: 'INV-1' },
+      { kind: 'setCustomField', field: 2, value: null },
+      { kind: 'removeCustomField', field: 2 },
+      { kind: 'applyRules' },
+      { kind: 'trash' },
+    ]) {
+      expect(isBulkEditBody({ documents: docs, action }), action.kind).toBe(true);
+    }
+  });
+
+  it('refuses no documents, bad ids, empty tag changes and unknown actions', () => {
+    const tags = { kind: 'modifyTags', add: [], remove: [] };
+    expect(isBulkEditBody({ documents: [], action: { kind: 'trash' } })).toBe(false);
+    expect(isBulkEditBody({ documents: ['nope'], action: { kind: 'trash' } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: tags })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'purge' } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'trash', x: 1 } })).toBe(false);
+    expect(isBulkEditBody({ documents: docs, action: { kind: 'setCustomField', field: 2 } })).toBe(
+      false,
+    );
+  });
+});
+
+suite('document patches', () => {
+  it('takes a created day and an archive serial number, or null for either', () => {
+    expect(documentPatchProblem({ created: '2026-03-01', asn: 17 })).toBeNull();
+    expect(documentPatchProblem({ created: null, asn: null, title: null, tags: [] })).toBeNull();
+    expect(documentPatchProblem({ phoneOnly: true })).toBeNull();
+  });
+
+  it('says what is wrong otherwise', () => {
+    expect(documentPatchProblem({ created: '2026-02-30' })).toMatch(/created/);
+    expect(documentPatchProblem({ asn: 0 })).toMatch(/asn/);
+    expect(documentPatchProblem({ asn: 2 ** 31 })).toMatch(/asn/);
+    expect(documentPatchProblem({ tags: 'bills' })).toMatch(/tags/);
+    expect(documentPatchProblem({ title: 3 })).toMatch(/title/);
+    expect(documentPatchProblem([])).toMatch(/object/);
   });
 });

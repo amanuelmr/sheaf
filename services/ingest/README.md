@@ -28,12 +28,37 @@ iOS will not talk to a plain-HTTP address on a local network without two things 
 `NSLocalNetworkUsageDescription` so the permission prompt can explain itself. A
 missing prompt fails silently, and looks exactly like a server that is down.
 
-| Variable               | Default         |                                                                                                     |
-| ---------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `SHEAF_TOKEN`          | —               | Required. At least 16 characters; the server refuses to start without it.                           |
-| `SHEAF_DATA_DIR`       | `./.sheaf-data` | Documents and the metadata database.                                                                |
-| `PORT`                 | `8787`          |                                                                                                     |
-| `SHEAF_RETENTION_DAYS` | unset           | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever. |
+| Variable                         | Default                                        |                                                                                                                                                                                                                                                                                                      |
+| -------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHEAF_TOKEN`                    | —                                              | Required. At least 16 characters; the server refuses to start without it.                                                                                                                                                                                                                            |
+| `SHEAF_DATA_DIR`                 | `./.sheaf-data`                                | Documents and the metadata database.                                                                                                                                                                                                                                                                 |
+| `PORT`                           | `8787`                                         |                                                                                                                                                                                                                                                                                                      |
+| `SHEAF_RETENTION_DAYS`           | unset                                          | Free a document's bytes this many days after Paperless confirms it. Unset keeps every copy forever.                                                                                                                                                                                                  |
+| `SHEAF_TRASH_DAYS`               | `30`                                           | Days a deleted document waits in the trash before it is deleted for good. At least 1.                                                                                                                                                                                                                |
+| `SHEAF_FILENAME_FORMAT`          | `{{created_year}}/{{correspondent}}/{{title}}` | How exported files are named; see "Export and import".                                                                                                                                                                                                                                               |
+| `SHEAF_CONSUME_DIR`              | unset                                          | A folder to take PDFs in from. Each is stored once it stops growing, then removed; anything else moves to `failed/` inside it.                                                                                                                                                                       |
+| `SHEAF_CONSUME_SUBDIRS_AS_TAGS`  | `false`                                        | `true`: the subfolders a file was dropped in become tags on it.                                                                                                                                                                                                                                      |
+| `SHEAF_CONSUME_DOUBLE_SIDED_DIR` | `double-sided`                                 | A subfolder for one-sided feeders: drop the fronts, then the backs as they come out (last page first), and they are stored as one document in page order. Fronts left more than 30 minutes start over.                                                                                               |
+| `SHEAF_MAIL_HOST`                | unset                                          | An IMAP server to take PDF attachments from, over TLS. Needs `SHEAF_MAIL_USER` and `SHEAF_MAIL_PASSWORD`.                                                                                                                                                                                            |
+| `SHEAF_MAIL_PORT`                | `993`                                          |                                                                                                                                                                                                                                                                                                      |
+| `SHEAF_MAIL_FOLDER`              | `INBOX`                                        | Only unread mail in it is read.                                                                                                                                                                                                                                                                      |
+| `SHEAF_MAIL_AFTER`               | `seen`                                         | `seen` marks mail read once its PDFs are stored; `delete` deletes it. Mail with no PDF is marked read either way.                                                                                                                                                                                    |
+| `SHEAF_MAIL_TAG`                 | unset                                          | A tag for every document that came by mail.                                                                                                                                                                                                                                                          |
+| `SHEAF_MAIL_INTERVAL_MINUTES`    | `5`                                            | How often to look.                                                                                                                                                                                                                                                                                   |
+| `SHEAF_POST_CONSUME_SCRIPT`      | unset                                          | An executable run once for each new document after it is filed, with `DOCUMENT_ID`, `DOCUMENT_FILE`, `DOCUMENT_TITLE`, `DOCUMENT_CORRESPONDENT`, `DOCUMENT_TYPE`, `DOCUMENT_TAGS`, `DOCUMENT_CREATED`, `DOCUMENT_ASN` and `DOCUMENT_RECEIVED` in its environment. Run directly, not through a shell. |
+| `SHEAF_WEBDAV_URL`               | unset                                          | A WebDAV folder (Nextcloud, ownCloud, a NAS) to copy every document into, named by the export file name format plus the start of its hash.                                                                                                                                                           |
+| `SHEAF_WEBDAV_USER`              | unset                                          | The user name for `SHEAF_WEBDAV_URL`.                                                                                                                                                                                                                                                                |
+| `SHEAF_WEBDAV_PASSWORD`          | unset                                          | Its password; an app password where the server offers them.                                                                                                                                                                                                                                          |
+| `SHEAF_COPY_DIR`                 | unset                                          | A folder to copy every document into the same way: a NAS share, a synced folder, a backup disk.                                                                                                                                                                                                      |
+| `SHEAF_ENCRYPTION_KEY`           | unset                                          | A passphrase of at least 16 characters. Document files are then encrypted on disk (AES-256-GCM), and files stored before are encrypted in the background. Keep it safe: without it the files cannot be read. Exports from `backup-cli.ts` are written in the clear.                                  |
+| `SHEAF_SMTP_HOST`                | unset                                          | A mail server for workflows that send email. Needs `SHEAF_SMTP_FROM`; `SHEAF_SMTP_USER` and `SHEAF_SMTP_PASSWORD` when it asks for a login.                                                                                                                                                          |
+| `SHEAF_SMTP_SECURITY`            | `starttls`                                     | `starttls` (port 587 by default) or `tls` (465). Mail is never sent unencrypted.                                                                                                                                                                                                                     |
+| `SHEAF_SMTP_PORT`                | `587` / `465`                                  |                                                                                                                                                                                                                                                                                                      |
+| `SHEAF_SMTP_FROM`                | —                                              | The address mail comes from.                                                                                                                                                                                                                                                                         |
+| `SHEAF_OIDC_ISSUER`              | unset                                          | An OpenID Connect provider (Keycloak, Authentik, Google…) for single sign-on. Needs `SHEAF_OIDC_CLIENT_ID`, `SHEAF_OIDC_CLIENT_SECRET`, `SHEAF_OIDC_REDIRECT_URI` (`<this server>/v1/sso/callback`, registered with the provider) and `SHEAF_WEB_URL`.                                               |
+| `SHEAF_OIDC_DEFAULT_ROLE`        | `viewer`                                       | The role someone new gets on first sign-in; `none` lets in only users an admin linked already.                                                                                                                                                                                                       |
+| `SHEAF_OIDC_USERNAME_CLAIM`      | `preferred_username`                           | Which claim names the user.                                                                                                                                                                                                                                                                          |
+| `SHEAF_OIDC_NAME`                | `single sign-on`                               | What the sign-in button calls the provider.                                                                                                                                                                                                                                                          |
 
 There is no default token on purpose. A server holding someone's documents should
 not come up guessable, so it would rather not come up at all.
@@ -94,6 +119,35 @@ once it lands:
 
 Absent from the response until the probe answers, and diagnostic only --
 correctness never depends on what it finds.
+
+## Export and import
+
+```sh
+pnpm --filter @sheaf/ingest export ~/sheaf-backup   # every document, plus manifest.json
+pnpm --filter @sheaf/ingest import ~/sheaf-backup   # into this server's SHEAF_DATA_DIR
+```
+
+Stop the server first. The export holds every document outside the trash and a
+`manifest.json` with everything else a person put in:
+
+- titles, correspondents, types, tags, dates and serial numbers;
+- recognised text and notes;
+- custom fields and their values;
+- labels with their colours, rules and inbox flag;
+- saved views.
+
+Ids are left out. Custom fields match by name and documents by hash, so an export
+imports into a server that already holds other things. Import checks every file
+against its hash and reports anything it could not bring in. Running it twice
+changes nothing.
+
+Files are named by `SHEAF_FILENAME_FORMAT`. These placeholders are available:
+`{{title}}`, `{{correspondent}}`, `{{document_type}}`, `{{tag_list}}`, `{{created}}`,
+`{{created_year}}`, `{{created_month}}`, `{{created_day}}`, `{{added}}`,
+`{{added_year}}`, `{{asn}}` and `{{sha256}}`.
+
+Each value is made safe for a file name, and only the format's own `/` makes
+folders. Names that collide get ` (2)`, ` (3)` and so on.
 
 ## Browsing the archive
 

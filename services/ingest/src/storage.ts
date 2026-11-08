@@ -1,14 +1,21 @@
 import { createHash } from 'node:crypto';
 import {
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
   existsSync,
   unlinkSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+  AccessLevel,
+  AccuracyResponse,
+  DocumentFilter,
+  DocumentPermissions,
   DocumentPatch,
   DocumentRecord,
   HistoryEvent,
@@ -22,6 +29,10 @@ import type {
 import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
+import { decrypt, encrypt, isEncrypted } from './encryption.ts';
+import { NearDuplicates } from './near-duplicates.ts';
+import { accuracy } from './accuracy.ts';
+import { describe as describeChange } from './audit.ts';
 
 /**
  * Content-addressed storage, the same idea the client uses on the phone: bytes live
@@ -31,6 +42,8 @@ import { migrate } from './migrations.ts';
 export interface StorageOptions {
   readonly driver: SqlDriver;
   readonly objectsDir: string;
+  /** With a key, files are written encrypted. See `encryption.ts`. */
+  readonly key?: Buffer;
 }
 
 export type NameKind = 'correspondent' | 'document_type' | 'tag';
@@ -63,6 +76,8 @@ export interface ArchiveRow {
   readonly documentType: string | null;
   readonly tags: readonly string[];
   readonly receivedAt: number;
+  /** The date on the document, when a person set one. */
+  readonly created: string | null;
   /** The start of its text, or the part around a search match. */
   readonly excerpt: string | null;
 }
@@ -155,7 +170,7 @@ export const PRIMARY_CONNECTOR = 'paperless';
  */
 const WITH_DELIVERY = `
   SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
-         d.document_type, d.tags, d.bytes_released, d.suggestions_state,
+         d.document_type, d.tags, d.created, d.asn, d.owner_id, d.bytes_released, d.suggestions_state,
          d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json, d.trashed_at,
          COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
          v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
@@ -185,6 +200,47 @@ interface Row {
   correspondent: string | null;
   document_type: string | null;
   tags: string;
+  created: string | null;
+  asn: number | null;
+  owner_id: number | null;
+}
+
+/**
+ * The SQL that keeps a non-admin user to the documents they may see: shared with
+ * everyone, theirs, or shared with them. `viewer` null: no limit.
+ */
+export function visibleTo(viewer: number | null, alias = 'd'): { sql: string; params: number[] } {
+  if (viewer === null) return { sql: '1 = 1', params: [] };
+  return {
+    sql: `(${alias}.owner_id IS NULL OR ${alias}.owner_id = ?
+           OR EXISTS (SELECT 1 FROM document_grants g WHERE g.sha256 = ${alias}.sha256 AND g.user_id = ?))`,
+    params: [viewer, viewer],
+  };
+}
+
+/** What became of a request to give a document a new file. */
+export type ReplaceOutcome =
+  | { readonly kind: 'replaced'; readonly sha256: string }
+  | { readonly kind: 'unchanged'; readonly sha256: string }
+  | { readonly kind: 'exists'; readonly sha256: string }
+  | { readonly kind: 'not_found' };
+
+/** An earlier file of a document. */
+export interface DocumentVersion {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly pageCount: number | null;
+  /** When the document moved on from it. */
+  readonly replacedAt: number;
+}
+
+/** Another document already has the archive serial number a patch asked for. */
+export class AsnTaken extends Error {
+  readonly asn: number;
+  constructor(asn: number) {
+    super(`archive serial number ${String(asn)} belongs to another document`);
+    this.asn = asn;
+  }
 }
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -197,12 +253,14 @@ export class Storage {
   // emits code. Anything not erasable fails at startup rather than at build time.
   readonly #driver: SqlDriver;
   readonly #objectsDir: string;
+  readonly #key: Buffer | undefined;
   /** The last operation queued on each document's file; see `#exclusive`. */
   readonly #fileLocks = new Map<string, Promise<unknown>>();
 
-  private constructor(driver: SqlDriver, objectsDir: string) {
+  private constructor(driver: SqlDriver, objectsDir: string, key: Buffer | undefined) {
     this.#driver = driver;
     this.#objectsDir = objectsDir;
+    this.#key = key;
   }
 
   static async open(options: StorageOptions): Promise<Storage> {
@@ -230,7 +288,7 @@ export class Storage {
     await migrate(options.driver, Date.now());
 
     mkdirSync(options.objectsDir, { recursive: true });
-    const storage = new Storage(options.driver, options.objectsDir);
+    const storage = new Storage(options.driver, options.objectsDir, options.key);
     // Documents stored before the index existed, or while a reindex was cut short,
     // become searchable here rather than whenever they next happen to change.
     await storage.reindexMissing();
@@ -252,8 +310,12 @@ export class Storage {
     pageCount: number | null,
     /** The paired phone that sent it, or null for the admin token. */
     deviceId: string | null = null,
+    /** The user it belongs to, when a person uploaded it; null shares it with everyone. */
+    ownerId: number | null = null,
   ): Promise<PutOutcome> {
-    return this.#exclusive(sha256, () => this.#put(sha256, bytes, now, pageCount, deviceId));
+    return this.#exclusive(sha256, () =>
+      this.#put(sha256, bytes, now, pageCount, deviceId, ownerId),
+    );
   }
 
   async #put(
@@ -262,6 +324,7 @@ export class Storage {
     now: number,
     pageCount: number | null,
     deviceId: string | null,
+    ownerId: number | null,
   ): Promise<PutOutcome> {
     if (await this.has(sha256)) {
       // Sending a document again is asking to keep it. One in the trash comes back
@@ -270,18 +333,14 @@ export class Storage {
       return 'already-stored';
     }
 
-    const target = this.pathFor(sha256);
-    mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
-    const temp = `${target}.${process.pid}.tmp`;
-    writeFileSync(temp, bytes);
-    renameSync(temp, target);
+    this.#writeObject(sha256, bytes);
 
     await this.#driver.transaction(async () => {
       await this.#driver.run(
-        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id)
-         VALUES (?, ?, ?, ?, '[]', ?)
+        `INSERT INTO documents (sha256, bytes, page_count, received_at, tags, device_id, owner_id)
+         VALUES (?, ?, ?, ?, '[]', ?, ?)
          ON CONFLICT(sha256) DO NOTHING`,
-        [sha256, bytes.length, pageCount, now, deviceId],
+        [sha256, bytes.length, pageCount, now, deviceId, ownerId],
       );
       await this.#driver.run('INSERT OR IGNORE INTO archive_ids (sha256) VALUES (?)', [sha256]);
       await this.reindex(sha256);
@@ -316,15 +375,72 @@ export class Storage {
   }
 
   bytes(sha256: string): Uint8Array | null {
-    const path = this.pathFor(sha256);
-    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+    return this.#readObject(sha256);
   }
 
-  async list(limit = 200): Promise<readonly DocumentRecord[]> {
+  /** A file as stored, decrypted when it was written encrypted. */
+  #readObject(sha256: string): Uint8Array | null {
+    const path = this.pathFor(sha256);
+    if (!existsSync(path)) return null;
+    const file = new Uint8Array(readFileSync(path));
+    if (!isEncrypted(file)) return file;
+    if (this.#key === undefined) {
+      throw new Error(`${sha256} is encrypted and SHEAF_ENCRYPTION_KEY is not set`);
+    }
+    return decrypt(this.#key, file);
+  }
+
+  /**
+   * Encrypts every file still stored in the clear, one at a time. For a server that
+   * turned encryption on with documents already stored. Returns how many it did.
+   */
+  async encryptStored(): Promise<number> {
+    if (this.#key === undefined) return 0;
+    let done = 0;
+    const rows = await this.#driver.all<{ sha256: string }>(
+      `SELECT sha256 FROM documents
+       UNION SELECT version_sha256 FROM document_versions`,
+    );
+    for (const { sha256 } of rows) {
+      const path = this.pathFor(sha256);
+      if (!existsSync(path)) continue;
+      const file = new Uint8Array(readFileSync(path));
+      if (isEncrypted(file)) continue;
+      await this.#exclusive(sha256, () => {
+        this.#writeObject(sha256, file);
+        return Promise.resolve();
+      });
+      done++;
+    }
+    return done;
+  }
+
+  /**
+   * Runs `use` with a path to the document's file in the clear: the stored file
+   * itself, or a copy decrypted for the purpose and removed afterwards.
+   */
+  async withPlainFile<T>(sha256: string, use: (path: string) => Promise<T>): Promise<T | null> {
+    const path = this.pathFor(sha256);
+    if (!existsSync(path)) return null;
+    if (this.#key === undefined) return use(path);
+    const bytes = this.#readObject(sha256);
+    if (bytes === null) return null;
+    const dir = mkdtempSync(join(tmpdir(), 'sheaf-plain-'));
+    const plain = join(dir, `${sha256}.pdf`);
+    writeFileSync(plain, bytes, { mode: 0o600 });
+    try {
+      return await use(plain);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  async list(limit = 200, viewer: number | null = null): Promise<readonly DocumentRecord[]> {
+    const visible = visibleTo(viewer);
     const rows = await this.#driver.all<Row>(
-      `${WITH_DELIVERY} WHERE d.trashed_at IS NULL
+      `${WITH_DELIVERY} WHERE d.trashed_at IS NULL AND ${visible.sql}
         ORDER BY d.received_at DESC, d.sha256 ASC LIMIT ?`,
-      [PRIMARY_CONNECTOR, limit],
+      [PRIMARY_CONNECTOR, ...visible.params, limit],
     );
     return rows.map(toRecord);
   }
@@ -369,6 +485,7 @@ export class Storage {
         [sha256, body.source, body.engine, body.text, now],
       );
       await this.reindex(sha256);
+      await new NearDuplicates(this.#driver).update(sha256);
     });
     return 'stored';
   }
@@ -409,15 +526,38 @@ export class Storage {
     assign('title', patch.title);
     assign('correspondent', patch.correspondent);
     assign('document_type', patch.documentType);
+    assign('created', patch.created);
+    if (patch.asn !== undefined) {
+      sets.push('asn = ?');
+      values.push(patch.asn);
+    }
     if (patch.tags !== undefined) {
       sets.push('tags = ?');
-      values.push(JSON.stringify(patch.tags));
+      values.push(JSON.stringify(await this.withAncestors(patch.tags)));
+    }
+    if (patch.asn !== undefined && patch.asn !== null) {
+      const holder = await this.#driver.all<{ sha256: string }>(
+        'SELECT sha256 FROM documents WHERE asn = ? AND sha256 <> ?',
+        [patch.asn, sha256],
+      );
+      if (holder.length > 0) throw new AsnTaken(patch.asn);
     }
 
     if (sets.length > 0) {
       values.push(sha256);
       await this.#driver.transaction(async () => {
-        await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, values);
+        try {
+          await this.#driver.run(
+            `UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`,
+            values,
+          );
+        } catch (error) {
+          // Another request took the number between the check and the update.
+          if (patch.asn != null && error instanceof Error && /UNIQUE/.test(error.message)) {
+            throw new AsnTaken(patch.asn);
+          }
+          throw error;
+        }
         if (typeof patch.correspondent === 'string') {
           await this.#addName('correspondent', patch.correspondent);
         }
@@ -536,6 +676,10 @@ export class Storage {
       ['correspondent', patch.correspondent],
       ['documentType', patch.documentType],
       ['tags', patch.tags],
+      // The date extraction reads is the date on the document: a person setting it
+      // keeps a later run from replacing it.
+      ['date', patch.created],
+      ['asn', patch.asn],
     ];
     for (const [name, value] of chosen) {
       if (value === undefined) continue;
@@ -550,27 +694,54 @@ export class Storage {
     }
   }
 
+  /** How often each field's suggestion was right, by what people kept. See `accuracy`. */
+  async accuracy(): Promise<AccuracyResponse> {
+    return accuracy(this.#driver);
+  }
+
   /** Documents with suggestions that no person has acted on, newest first. */
-  async inbox(limit = 100): Promise<readonly InboxEntry[]> {
+  async inbox(limit = 100, viewer: number | null = null): Promise<readonly InboxEntry[]> {
+    const visible = visibleTo(viewer);
+    const twinVisible = visibleTo(viewer, 't');
     const rows = await this.#driver.all<{
       sha256: string;
       received_at: number;
       title: string | null;
       suggestions_json: string;
+      twin: string | null;
+      twin_title: string | null;
+      twin_received_at: number | null;
+      twin_similarity: number | null;
     }>(
-      `SELECT sha256, received_at, title, suggestions_json FROM documents d
-        WHERE suggestions_json IS NOT NULL AND suggestions_json <> '{}'
-          AND d.trashed_at IS NULL
+      `SELECT d.sha256, d.received_at, d.title, d.suggestions_json,
+              t.sha256 AS twin, t.title AS twin_title, t.received_at AS twin_received_at,
+              s.twin_similarity
+         FROM documents d
+         LEFT JOIN text_signatures s ON s.sha256 = d.sha256
+         LEFT JOIN documents t
+           ON t.sha256 = s.twin AND t.trashed_at IS NULL AND ${twinVisible.sql}
+        WHERE d.suggestions_json IS NOT NULL AND d.suggestions_json <> '{}'
+          AND d.trashed_at IS NULL AND ${visible.sql}
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.sha256 = d.sha256 AND f.source = 'user')
-        ORDER BY received_at DESC, sha256
+        ORDER BY d.received_at DESC, d.sha256
         LIMIT ?`,
-      [limit],
+      [...twinVisible.params, ...visible.params, limit],
     );
     return rows.map((row) => ({
       sha256: row.sha256,
       receivedAt: row.received_at,
       title: row.title,
       suggestions: JSON.parse(row.suggestions_json) as Suggestions,
+      ...(row.twin === null
+        ? {}
+        : {
+            looksLike: {
+              sha256: row.twin,
+              title: row.twin_title,
+              receivedAt: row.twin_received_at!,
+              similarity: row.twin_similarity!,
+            },
+          }),
     }));
   }
 
@@ -629,6 +800,27 @@ export class Storage {
         text: note.author === null ? 'Note added' : `Note added from ${note.author}`,
       });
     }
+    // Who made each change, from the audit log: a named person or phone, when known.
+    const changes = await this.#driver.all<{
+      at: number;
+      actor_kind: string;
+      actor_name: string | null;
+      device_name: string | null;
+      method: string;
+      path: string;
+    }>(
+      `SELECT a.at, a.actor_kind, a.actor_name, d.name AS device_name, a.method, a.path
+         FROM audit_log a LEFT JOIN devices d ON a.actor_kind = 'device' AND d.id = a.actor_id
+        WHERE a.sha256 = ? AND a.actor_kind <> 'admin'`,
+      [sha256],
+    );
+    for (const change of changes) {
+      const who = change.actor_name ?? change.device_name ?? 'a phone';
+      events.push({
+        at: change.at,
+        text: `${describeChange(change.method, change.path)} (${who})`,
+      });
+    }
     return events.sort((a, b) => a.at - b.at);
   }
 
@@ -670,7 +862,7 @@ export class Storage {
   }
 
   /** What is in the trash, most recently trashed first. */
-  async trashed(): Promise<
+  async trashed(viewer: number | null = null): Promise<
     readonly {
       sha256: string;
       title: string | null;
@@ -688,8 +880,9 @@ export class Storage {
     }>(
       `SELECT sha256, title, json_extract(suggestions_json, '$.title') AS suggested_title,
               received_at, trashed_at
-         FROM documents WHERE trashed_at IS NOT NULL
+         FROM documents d WHERE trashed_at IS NOT NULL AND ${visibleTo(viewer).sql}
         ORDER BY trashed_at DESC, sha256`,
+      visibleTo(viewer).params,
     );
     return rows.map((row) => ({
       sha256: row.sha256,
@@ -723,6 +916,7 @@ export class Storage {
   }
 
   async #purge(sha256: string): Promise<boolean> {
+    const versionFiles: string[] = [];
     const deleted = await this.#driver.transaction(async () => {
       const trashed = await this.#driver.all<{ n: number }>(
         'SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND trashed_at IS NOT NULL',
@@ -738,10 +932,15 @@ export class Storage {
         'extractions',
         'jobs',
         'deliveries',
+        'share_links',
+        'document_grants',
+        'workflow_runs',
+        'text_signatures',
         'documents',
       ]) {
         await this.#driver.run(`DELETE FROM ${table} WHERE sha256 = ?`, [sha256]);
       }
+      await this.#driver.run('UPDATE text_signatures SET twin = NULL WHERE twin = ?', [sha256]);
       // Links to it from other documents go too. Left in place they would come back
       // to life, one-sided, if the same file were ever uploaded again.
       await this.#driver.run(
@@ -754,19 +953,157 @@ export class Storage {
                          WHERE j.value = ?)`,
         [sha256, sha256],
       );
+      for (const version of await this.versions(sha256)) versionFiles.push(version.sha256);
+      await this.#driver.run('DELETE FROM document_versions WHERE document_sha256 = ?', [sha256]);
       return true;
     });
     // After the rows: a crash between the two leaves an orphaned file, which costs
     // disk space, never a row that points at a missing file. An upload of the same
     // document cannot slip in between: `put` waits on the same lock.
     if (deleted) {
-      try {
-        unlinkSync(this.pathFor(sha256));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // Its earlier files go too, unless one has since become a document of its own.
+      const keep = await Promise.all(versionFiles.map((version) => this.has(version)));
+      for (const path of [sha256, ...versionFiles.filter((_, i) => !keep[i])].map((s) =>
+        this.pathFor(s),
+      )) {
+        try {
+          unlinkSync(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
       }
     }
     return deleted;
+  }
+
+  /**
+   * Give a document a new file, keeping the one it had as an earlier version.
+   *
+   * Documents are named by their bytes, so the document moves to the new file's
+   * hash: its details, text, notes, fields, history, share links and archive id all
+   * go with it, and links from other documents follow. It is sent on again, being a
+   * different file. Answers the new hash, or why not.
+   */
+  async replaceFile(
+    sha256: string,
+    bytes: Uint8Array,
+    pageCount: number | null,
+    now: number,
+  ): Promise<ReplaceOutcome> {
+    return this.#exclusive(sha256, async () => {
+      const record = await this.record(sha256);
+      if (record === null || record.trashedAt !== undefined) return { kind: 'not_found' };
+      const next = sha256Hex(bytes);
+      if (next === sha256) return { kind: 'unchanged', sha256 };
+      if (await this.has(next)) return { kind: 'exists', sha256: next };
+      this.#writeObject(next, bytes);
+      await this.#driver.transaction(async () => {
+        await this.#driver.run(
+          `INSERT OR REPLACE INTO document_versions
+             (document_sha256, version_sha256, bytes, page_count, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [next, sha256, record.bytes, record.pageCount, now],
+        );
+        await this.#rekey(sha256, next, bytes.length, pageCount);
+      });
+      return { kind: 'replaced', sha256: next };
+    });
+  }
+
+  /** A document's earlier files, newest first. */
+  async versions(sha256: string): Promise<readonly DocumentVersion[]> {
+    const rows = await this.#driver.all<{
+      version_sha256: string;
+      bytes: number;
+      page_count: number | null;
+      created_at: number;
+    }>(
+      `SELECT version_sha256, bytes, page_count, created_at FROM document_versions
+        WHERE document_sha256 = ? ORDER BY created_at DESC, rowid DESC`,
+      [sha256],
+    );
+    return rows.map((row) => ({
+      sha256: row.version_sha256,
+      bytes: row.bytes,
+      pageCount: row.page_count,
+      replacedAt: row.created_at,
+    }));
+  }
+
+  /** The bytes of one earlier version of a document, or null when it has no such version. */
+  async versionBytes(sha256: string, version: string): Promise<Uint8Array | null> {
+    if (!(await this.versions(sha256)).some((v) => v.sha256 === version)) return null;
+    return this.#readObject(version);
+  }
+
+  /** Make an earlier version the document's file again; the current one becomes a version. */
+  async restoreVersion(sha256: string, version: string, now: number): Promise<ReplaceOutcome> {
+    const bytes = await this.versionBytes(sha256, version);
+    if (bytes === null) return { kind: 'not_found' };
+    const outcome = await this.replaceFile(
+      sha256,
+      bytes,
+      (await this.versions(sha256)).find((v) => v.sha256 === version)?.pageCount ?? null,
+      now,
+    );
+    if (outcome.kind === 'replaced') {
+      // It is the document again, not one of its earlier files.
+      await this.#driver.run(
+        'DELETE FROM document_versions WHERE document_sha256 = ? AND version_sha256 = ?',
+        [version, version],
+      );
+    }
+    return outcome;
+  }
+
+  /** Every row about `from` becomes about `to`, the new file's size and pages included. */
+  async #rekey(from: string, to: string, bytes: number, pageCount: number | null): Promise<void> {
+    for (const table of [
+      'documents',
+      'document_text',
+      'notes',
+      'custom_field_values',
+      'fields',
+      'extractions',
+      'jobs',
+      'share_links',
+      'archive_ids',
+      'audit_log',
+      'document_grants',
+      'workflow_runs',
+      'text_signatures',
+    ]) {
+      await this.#driver.run(`UPDATE ${table} SET sha256 = ? WHERE sha256 = ?`, [to, from]);
+    }
+    await this.#driver.run('UPDATE text_signatures SET twin = ? WHERE twin = ?', [to, from]);
+    await this.#driver.run(
+      'UPDATE document_versions SET document_sha256 = ? WHERE document_sha256 = ?',
+      [to, from],
+    );
+    await this.#driver.run(
+      'UPDATE documents SET bytes = ?, page_count = ?, bytes_released = 0 WHERE sha256 = ?',
+      [bytes, pageCount, to],
+    );
+    // A different file: whatever was sent on before was the old one.
+    await this.#driver.run('DELETE FROM deliveries WHERE sha256 = ?', [from]);
+    await this.#driver.run(
+      `UPDATE custom_field_values
+          SET value_json = (SELECT json_group_array(CASE WHEN j.value = ? THEN ? ELSE j.value END)
+                              FROM json_each(custom_field_values.value_json) j)
+        WHERE field_id IN (SELECT id FROM custom_fields WHERE data_type = 'documentLink')
+          AND EXISTS (SELECT 1 FROM json_each(custom_field_values.value_json) j WHERE j.value = ?)`,
+      [from, to, from],
+    );
+    await this.#driver.run('DELETE FROM documents_fts WHERE sha256 = ?', [from]);
+    await this.reindex(to);
+  }
+
+  #writeObject(sha256: string, bytes: Uint8Array): void {
+    const target = this.pathFor(sha256);
+    mkdirSync(join(this.#objectsDir, sha256.slice(0, 2)), { recursive: true });
+    const temp = `${target}.${process.pid}.tmp`;
+    writeFileSync(temp, this.#key === undefined ? bytes : encrypt(this.#key, bytes));
+    renameSync(temp, target);
   }
 
   /**
@@ -827,6 +1164,193 @@ export class Storage {
     });
   }
 
+  /**
+   * Change what a document is filed under on the server's own account, as a
+   * workflow does: nothing is recorded as a person's choice. `null` clears.
+   */
+  async fileByMachine(
+    sha256: string,
+    change: {
+      readonly title?: string | null;
+      readonly correspondent?: string | null;
+      readonly documentType?: string | null;
+      readonly tags?: readonly string[];
+      readonly created?: string | null;
+    },
+  ): Promise<void> {
+    const sets: string[] = [];
+    const values: Array<string | null> = [];
+    for (const [column, value] of [
+      ['title', change.title],
+      ['created', change.created],
+      ['correspondent', change.correspondent],
+      ['document_type', change.documentType],
+    ] as const) {
+      if (value === undefined) continue;
+      sets.push(`${column} = ?`);
+      values.push(value);
+    }
+    if (change.tags !== undefined) {
+      sets.push('tags = ?');
+      values.push(JSON.stringify(await this.withAncestors(change.tags)));
+    }
+    if (sets.length === 0) return;
+    await this.#driver.transaction(async () => {
+      await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, [
+        ...values,
+        sha256,
+      ]);
+      if (typeof change.correspondent === 'string') {
+        await this.#addName('correspondent', change.correspondent);
+      }
+      if (typeof change.documentType === 'string') {
+        await this.#addName('document_type', change.documentType);
+      }
+      for (const tag of change.tags ?? []) await this.#addName('tag', tag);
+      await this.reindex(sha256);
+    });
+  }
+
+  /**
+   * Add tags without recording them as a person's choice, the way a consume
+   * folder's subfolders do: rules may still add more. Answers the tags now there.
+   */
+  async addTags(sha256: string, tags: readonly string[]): Promise<readonly string[] | null> {
+    const record = await this.record(sha256);
+    if (record === null) return null;
+    const next = await this.withAncestors([...record.tags, ...tags]);
+    if (next.length === record.tags.length) return record.tags;
+    await this.#driver.transaction(async () => {
+      await this.#driver.run('UPDATE documents SET tags = ? WHERE sha256 = ?', [
+        JSON.stringify(next),
+        sha256,
+      ]);
+      for (const tag of tags) await this.#addName('tag', tag);
+      await this.reindex(sha256);
+    });
+    return next;
+  }
+
+  /**
+   * Give a document a serial number read off it, if it has none and no other
+   * document has that number. True when it took.
+   */
+  async setAsnIfFree(sha256: string, asn: number): Promise<boolean> {
+    const changed = await this.#driver.all<{ n: number }>(
+      `UPDATE documents SET asn = ?
+        WHERE sha256 = ? AND asn IS NULL
+          AND NOT EXISTS (SELECT 1 FROM documents WHERE asn = ?)
+       RETURNING 1 AS n`,
+      [asn, sha256, asn],
+    );
+    return changed.length > 0;
+  }
+
+  /**
+   * The tags, each followed by the tags it sits inside that are not there yet: a
+   * document filed under a tag is filed under its parents too. Unknown tags are
+   * kept as they are.
+   */
+  async withAncestors(tags: readonly string[]): Promise<string[]> {
+    const unique = [...new Set(tags)];
+    if (unique.length === 0) return unique;
+    const rows = await this.#driver.all<{ child: string; ancestor: string; depth: number }>(
+      `WITH RECURSIVE up(child, id, depth) AS (
+         SELECT name, parent_id, 1 FROM names
+          WHERE kind = 'tag' AND parent_id IS NOT NULL AND name IN (${unique.map(() => '?').join(', ')})
+         UNION ALL
+         SELECT up.child, n.parent_id, up.depth + 1 FROM up JOIN names n ON n.id = up.id
+          WHERE n.parent_id IS NOT NULL AND up.depth < 10
+       )
+       SELECT up.child, n.name AS ancestor, up.depth FROM up JOIN names n ON n.id = up.id
+        ORDER BY up.depth`,
+      unique,
+    );
+    const out: string[] = [];
+    for (const tag of unique) {
+      out.push(tag);
+      for (const row of rows) if (row.child === tag) out.push(row.ancestor);
+    }
+    return [...new Set(out)];
+  }
+
+  /** Put a tag's parents on every document that has it, after the tag was given a parent. */
+  async fillInAncestors(tag: string): Promise<void> {
+    const rows = await this.#driver.all<{ sha256: string; tags: string }>(
+      `SELECT sha256, tags FROM documents d WHERE EXISTS (SELECT 1 FROM json_each(d.tags) WHERE value = ?)`,
+      [tag],
+    );
+    for (const row of rows) {
+      const tags = JSON.parse(row.tags) as string[];
+      const next = await this.withAncestors(tags);
+      if (next.length === tags.length) continue;
+      await this.#driver.run('UPDATE documents SET tags = ? WHERE sha256 = ?', [
+        JSON.stringify(next),
+        row.sha256,
+      ]);
+      await this.reindex(row.sha256);
+    }
+  }
+
+  /**
+   * What a user may do with a document: change it (shared with everyone, theirs, or
+   * shared with them to change), only see it, or neither. Null for no such document.
+   */
+  async access(sha256: string, user: number): Promise<'change' | 'view' | 'none' | null> {
+    const rows = await this.#driver.all<{ owner_id: number | null; level: string | null }>(
+      `SELECT d.owner_id, g.level FROM documents d
+         LEFT JOIN document_grants g ON g.sha256 = d.sha256 AND g.user_id = ?
+        WHERE d.sha256 = ?`,
+      [user, sha256],
+    );
+    const row = rows[0];
+    if (row === undefined) return null;
+    if (row.owner_id === null || row.owner_id === user) return 'change';
+    return row.level === 'change' ? 'change' : row.level === 'view' ? 'view' : 'none';
+  }
+
+  async permissions(sha256: string): Promise<DocumentPermissions | null> {
+    const owner = await this.#driver.all<{ owner_id: number | null }>(
+      'SELECT owner_id FROM documents WHERE sha256 = ?',
+      [sha256],
+    );
+    if (owner[0] === undefined) return null;
+    const grants = await this.#driver.all<{ user_id: number; level: AccessLevel }>(
+      'SELECT user_id, level FROM document_grants WHERE sha256 = ? ORDER BY user_id',
+      [sha256],
+    );
+    return {
+      owner: owner[0].owner_id,
+      grants: grants.map((grant) => ({ user: grant.user_id, level: grant.level })),
+    };
+  }
+
+  /** Replace who owns a document and whom it is shared with. */
+  async setPermissions(sha256: string, permissions: DocumentPermissions): Promise<void> {
+    await this.#driver.transaction(async () => {
+      await this.#driver.run('UPDATE documents SET owner_id = ? WHERE sha256 = ?', [
+        permissions.owner,
+        sha256,
+      ]);
+      await this.#driver.run('DELETE FROM document_grants WHERE sha256 = ?', [sha256]);
+      for (const grant of permissions.grants) {
+        if (grant.user === permissions.owner) continue;
+        await this.#driver.run(
+          'INSERT INTO document_grants (sha256, user_id, level) VALUES (?, ?, ?)',
+          [sha256, grant.user, grant.level],
+        );
+      }
+    });
+  }
+
+  /** One more than the highest archive serial number in use, trash included. */
+  async nextAsn(): Promise<number> {
+    const rows = await this.#driver.all<{ n: number | null }>(
+      'SELECT MAX(asn) AS n FROM documents',
+    );
+    return (rows[0]?.n ?? 0) + 1;
+  }
+
   async #addName(kind: NameKind, name: string): Promise<void> {
     await this.#driver.run('INSERT OR IGNORE INTO names (kind, name) VALUES (?, ?)', [kind, name]);
   }
@@ -858,6 +1382,7 @@ export class Storage {
   async archiveRow(id: number): Promise<ArchiveRow | null> {
     const rows = await this.#driver.all<ArchiveSqlRow>(
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              d.created,
               ${PLAIN_EXCERPT} AS excerpt
          FROM archive_ids a JOIN documents d ON d.sha256 = a.sha256
         WHERE a.id = ? AND d.trashed_at IS NULL`,
@@ -899,6 +1424,7 @@ export class Storage {
 
     const rows = await this.#driver.all<ArchiveSqlRow>(
       `SELECT a.id, d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
+              d.created,
               ${filter.match === null ? PLAIN_EXCERPT : "snippet(documents_fts, -1, '', '', '…', 24)"}
                 AS excerpt
          ${from}
@@ -982,6 +1508,94 @@ export class Storage {
    * Column weights rank the title above names and tags, and those above body text.
    */
   async search(match: string, limit: number, offset: number): Promise<SearchResponse> {
+    return this.find(match, {}, limit, offset);
+  }
+
+  /**
+   * Documents the filter lets through, outside the trash. With `match`, only those
+   * whose text matches it, each with a snippet around the match; without, every one,
+   * with no snippet.
+   */
+  async find(
+    match: string | null,
+    filter: DocumentFilter,
+    limit: number,
+    offset: number,
+    viewer: number | null = null,
+  ): Promise<SearchResponse> {
+    const visible = visibleTo(viewer);
+    const where = ['d.trashed_at IS NULL', visible.sql];
+    const params: Array<string | number> = [...visible.params];
+    const anyOf = (column: string, values: readonly string[] | undefined) => {
+      if (values === undefined || values.length === 0) return;
+      where.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+      params.push(...values);
+    };
+    const tagIn = (values: readonly string[]) =>
+      `EXISTS (SELECT 1 FROM json_each(d.tags) WHERE value IN (${values.map(() => '?').join(', ')}))`;
+
+    if (match !== null) {
+      where.push('documents_fts MATCH ?');
+      params.push(match);
+    }
+    anyOf('d.correspondent', filter.correspondents);
+    anyOf('d.document_type', filter.documentTypes);
+    for (const tag of filter.tags ?? []) {
+      where.push(tagIn([tag]));
+      params.push(tag);
+    }
+    if (filter.anyTags !== undefined && filter.anyTags.length > 0) {
+      where.push(tagIn(filter.anyTags));
+      params.push(...filter.anyTags);
+    }
+    if (filter.notTags !== undefined && filter.notTags.length > 0) {
+      where.push(`NOT ${tagIn(filter.notTags)}`);
+      params.push(...filter.notTags);
+    }
+    if (filter.receivedFrom !== undefined) {
+      where.push('d.received_at >= ?');
+      params.push(Date.parse(`${filter.receivedFrom}T00:00:00Z`));
+    }
+    if (filter.receivedTo !== undefined) {
+      where.push('d.received_at < ?');
+      params.push(Date.parse(`${filter.receivedTo}T00:00:00Z`) + 86_400_000);
+    }
+    if (filter.createdFrom !== undefined) {
+      where.push('d.created >= ?');
+      params.push(filter.createdFrom);
+    }
+    if (filter.createdTo !== undefined) {
+      where.push('d.created <= ?');
+      params.push(filter.createdTo);
+    }
+    if (filter.asn !== undefined) {
+      where.push('d.asn = ?');
+      params.push(filter.asn);
+    }
+    for (const field of filter.fields ?? []) {
+      where.push(
+        'EXISTS (SELECT 1 FROM custom_field_values v WHERE v.sha256 = d.sha256 AND v.field_id = ?)',
+      );
+      params.push(field);
+    }
+
+    const from =
+      match === null ? 'documents d' : 'documents_fts f JOIN documents d ON d.sha256 = f.sha256';
+    const sort = filter.sort ?? (match === null ? 'newest' : 'relevance');
+    const order = {
+      relevance:
+        match === null
+          ? 'd.received_at DESC'
+          : 'bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC',
+      newest: 'd.received_at DESC',
+      oldest: 'd.received_at ASC',
+      created: 'd.created IS NULL, d.created DESC, d.received_at DESC',
+      asn: 'd.asn IS NULL, d.asn ASC',
+      title: `COALESCE(d.title, json_extract(d.suggestions_json, '$.title'), '~') COLLATE NOCASE,
+              d.received_at DESC`,
+    }[sort];
+    const condition = where.join(' AND ');
+
     const rows = await this.#driver.all<{
       sha256: string;
       title: string | null;
@@ -989,19 +1603,35 @@ export class Storage {
       document_type: string | null;
       tags: string;
       received_at: number;
+      created: string | null;
+      asn: number | null;
       snippet: string;
       suggested_title: string | null;
     }>(
       `SELECT d.sha256, d.title, d.correspondent, d.document_type, d.tags, d.received_at,
-              json_extract(d.suggestions_json, '$.title') AS suggested_title,
-              snippet(documents_fts, -1, '«', '»', '…', 12) AS snippet
-         FROM documents_fts f
-         JOIN documents d ON d.sha256 = f.sha256
-        WHERE documents_fts MATCH ?
-        ORDER BY bm25(documents_fts, 0, 10, 5, 5, 3, 1), d.received_at DESC
+              d.created, d.asn, json_extract(d.suggestions_json, '$.title') AS suggested_title,
+              ${match === null ? "''" : "snippet(documents_fts, -1, '«', '»', '…', 12)"} AS snippet
+         FROM ${from}
+        WHERE ${condition}
+        ORDER BY ${order}, d.sha256
         LIMIT ? OFFSET ?`,
-      [match, limit + 1, offset],
+      [...params, limit + 1, offset],
     );
+    // The total costs a second pass over the matches, so it is only counted when the
+    // page does not already show them all, and straight from the index when the
+    // words are all there is to it: trashed documents are never in the index.
+    const onlyWords = match !== null && where.length === 3 && viewer === null;
+    const total =
+      offset === 0 && rows.length <= limit
+        ? rows.length
+        : ((
+            await this.#driver.all<{ n: number }>(
+              onlyWords
+                ? 'SELECT COUNT(*) AS n FROM documents_fts WHERE documents_fts MATCH ?'
+                : `SELECT COUNT(*) AS n FROM ${from} WHERE ${condition}`,
+              onlyWords ? [match] : params,
+            )
+          )[0]?.n ?? 0);
     const hits: SearchHit[] = rows.slice(0, limit).map((row) => ({
       sha256: row.sha256,
       title: row.title,
@@ -1010,9 +1640,11 @@ export class Storage {
       documentType: row.document_type,
       tags: JSON.parse(row.tags) as string[],
       receivedAt: row.received_at,
+      created: row.created,
+      asn: row.asn,
       snippet: row.snippet,
     }));
-    return { hits, hasMore: rows.length > limit };
+    return { hits, hasMore: rows.length > limit, total };
   }
 
   /**
@@ -1228,7 +1860,8 @@ export class Storage {
     }
   }
 
-  private pathFor(sha256: string): string {
+  /** Where a document's file is on disk, whether or not it is there. */
+  pathFor(sha256: string): string {
     // Two-character fan-out keeps any one directory from growing without bound.
     return join(this.#objectsDir, sha256.slice(0, 2), `${sha256}.pdf`);
   }
@@ -1242,6 +1875,7 @@ interface ArchiveSqlRow {
   document_type: string | null;
   tags: string;
   received_at: number;
+  created: string | null;
   excerpt: string | null;
 }
 
@@ -1269,6 +1903,7 @@ function toArchiveRow(row: ArchiveSqlRow): ArchiveRow {
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
     receivedAt: row.received_at,
+    created: row.created,
     excerpt: row.excerpt === '' ? null : row.excerpt,
   };
 }
@@ -1283,6 +1918,9 @@ function toRecord(row: Row): DocumentRecord {
     correspondent: row.correspondent,
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
+    created: row.created,
+    asn: row.asn,
+    owner: row.owner_id,
     forward: {
       state: row.f_state as DocumentRecord['forward']['state'],
       attempts: row.f_attempts,

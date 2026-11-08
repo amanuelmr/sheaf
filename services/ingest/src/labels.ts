@@ -1,4 +1,13 @@
-import type { Label, LabelBody, LabelKind, LabelPatch } from '@sheaf/protocol';
+import {
+  MAX_TAG_DEPTH,
+  NO_MATCHING,
+  type Label,
+  type LabelBody,
+  type LabelKind,
+  type LabelPatch,
+  type MatchingAlgorithm,
+  type MatchingRule,
+} from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import type { NameKind, Storage } from './storage.ts';
 
@@ -35,6 +44,11 @@ interface LabelRow {
   name: string;
   colour: string | null;
   documents: number | null;
+  match_algorithm: MatchingAlgorithm;
+  match_pattern: string;
+  match_case: number;
+  inbox: number;
+  parent_id: number | null;
 }
 
 /**
@@ -72,14 +86,34 @@ export class Labels {
   }
 
   async create(kind: LabelKind, body: LabelBody): Promise<Outcome<Label>> {
-    if (body.colour !== undefined && kind !== 'tag') return onlyTags();
+    if (
+      (body.colour !== undefined || body.inbox !== undefined || body.parent != null) &&
+      kind !== 'tag'
+    ) {
+      return onlyTags();
+    }
     if ((await this.#idOf(kind, body.name)) !== null) return taken(kind, body.name);
+    if (body.parent != null) {
+      const problem = await this.#parentProblem(null, body.parent);
+      if (problem !== null) return { ok: false, kind: 'invalid', message: problem };
+    }
+    const rule = body.matching ?? NO_MATCHING;
     try {
-      await this.#driver.run('INSERT INTO names (kind, name, colour) VALUES (?, ?, ?)', [
-        STORE[kind].name,
-        body.name,
-        body.colour ?? null,
-      ]);
+      await this.#driver.run(
+        `INSERT INTO names (kind, name, colour, match_algorithm, match_pattern, match_case, inbox,
+                            parent_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          STORE[kind].name,
+          body.name,
+          body.colour ?? null,
+          rule.algorithm,
+          rule.pattern,
+          rule.caseSensitive ? 1 : 0,
+          body.inbox === true ? 1 : 0,
+          body.parent ?? null,
+        ],
+      );
     } catch (error) {
       // Another request took the name between the check and the insert.
       if (isUniqueViolation(error)) return taken(kind, body.name);
@@ -89,11 +123,23 @@ export class Labels {
     return { ok: true, value: (await this.get(kind, id!))! };
   }
 
-  /** Rename, recolour or both. A new name is written into every document carrying the old. */
+  /**
+   * Rename, recolour, change its rule, or any of these. A new name is written into
+   * every document carrying the old.
+   */
   async update(kind: LabelKind, id: number, patch: LabelPatch): Promise<Outcome<Label>> {
-    if (patch.colour !== undefined && kind !== 'tag') return onlyTags();
+    if (
+      (patch.colour !== undefined || patch.inbox !== undefined || patch.parent != null) &&
+      kind !== 'tag'
+    ) {
+      return onlyTags();
+    }
     const current = await this.get(kind, id);
     if (current === null) return { ok: false, kind: 'not_found' };
+    if (patch.parent != null) {
+      const problem = await this.#parentProblem(id, patch.parent);
+      if (problem !== null) return { ok: false, kind: 'invalid', message: problem };
+    }
     const name = patch.name;
     if (name !== undefined && name !== current.name) {
       const other = await this.#idOf(kind, name);
@@ -108,12 +154,75 @@ export class Labels {
         if (patch.colour !== undefined) {
           await this.#driver.run('UPDATE names SET colour = ? WHERE id = ?', [patch.colour, id]);
         }
+        if (patch.matching !== undefined) {
+          await this.#driver.run(
+            'UPDATE names SET match_algorithm = ?, match_pattern = ?, match_case = ? WHERE id = ?',
+            [
+              patch.matching.algorithm,
+              patch.matching.pattern,
+              patch.matching.caseSensitive ? 1 : 0,
+              id,
+            ],
+          );
+        }
+        if (patch.parent !== undefined && kind === 'tag') {
+          await this.#driver.run('UPDATE names SET parent_id = ? WHERE id = ?', [patch.parent, id]);
+        }
+        if (patch.inbox !== undefined) {
+          await this.#driver.run('UPDATE names SET inbox = ? WHERE id = ?', [
+            patch.inbox ? 1 : 0,
+            id,
+          ]);
+        }
       });
     } catch (error) {
       if (isUniqueViolation(error)) return taken(kind, name!, 'merge into it instead');
       throw error;
     }
+    if (patch.parent != null) {
+      // Documents already tagged with it are now filed under its parents too.
+      await this.#storage.fillInAncestors((await this.get(kind, id))!.name);
+    }
     return { ok: true, value: (await this.get(kind, id))! };
+  }
+
+  /**
+   * Why a tag cannot sit inside `parent`, or null: the parent must be a tag, not
+   * the tag itself or one inside it, and the whole chain no deeper than five.
+   */
+  async #parentProblem(id: number | null, parent: number): Promise<string | null> {
+    const chain: number[] = [];
+    let at: number | null = parent;
+    while (at !== null) {
+      if (at === id) return 'a tag cannot sit inside itself, or inside a tag within it';
+      const rows: readonly { kind: string; parent_id: number | null }[] = await this.#driver.all(
+        'SELECT kind, parent_id FROM names WHERE id = ?',
+        [at],
+      );
+      const row = rows[0];
+      if (row === undefined || row.kind !== 'tag') return `there is no tag ${String(parent)}`;
+      chain.push(at);
+      if (chain.length > MAX_TAG_DEPTH) break;
+      at = row.parent_id;
+    }
+    const below = id === null ? 0 : await this.#height(id);
+    if (chain.length + 1 + below > MAX_TAG_DEPTH) {
+      return `tags nest at most ${String(MAX_TAG_DEPTH)} deep`;
+    }
+    return null;
+  }
+
+  /** How many levels of tags sit below this one. */
+  async #height(id: number, depth = 0): Promise<number> {
+    if (depth > MAX_TAG_DEPTH) return depth;
+    const children = await this.#driver.all<{ id: number }>(
+      'SELECT id FROM names WHERE parent_id = ?',
+      [id],
+    );
+    let tallest = 0;
+    for (const child of children)
+      tallest = Math.max(tallest, 1 + (await this.#height(child.id, depth + 1)));
+    return tallest;
   }
 
   /** Every document carrying `id` carries `into` instead, and `id` is gone. */
@@ -136,6 +245,8 @@ export class Labels {
     }
     await this.#driver.transaction(async () => {
       await this.#replace(kind, source.name, target.name);
+      // Its children now sit inside the tag it became.
+      await this.#driver.run('UPDATE names SET parent_id = ? WHERE parent_id = ?', [into, id]);
       await this.#driver.run('DELETE FROM names WHERE id = ?', [id]);
     });
     return { ok: true, value: (await this.get(kind, into))! };
@@ -147,6 +258,11 @@ export class Labels {
     if (current === null) return false;
     await this.#driver.transaction(async () => {
       await this.#replace(kind, current.name, null);
+      // Its children move up a level rather than going with it.
+      await this.#driver.run('UPDATE names SET parent_id = ? WHERE parent_id = ?', [
+        current.parent,
+        id,
+      ]);
       await this.#driver.run('DELETE FROM names WHERE id = ?', [id]);
     });
     return true;
@@ -241,7 +357,8 @@ function select(kind: LabelKind): string {
       : `SELECT ${STORE[kind].column} AS name, COUNT(*) AS n FROM documents
           WHERE trashed_at IS NULL AND ${STORE[kind].column} IS NOT NULL
           GROUP BY ${STORE[kind].column}`;
-  return `SELECT n.id, n.name, n.colour, c.n AS documents
+  return `SELECT n.id, n.name, n.colour, n.match_algorithm, n.match_pattern, n.match_case,
+                 n.inbox, n.parent_id, c.n AS documents
             FROM names n LEFT JOIN (${counts}) c ON c.name = n.name
            WHERE n.kind = ?`;
 }
@@ -253,7 +370,19 @@ function toLabel(kind: LabelKind, row: LabelRow): Label {
     name: row.name,
     documents: row.documents ?? 0,
     colour: kind === 'tag' ? row.colour : null,
+    matching: toRule(row),
+    inbox: kind === 'tag' && row.inbox === 1,
+    parent: kind === 'tag' ? row.parent_id : null,
   };
+}
+
+function toRule(row: Pick<LabelRow, 'match_algorithm' | 'match_pattern' | 'match_case'>) {
+  const rule: MatchingRule = {
+    algorithm: row.match_algorithm,
+    pattern: row.match_pattern,
+    caseSensitive: row.match_case === 1,
+  };
+  return rule;
 }
 
 function taken(kind: LabelKind, name: string, advice?: string) {
@@ -266,7 +395,11 @@ function taken(kind: LabelKind, name: string, advice?: string) {
 }
 
 function onlyTags() {
-  return { ok: false, kind: 'invalid', message: 'only tags have a colour' } as const;
+  return {
+    ok: false,
+    kind: 'invalid',
+    message: 'only tags have a colour or mark the inbox',
+  } as const;
 }
 
 function isUniqueViolation(error: unknown): boolean {

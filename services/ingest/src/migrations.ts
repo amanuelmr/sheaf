@@ -281,6 +281,224 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'label_colours',
     statements: ['ALTER TABLE names ADD COLUMN colour TEXT'],
   },
+  {
+    // How each label finds its own documents, and which tags mark a new document as
+    // not yet looked at. Every existing label starts out matching nothing.
+    id: 13,
+    name: 'label_matching',
+    statements: [
+      `ALTER TABLE names ADD COLUMN match_algorithm TEXT NOT NULL DEFAULT 'none'`,
+      `ALTER TABLE names ADD COLUMN match_pattern TEXT NOT NULL DEFAULT ''`,
+      'ALTER TABLE names ADD COLUMN match_case INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE names ADD COLUMN inbox INTEGER NOT NULL DEFAULT 0',
+    ],
+  },
+  {
+    // Rules and the inbox tag are for documents that arrive from now on. Count the
+    // matching step (`steps/match.ts`, version 1) as done for everything already
+    // here, so an inbox tag made while a backlog drains is not put on old documents.
+    // Applying rules to those is a separate, deliberate request.
+    id: 14,
+    name: 'match_existing_done',
+    statements: [
+      `INSERT OR IGNORE INTO jobs (sha256, step, version, state, attempts, created_at)
+       SELECT sha256, 'match', 1, 'done', 0, received_at FROM documents`,
+    ],
+  },
+  {
+    // Filters kept under a name. The filter is the protocol's DocumentFilter as JSON.
+    id: 15,
+    name: 'saved_views',
+    statements: [
+      `CREATE TABLE saved_views (
+         id           INTEGER PRIMARY KEY,
+         name         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+         filter_json  TEXT    NOT NULL,
+         on_dashboard INTEGER NOT NULL DEFAULT 0,
+         position     INTEGER NOT NULL DEFAULT 0,
+         created_at   INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    // The date on the document itself, and the archive serial number that ties it to
+    // its paper original. A serial number belongs to one document at most.
+    id: 16,
+    name: 'created_and_asn',
+    statements: [
+      'ALTER TABLE documents ADD COLUMN created TEXT',
+      'ALTER TABLE documents ADD COLUMN asn INTEGER',
+      'CREATE UNIQUE INDEX documents_by_asn ON documents (asn) WHERE asn IS NOT NULL',
+    ],
+  },
+  {
+    // Links that open one document without a token. The slug is the secret.
+    id: 17,
+    name: 'share_links',
+    statements: [
+      `CREATE TABLE share_links (
+         id         INTEGER PRIMARY KEY,
+         slug       TEXT    NOT NULL UNIQUE,
+         sha256     TEXT    NOT NULL,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER
+       )`,
+      'CREATE INDEX share_links_by_document ON share_links (sha256)',
+    ],
+  },
+  {
+    // Workflows: when, for which documents, and what to do. Conditions and actions
+    // are the protocol's WorkflowConditions and WorkflowActions as JSON.
+    id: 18,
+    name: 'workflows',
+    statements: [
+      `CREATE TABLE workflows (
+         id              INTEGER PRIMARY KEY,
+         name            TEXT    NOT NULL,
+         enabled         INTEGER NOT NULL,
+         trigger_kind    TEXT    NOT NULL,
+         conditions_json TEXT    NOT NULL,
+         actions_json    TEXT    NOT NULL,
+         position        INTEGER NOT NULL,
+         created_at      INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    // People who sign in, and their sessions. Passwords and tokens are kept only as hashes.
+    id: 19,
+    name: 'users',
+    statements: [
+      `CREATE TABLE users (
+         id            INTEGER PRIMARY KEY,
+         username      TEXT    NOT NULL UNIQUE,
+         password_hash TEXT    NOT NULL,
+         role          TEXT    NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+         created_at    INTEGER NOT NULL,
+         disabled_at   INTEGER,
+         last_sign_in  INTEGER
+       )`,
+      `CREATE TABLE sessions (
+         token_hash TEXT    PRIMARY KEY,
+         user_id    INTEGER NOT NULL,
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    // Who changed what, through the API: every change that succeeded.
+    id: 20,
+    name: 'audit_log',
+    statements: [
+      `CREATE TABLE audit_log (
+         id         INTEGER PRIMARY KEY,
+         at         INTEGER NOT NULL,
+         actor_kind TEXT    NOT NULL CHECK (actor_kind IN ('admin', 'user', 'device')),
+         actor_id   TEXT,
+         actor_name TEXT,
+         method     TEXT    NOT NULL,
+         path       TEXT    NOT NULL,
+         sha256     TEXT,
+         status     INTEGER NOT NULL
+       )`,
+      'CREATE INDEX audit_log_by_document ON audit_log (sha256, at)',
+    ],
+  },
+  {
+    // Earlier files of an edited document. The document itself moves to each new
+    // file's hash; the file it had stays on disk under its own, listed here.
+    id: 21,
+    name: 'document_versions',
+    statements: [
+      `CREATE TABLE document_versions (
+         document_sha256 TEXT    NOT NULL,
+         version_sha256  TEXT    NOT NULL,
+         bytes           INTEGER NOT NULL,
+         page_count      INTEGER,
+         created_at      INTEGER NOT NULL,
+         PRIMARY KEY (document_sha256, version_sha256)
+       )`,
+    ],
+  },
+  {
+    // Settings an admin changed from the web app. Those not here come from the
+    // environment, or the built-in default.
+    id: 22,
+    name: 'settings',
+    statements: [
+      `CREATE TABLE settings (
+         key        TEXT    PRIMARY KEY,
+         value_json TEXT    NOT NULL,
+         updated_at INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    // Tags inside tags. A document with a tag has its parents too.
+    id: 23,
+    name: 'nested_tags',
+    statements: ['ALTER TABLE names ADD COLUMN parent_id INTEGER'],
+  },
+  {
+    // Which documents each scheduled workflow has looked at: each one once.
+    id: 24,
+    name: 'workflow_runs',
+    statements: [
+      `CREATE TABLE workflow_runs (
+         workflow_id INTEGER NOT NULL,
+         sha256      TEXT    NOT NULL,
+         at          INTEGER NOT NULL,
+         PRIMARY KEY (workflow_id, sha256)
+       )`,
+    ],
+  },
+  {
+    // Whose a document is, and whom else it is shared with. Every document there is
+    // already stays shared with everyone: owner_id starts out null.
+    id: 25,
+    name: 'document_permissions',
+    statements: [
+      'ALTER TABLE documents ADD COLUMN owner_id INTEGER',
+      `CREATE TABLE document_grants (
+         sha256  TEXT    NOT NULL,
+         user_id INTEGER NOT NULL,
+         level   TEXT    NOT NULL CHECK (level IN ('view', 'change')),
+         PRIMARY KEY (sha256, user_id)
+       )`,
+    ],
+  },
+  {
+    // The identity provider's name for a user who signs in with single sign-on:
+    // issuer and subject, which never change, unlike an email address.
+    id: 26,
+    name: 'sso_subjects',
+    statements: [
+      'ALTER TABLE users ADD COLUMN sso_subject TEXT',
+      'CREATE UNIQUE INDEX users_by_sso_subject ON users (sso_subject) WHERE sso_subject IS NOT NULL',
+    ],
+  },
+  {
+    // A summary of each document's words, to find the same paper scanned twice, and
+    // the earlier document it most looks like when its text arrived.
+    id: 27,
+    name: 'text_signatures',
+    statements: [
+      `CREATE TABLE text_signatures (
+         sha256          TEXT PRIMARY KEY,
+         signature       TEXT NOT NULL,
+         numbers         TEXT NOT NULL DEFAULT '[]',
+         twin            TEXT,
+         twin_similarity REAL
+       )`,
+    ],
+  },
+  {
+    // A custom field every document should have a value for.
+    id: 28,
+    name: 'required_custom_fields',
+    statements: ['ALTER TABLE custom_fields ADD COLUMN required INTEGER NOT NULL DEFAULT 0'],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

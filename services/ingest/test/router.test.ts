@@ -16,6 +16,7 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import { CustomFields } from '../src/custom-fields';
 import { Devices } from '../src/devices';
 import { Labels } from '../src/labels';
+import { Rules } from '../src/rules';
 import { nativeArchiveSource } from '../src/native-archive';
 import type { ArchiveSource } from '../src/paperless-browse';
 import { METRICS_PATH, handle, type IngestRequest } from '../src/router';
@@ -627,7 +628,7 @@ suite('search', () => {
       expect(response.status, q).toBe(200);
     }
     const none = await handle(req('GET', `${paths.search()}?q=%21%21`), deps);
-    expect(none.json).toEqual({ hits: [], hasMore: false });
+    expect(none.json).toEqual({ hits: [], hasMore: false, total: 0 });
   });
 
   it('pages with limit and offset', async () => {
@@ -1306,5 +1307,59 @@ suite('labels', () => {
 
   it('answers 404 when the server has no labels configured', async () => {
     expect((await handle(req('GET', paths.labels('tag')), deps)).status).toBe(404);
+  });
+});
+
+suite('applying label rules', () => {
+  const json = (value: unknown): Uint8Array => new Uint8Array(Buffer.from(JSON.stringify(value)));
+
+  it('files documents already here by the rules, admin only', async () => {
+    const driver = nodeSqliteDriver();
+    const storage = await Storage.open({
+      driver,
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-rules-r-')),
+    });
+    const all = {
+      ...deps,
+      storage,
+      labels: new Labels(driver, storage),
+      rules: new Rules(driver, storage),
+    };
+    await handle(req('PUT', paths.document(hashA), A), all);
+    await storage.putText(hashA, { source: 'edge', engine: 'x', text: 'a gas bill' }, clock);
+    await handle(
+      req(
+        'POST',
+        paths.labels('tag'),
+        json({ name: 'gas', matching: { algorithm: 'any', pattern: 'gas', caseSensitive: false } }),
+      ),
+      all,
+    );
+    const applied = await handle(req('POST', paths.labelsApply(), json({})), all);
+    expect(applied.json).toEqual({ changed: 1 });
+    expect((await storage.record(hashA))?.tags).toEqual(['gas']);
+
+    const bad = json({
+      name: 'x',
+      matching: { algorithm: 'regex', pattern: '(', caseSensitive: false },
+    });
+    const refused = await handle(req('POST', paths.labels('tag'), bad), all);
+    expect(refused.status).toBe(400);
+    expect((refused.json as { detail: string }).detail).toMatch(/regular expression/);
+    expect((await handle(req('POST', paths.labelsApply(), json({})), deps)).status).toBe(404);
+  });
+});
+
+suite('search filters', () => {
+  it('lists documents by filter alone, and refuses parameters it cannot read', async () => {
+    await handle(req('PUT', paths.document(hashA), A), deps);
+    await handle(
+      req('PATCH', paths.document(hashA), new Uint8Array(Buffer.from('{"tags":["x"]}'))),
+      deps,
+    );
+    const listed = await handle(req('GET', `${paths.search()}?tag=x`), deps);
+    expect(listed.json).toMatchObject({ total: 1, hits: [{ sha256: hashA, tags: ['x'] }] });
+    const bad = await handle(req('GET', `${paths.search()}?from=2026-13-01`), deps);
+    expect(bad.status).toBe(400);
   });
 });

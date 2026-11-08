@@ -1,0 +1,196 @@
+import { useCallback, useEffect, useState } from 'react';
+import {
+  MIN_PASSWORD_LENGTH,
+  ROLES,
+  USERNAME_PATTERN,
+  type Role,
+  type User,
+} from '@sheaf/protocol';
+import type { Api } from '../api';
+import { when } from '../format';
+
+const ROLE_NAMES: Readonly<Record<Role, string>> = {
+  admin: 'Admin: everything',
+  editor: 'Editor: read and change documents',
+  viewer: 'Viewer: read only',
+};
+
+/** People who sign in, and what each may do. */
+export function Users({ api }: { api: Api }) {
+  const [users, setUsers] = useState<readonly User[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<Role>('viewer');
+  const [resetting, setResetting] = useState<{ id: number; password: string } | null>(null);
+
+  const load = useCallback(async () => {
+    const result = await api.users();
+    if (result.ok) setUsers(result.value.users);
+    else setError(result.message);
+  }, [api]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async (change: Promise<{ ok: boolean; message?: string }>) => {
+    const result = await change;
+    if (!result.ok) {
+      setError(result.message ?? 'That did not work.');
+      return false;
+    }
+    setError(null);
+    await load();
+    return true;
+  };
+
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = username.trim().toLowerCase();
+    if (await run(api.createUser({ username: name, password, role }))) {
+      setUsername('');
+      setPassword('');
+    }
+  };
+
+  const nameOk = USERNAME_PATTERN.test(username.trim().toLowerCase());
+  const passwordOk = password.length >= MIN_PASSWORD_LENGTH;
+
+  return (
+    <div>
+      <h1>Users</h1>
+      <p className="subtitle">
+        People who sign in with a username and password. The admin token and paired phones keep
+        working alongside them.
+      </p>
+      {error === null ? null : <p className="error">{error}</p>}
+      {users === null ? <p className="muted">Loading…</p> : null}
+      {users !== null && users.length === 0 ? <p className="muted">No users yet.</p> : null}
+      <ul className="list">
+        {(users ?? []).map((user) => (
+          <li key={user.id}>
+            <div>
+              <strong>
+                {user.username}
+                {user.disabledAt === null ? null : <span className="badge neutral">disabled</span>}
+              </strong>
+              <span className="muted">
+                {user.lastSignIn === null
+                  ? 'Never signed in'
+                  : `Last signed in ${when(user.lastSignIn)}`}
+              </span>
+            </div>
+            <div className="actions">
+              <select
+                aria-label={`Role of ${user.username}`}
+                value={user.role}
+                onChange={(event) =>
+                  void run(api.updateUser(user.id, { role: event.target.value as Role }))
+                }
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              {resetting?.id === user.id ? (
+                <form
+                  className="asn-input"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run(api.updateUser(user.id, { password: resetting.password })).then(
+                      (ok) => {
+                        if (ok) setResetting(null);
+                      },
+                    );
+                  }}
+                >
+                  <input
+                    type="password"
+                    aria-label={`New password for ${user.username}`}
+                    autoComplete="new-password"
+                    value={resetting.password}
+                    onChange={(event) =>
+                      setResetting({ id: user.id, password: event.target.value })
+                    }
+                  />
+                  <button type="submit" disabled={resetting.password.length < MIN_PASSWORD_LENGTH}>
+                    Set
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setResetting({ id: user.id, password: '' })}
+                >
+                  New password
+                </button>
+              )}
+              <button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  void run(api.updateUser(user.id, { disabled: user.disabledAt === null }))
+                }
+              >
+                {user.disabledAt === null ? 'Disable' : 'Enable'}
+              </button>
+              <button
+                type="button"
+                className="link"
+                onClick={() => void run(api.deleteUser(user.id))}
+              >
+                Remove
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <h2>New user</h2>
+      <form className="card" onSubmit={(event) => void create(event)}>
+        <label htmlFor="user-name">Username</label>
+        <input
+          id="user-name"
+          autoComplete="off"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+        />
+        {username === '' || nameOk ? null : (
+          <p className="muted small">
+            Lower case letters, digits, dots, dashes and underscores; 2 to 32 of them.
+          </p>
+        )}
+        <label htmlFor="user-password">Password</label>
+        <input
+          id="user-password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        {password === '' || passwordOk ? null : (
+          <p className="muted small">At least {MIN_PASSWORD_LENGTH} characters.</p>
+        )}
+        <label htmlFor="user-role">Role</label>
+        <select
+          id="user-role"
+          value={role}
+          onChange={(event) => setRole(event.target.value as Role)}
+        >
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {ROLE_NAMES[r]}
+            </option>
+          ))}
+        </select>
+        <button type="submit" disabled={!nameOk || !passwordOk}>
+          Add user
+        </button>
+      </form>
+    </div>
+  );
+}
