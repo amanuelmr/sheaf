@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe as suite, expect, it } from 'vitest';
 import { nodeSqliteDriver } from '@sheaf/store/node';
-import { NearDuplicates, signature, similarity } from '../src/near-duplicates';
+import {
+  NearDuplicates,
+  numbers,
+  numbersAgree,
+  signature,
+  similarity,
+} from '../src/near-duplicates';
 import { Storage, sha256Hex } from '../src/storage';
 
 const LETTER = `Dear Ms Alvarez, thank you for your payment of 412.50 EUR received on
@@ -27,6 +33,17 @@ suite('text signatures', () => {
     expect(similarity(a, a)).toBe(1);
     expect(similarity(a, b)).toBeGreaterThanOrEqual(0.6);
     expect(similarity(a, c)).toBeLessThan(0.2);
+  });
+
+  it('tell apart bills from one template by their numbers, but not a misread digit', () => {
+    const bill = (n: number, total: string, date: string) =>
+      `Corner Shop receipt number ${String(n)} Total ${total} EUR Date ${date} Thank you for
+       shopping with us today, please come again soon to the corner shop on Mill Lane.`;
+    const [a, b] = [bill(1000, '10.40', '01/02/2026'), bill(1001, '11.40', '02/02/2026')];
+    expect(similarity(signature(a)!, signature(b)!)).toBeGreaterThanOrEqual(0.6);
+    expect(numbersAgree(numbers(a), numbers(b))).toBe(false);
+    expect(numbersAgree(numbers(LETTER), numbers(RESCAN))).toBe(true);
+    expect(numbersAgree(numbers('no digits at all'), numbers('none here either'))).toBe(true);
   });
 
   it('say nothing about a page with hardly any words', () => {

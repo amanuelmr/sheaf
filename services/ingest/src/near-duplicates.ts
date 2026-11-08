@@ -16,6 +16,14 @@ import { visibleTo } from './storage.ts';
 export const SIGNATURE_SIZE = 64;
 /** Shared word pairs from here up are taken for the same paper scanned twice. */
 export const SAME_PAPER = 0.6;
+/**
+ * Of the numbers in either text, the share both must have. Two bills from one
+ * company share nearly every word and differ in their amounts, dates and invoice
+ * numbers; two scans of one bill have the same numbers, give or take a misread.
+ */
+export const SAME_NUMBERS = 0.7;
+/** At most this many numbers are kept for each document. */
+const MAX_NUMBERS = 200;
 /** Fewer words than this says too little to tell one page from another. */
 export const MIN_WORDS = 12;
 
@@ -69,6 +77,24 @@ export function signature(text: string): Uint32Array | null {
   return mins;
 }
 
+/** The distinct numbers written in a text, sorted. */
+export function numbers(text: string): readonly string[] {
+  return [...new Set(words(text).filter((word) => /\p{N}/u.test(word)))]
+    .sort()
+    .slice(0, MAX_NUMBERS);
+}
+
+/**
+ * Whether two texts' numbers agree well enough for them to be one paper. Texts
+ * with hardly any numbers leave it to their words.
+ */
+export function numbersAgree(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length < 2 && b.length < 2) return true;
+  const theirs = new Set(b);
+  const shared = a.filter((n) => theirs.has(n)).length;
+  return shared / (a.length + b.length - shared) >= SAME_NUMBERS;
+}
+
 /** The share of word pairs two texts are estimated to have in common, 0 to 1. */
 export function similarity(a: Uint32Array, b: Uint32Array): number {
   let same = 0;
@@ -109,13 +135,21 @@ export class NearDuplicates {
       await this.#driver.run('DELETE FROM text_signatures WHERE sha256 = ?', [sha256]);
       return;
     }
-    const best = await this.#closest(sha256, sig, null);
+    const nums = numbers(text);
+    const best = await this.#closest(sha256, sig, nums, null);
     await this.#driver.run(
-      `INSERT INTO text_signatures (sha256, signature, twin, twin_similarity) VALUES (?, ?, ?, ?)
+      `INSERT INTO text_signatures (sha256, signature, numbers, twin, twin_similarity)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (sha256) DO UPDATE SET
-         signature = excluded.signature, twin = excluded.twin,
+         signature = excluded.signature, numbers = excluded.numbers, twin = excluded.twin,
          twin_similarity = excluded.twin_similarity`,
-      [sha256, encode(sig), best[0]?.sha256 ?? null, best[0]?.similarity ?? null],
+      [
+        sha256,
+        encode(sig),
+        JSON.stringify(nums),
+        best[0]?.sha256 ?? null,
+        best[0]?.similarity ?? null,
+      ],
     );
   }
 
@@ -132,27 +166,34 @@ export class NearDuplicates {
 
   /** Documents this person may see that look like the same paper, most alike first. */
   async similarTo(sha256: string, viewer: number | null): Promise<readonly SimilarDocument[]> {
-    const own = await this.#driver.all<{ signature: string }>(
-      'SELECT signature FROM text_signatures WHERE sha256 = ?',
+    const own = await this.#driver.all<{ signature: string; numbers: string }>(
+      'SELECT signature, numbers FROM text_signatures WHERE sha256 = ?',
       [sha256],
     );
     if (own[0] === undefined) return [];
-    return this.#closest(sha256, decode(own[0].signature), viewer);
+    return this.#closest(
+      sha256,
+      decode(own[0].signature),
+      JSON.parse(own[0].numbers) as string[],
+      viewer,
+    );
   }
 
   async #closest(
     sha256: string,
     sig: Uint32Array,
+    nums: readonly string[],
     viewer: number | null,
   ): Promise<SimilarDocument[]> {
     const visible = visibleTo(viewer);
     const rows = await this.#driver.all<{
       sha256: string;
       signature: string;
+      numbers: string;
       title: string | null;
       received_at: number;
     }>(
-      `SELECT s.sha256, s.signature, d.title, d.received_at
+      `SELECT s.sha256, s.signature, s.numbers, d.title, d.received_at
          FROM text_signatures s JOIN documents d ON d.sha256 = s.sha256
         WHERE s.sha256 <> ? AND d.trashed_at IS NULL AND ${visible.sql}`,
       [sha256, ...visible.params],
@@ -163,8 +204,18 @@ export class NearDuplicates {
         title: row.title,
         receivedAt: row.received_at,
         similarity: similarity(sig, decode(row.signature)),
+        numbers: row.numbers,
       }))
-      .filter((row) => row.similarity >= SAME_PAPER)
+      .filter(
+        (row) =>
+          row.similarity >= SAME_PAPER && numbersAgree(nums, JSON.parse(row.numbers) as string[]),
+      )
+      .map((row) => ({
+        sha256: row.sha256,
+        title: row.title,
+        receivedAt: row.receivedAt,
+        similarity: row.similarity,
+      }))
       .sort((a, b) => b.similarity - a.similarity || a.receivedAt - b.receivedAt)
       .slice(0, 5);
   }

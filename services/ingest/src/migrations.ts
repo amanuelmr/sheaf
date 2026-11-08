@@ -487,6 +487,7 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE TABLE text_signatures (
          sha256          TEXT PRIMARY KEY,
          signature       TEXT NOT NULL,
+         numbers         TEXT NOT NULL DEFAULT '[]',
          twin            TEXT,
          twin_similarity REAL
        )`,
