@@ -4,7 +4,9 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
 import type { DateOrderSetting, ReconciliationProbe } from '@sheaf/protocol';
 import { paperlessArchiveSource } from './paperless-browse.ts';
-import { Forwarder } from './forwarder.ts';
+import { Forwarder, type Connector } from './forwarder.ts';
+import { folderTarget } from './folder-target.ts';
+import { webdavTarget } from './webdav-target.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
 import { ocrStep } from './steps/ocr.ts';
@@ -547,6 +549,51 @@ if (paperlessClient !== null && vocabulary !== null) {
       : 'forwarding disabled — could not get a token from ' + paperlessUrl,
   );
 }
+// Copies to a WebDAV server and to a folder, each beside Paperless or on its own.
+// Each keeps its own delivery record, so adding one later sends it everything.
+function copyEverything(target: Connector, where: string): void {
+  const forwarder = new Forwarder(storage, target, {
+    now: () => Date.now(),
+    jitter: () => Math.random(),
+  });
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    void forwarder
+      .tick()
+      .catch((error: unknown) => log.error(`copying to ${where} failed`, { error: String(error) }))
+      .finally(() => {
+        running = false;
+      });
+  }, 10_000);
+  log.info(`copying every document to ${where}`);
+}
+const webdavUrl = process.env['SHEAF_WEBDAV_URL'];
+if (webdavUrl !== undefined && webdavUrl !== '') {
+  copyEverything(
+    webdavTarget({
+      url: webdavUrl,
+      username: process.env['SHEAF_WEBDAV_USER'] ?? '',
+      password: process.env['SHEAF_WEBDAV_PASSWORD'] ?? '',
+      filenameFormat: () => settings.current().filenameFormat,
+      record: (sha256) => storage.record(sha256),
+    }),
+    new URL(webdavUrl).host,
+  );
+}
+const copyDir = process.env['SHEAF_COPY_DIR'];
+if (copyDir !== undefined && copyDir !== '') {
+  copyEverything(
+    folderTarget({
+      dir: copyDir,
+      filenameFormat: () => settings.current().filenameFormat,
+      record: (sha256) => storage.record(sha256),
+    }),
+    copyDir,
+  );
+}
+
 /**
  * Work each stored document goes through after it is safe: reading its text,
  * extracting its details. Empty until those steps exist; the loop only starts once
