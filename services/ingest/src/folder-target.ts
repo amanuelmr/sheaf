@@ -11,6 +11,8 @@ export interface FolderTargetOptions {
   readonly dir: string;
   readonly filenameFormat: () => string;
   readonly record: (sha256: string) => Promise<DocumentRecord | null>;
+  /** The bytes to send for a document; the stored ones when absent. */
+  readonly prepare?: (sha256: string, stored: Uint8Array) => Promise<Uint8Array>;
 }
 
 /** The name in the deliveries table. Never change it: a new name sends everything again. */
@@ -33,19 +35,21 @@ export function folderTarget(options: FolderTargetOptions): Connector {
   return {
     name: FOLDER_CONNECTOR,
 
-    send(document: DocumentRecord, bytes: Uint8Array): Promise<ApiResult<string>> {
+    async send(document: DocumentRecord, stored: Uint8Array): Promise<ApiResult<string>> {
+      const bytes =
+        options.prepare === undefined ? stored : await options.prepare(document.sha256, stored);
       const path = pathOf(document);
       const full = inside(path);
-      if (full === null) return Promise.resolve(err({ kind: 'not_found' }));
+      if (full === null) return err({ kind: 'not_found' });
       try {
         mkdirSync(dirname(full), { recursive: true });
         const temporary = `${full}.part`;
         writeFileSync(temporary, bytes);
         renameSync(temporary, full);
-        return Promise.resolve(ok(path));
+        return ok(path);
       } catch {
         // A full disk or an unmounted share: worth trying again later.
-        return Promise.resolve(err({ kind: 'unreachable' }));
+        return err({ kind: 'unreachable' });
       }
     },
 

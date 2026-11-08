@@ -104,6 +104,7 @@ import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
 import { toMatch } from './search-query.ts';
 import { exportCsv } from './csv-export.ts';
+import { searchableBytes } from './searchable.ts';
 import type { NearDuplicates } from './near-duplicates.ts';
 import type { Storage } from './storage.ts';
 import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
@@ -758,6 +759,16 @@ async function authenticated(
     if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
     if (method !== 'PUT') return fail('bad_request', `${method} not allowed here`);
     return putText(id, request, deps);
+  }
+
+  const searchableSuffix = '/searchable.pdf';
+  if (rest.endsWith(searchableSuffix)) {
+    const id = rest.slice(0, -searchableSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    const bytes = await searchableBytes(deps.storage, id);
+    if (bytes === null) return fail('not_found');
+    return { status: 200, headers: { 'content-type': DOCUMENT_CONTENT_TYPE }, bytes };
   }
 
   const similarSuffix = '/similar';

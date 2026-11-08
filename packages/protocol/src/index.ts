@@ -111,6 +111,11 @@ export const paths = {
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
   /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
   documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
+  /**
+   * `GET` the PDF with its recognised text laid invisibly inside, so other apps find
+   * it by its words. Made on request; the stored file is unchanged.
+   */
+  documentSearchable: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/searchable.pdf`,
   /** `POST` a `StampBody`: words in a box on the page, kept as a new version. */
   documentStamp: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/stamp`,
   /** `POST` a `SplitBody`: one new document per part. */

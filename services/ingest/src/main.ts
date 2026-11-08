@@ -7,6 +7,7 @@ import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder, type Connector } from './forwarder.ts';
 import { folderTarget } from './folder-target.ts';
 import { webdavTarget } from './webdav-target.ts';
+import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
 import { ocrStep } from './steps/ocr.ts';
@@ -578,6 +579,8 @@ if (webdavUrl !== undefined && webdavUrl !== '') {
       password: process.env['SHEAF_WEBDAV_PASSWORD'] ?? '',
       filenameFormat: () => settings.current().filenameFormat,
       record: (sha256) => storage.record(sha256),
+      // Copies carry their recognised text inside, so they are searchable there too.
+      prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
     }),
     new URL(webdavUrl).host,
   );
@@ -589,6 +592,8 @@ if (copyDir !== undefined && copyDir !== '') {
       dir: copyDir,
       filenameFormat: () => settings.current().filenameFormat,
       record: (sha256) => storage.record(sha256),
+      // Copies carry their recognised text inside, so they are searchable there too.
+      prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
     }),
     copyDir,
   );

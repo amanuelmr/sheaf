@@ -101,7 +101,24 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
               : 'Loading…'}
           </p>
         ) : (
-          <iframe title="The document" src={pdf} />
+          <>
+            <iframe title="The document" src={pdf} />
+            <p className="small">
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  void api
+                    .downloadSearchable(sha256, record.title ?? shortSha(sha256))
+                    .then((r) => {
+                      if (!r.ok) setError(r.message);
+                    })
+                }
+              >
+                Download with its text inside
+              </button>
+            </p>
+          </>
         )}
       </div>
 

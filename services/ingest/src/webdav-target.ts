@@ -13,6 +13,8 @@ export interface WebDavOptions {
   readonly filenameFormat: () => string;
   /** The document as it is now, for finding a file sent before a restart. */
   readonly record: (sha256: string) => Promise<DocumentRecord | null>;
+  /** The bytes to send for a document; the stored ones when absent. */
+  readonly prepare?: (sha256: string, stored: Uint8Array) => Promise<Uint8Array>;
   readonly fetch?: typeof fetch;
 }
 
@@ -70,7 +72,9 @@ export function webdavTarget(options: WebDavOptions): Connector {
   return {
     name: WEBDAV_CONNECTOR,
 
-    async send(document: DocumentRecord, bytes: Uint8Array): Promise<ApiResult<string>> {
+    async send(document: DocumentRecord, stored: Uint8Array): Promise<ApiResult<string>> {
+      const bytes =
+        options.prepare === undefined ? stored : await options.prepare(document.sha256, stored);
       const path = pathOf(document);
       // WebDAV makes no folders on the way to a file; each is made in turn, and one
       // already there answers 405, which is just as good.

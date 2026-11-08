@@ -1,4 +1,13 @@
-import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  StandardFonts,
+  TextRenderingMode,
+  degrees,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+  setTextRenderingMode,
+} from 'pdf-lib';
 
 /** One page of the result: which page of the original (from 1), and how far to turn it. */
 export interface PageSpec {
@@ -178,5 +187,49 @@ export async function stampPdf(bytes: Uint8Array, stamp: Stamp): Promise<Uint8Ar
       });
     });
   }
+  return document.save();
+}
+
+/**
+ * The PDF with recognised text laid invisibly over its pages, so a viewer, Spotlight
+ * or a file browser finds a scan by its words. The text is spread over the pages in
+ * order; where each word falls on its page is not known, so a found word is on the
+ * right page or near it, not under the right spot. Characters the built-in font
+ * cannot carry become spaces.
+ */
+export async function searchablePdf(bytes: Uint8Array, text: string): Promise<Uint8Array> {
+  const document = await open(bytes);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const known = new Set(font.getCharacterSet());
+  const clean = [...text.normalize('NFC')]
+    .map((ch) => (ch === '\n' || known.has(ch.codePointAt(0)!) ? ch : ' '))
+    .join('');
+  const lines = clean
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line !== '');
+  const pages = document.getPages();
+  if (lines.length === 0 || pages.length === 0) return bytes;
+  const perPage = Math.ceil(lines.length / pages.length);
+  pages.forEach((page, p) => {
+    const chunk = lines.slice(p * perPage, (p + 1) * perPage);
+    if (chunk.length === 0) return;
+    const { width, height } = page.getSize();
+    const margin = Math.min(width, height) * 0.05;
+    const size = Math.max(1, Math.min(8, (height - margin * 2) / chunk.length));
+    page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));
+    chunk.forEach((line, i) => {
+      // Squeezed to the page width: invisible, so only its place matters.
+      const natural = font.widthOfTextAtSize(line, size);
+      const fit = Math.min(size, (size * (width - margin * 2)) / Math.max(natural, 1));
+      page.drawText(line, {
+        x: margin,
+        y: height - margin - (i + 1) * size,
+        size: Math.max(0.5, fit),
+        font,
+      });
+    });
+    page.pushOperators(popGraphicsState());
+  });
   return document.save();
 }

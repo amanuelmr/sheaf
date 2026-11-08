@@ -218,6 +218,23 @@ export function api(connection: Connection) {
       call<Label>('POST', paths.labelMerge(kind, id), { into }),
     deleteLabel: (kind: LabelKind, id: number) => call<undefined>('DELETE', paths.label(kind, id)),
     applyRules: () => call<ApplyRulesResponse>('POST', paths.labelsApply(), {}),
+    /** Downloads the PDF with its recognised text inside, so other apps can search it. */
+    downloadSearchable: async (sha256: string, name: string): Promise<Result<undefined>> => {
+      try {
+        const response = await fetch(url(paths.documentSearchable(sha256)), {
+          headers: headers(),
+        });
+        if (!response.ok) return { ok: false, message: await explain(response) };
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(await response.blob());
+        link.download = `${name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+        return { ok: true, value: undefined };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
     /** Downloads every document the filter lets through as a CSV file. */
     exportCsv: async (filter: DocumentFilter): Promise<Result<undefined>> => {
       try {
