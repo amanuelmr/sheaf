@@ -19,7 +19,8 @@
       }
     },
     "android": {
-      "package": "dev.sheaf.capture"
+      "package": "dev.sheaf.capture",
+      "versionCode": 1
     },
     "plugins": [
       "expo-router",
