@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { TrashResponse } from '@sheaf/protocol';
 import type { Api } from '../api';
+
 import { shortSha, when } from '../format';
+import { t } from '../i18n';
 import { href } from '../route';
 
 /**
@@ -27,25 +29,30 @@ export function Trash({ api }: { api: Api }) {
   const act = async (work: Promise<{ ok: boolean; message?: string }>) => {
     const result = await work;
     setConfirming(null);
-    if (!result.ok) setError(result.message ?? 'That did not work.');
+    if (!result.ok) setError(result.message ?? t('That did not work.'));
     else setError(null);
     await load();
   };
 
   if (trash === null) {
-    return error === null ? <p className="muted">Loading…</p> : <p className="error">{error}</p>;
+    return error === null ? (
+      <p className="muted">{t('Loading…')}</p>
+    ) : (
+      <p className="error">{error}</p>
+    );
   }
 
   return (
     <div>
-      <h1>Trash</h1>
+      <h1>{t('Trash')}</h1>
       <p className="subtitle">
-        Deleted documents stay here for {String(trash.purgeAfterDays)} days, then are deleted for
-        good.
+        {t('Deleted documents stay here for {days} days, then are deleted for good.', {
+          days: trash.purgeAfterDays,
+        })}
       </p>
       {error === null ? null : <p className="error">{error}</p>}
       {trash.documents.length === 0 ? (
-        <p className="muted">The trash is empty.</p>
+        <p className="muted">{t('The trash is empty.')}</p>
       ) : (
         <>
           <ul className="list">
@@ -53,10 +60,15 @@ export function Trash({ api }: { api: Api }) {
               <li key={entry.sha256} id={`trash-${entry.sha256}`}>
                 <a href={href({ page: 'document', sha256: entry.sha256 })}>
                   <strong>
-                    {entry.title ?? entry.suggestedTitle ?? `Scan ${shortSha(entry.sha256)}`}
+                    {entry.title ??
+                      entry.suggestedTitle ??
+                      t('Scan {id}', { id: shortSha(entry.sha256) })}
                   </strong>
                   <span className="muted">
-                    Deleted {when(entry.trashedAt)} · gone for good {when(entry.purgeAt)}
+                    {t('Deleted {deleted} · gone for good {gone}', {
+                      deleted: when(entry.trashedAt),
+                      gone: when(entry.purgeAt),
+                    })}
                   </span>
                 </a>
                 <div className="actions">
@@ -65,7 +77,7 @@ export function Trash({ api }: { api: Api }) {
                     className="secondary"
                     onClick={() => void act(api.restore([entry.sha256]))}
                   >
-                    Restore
+                    {t('Restore')}
                   </button>
                   {confirming === entry.sha256 ? (
                     <button
@@ -73,7 +85,7 @@ export function Trash({ api }: { api: Api }) {
                       className="danger"
                       onClick={() => void act(api.emptyTrash([entry.sha256]))}
                     >
-                      Really delete?
+                      {t('Really delete?')}
                     </button>
                   ) : (
                     <button
@@ -81,7 +93,7 @@ export function Trash({ api }: { api: Api }) {
                       className="secondary"
                       onClick={() => setConfirming(entry.sha256)}
                     >
-                      Delete for good…
+                      {t('Delete for good…')}
                     </button>
                   )}
                 </div>
@@ -92,15 +104,15 @@ export function Trash({ api }: { api: Api }) {
             {confirming === 'all' ? (
               <>
                 <button type="button" className="danger" onClick={() => void act(api.emptyTrash())}>
-                  Delete all {String(trash.documents.length)} for good
+                  {t('Delete all {count} for good', { count: trash.documents.length })}
                 </button>{' '}
                 <button type="button" className="link" onClick={() => setConfirming(null)}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
               </>
             ) : (
               <button type="button" className="secondary" onClick={() => setConfirming('all')}>
-                Empty the trash
+                {t('Empty the trash')}
               </button>
             )}
           </p>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MAX_NOTE_LENGTH, type Note } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { when } from '../format';
+import { t } from '../i18n';
 
 /** A document's notes: read them, add one, delete one. */
 export function Notes({
@@ -57,8 +58,8 @@ export function Notes({
 
   return (
     <section>
-      <h2>Notes</h2>
-      {notes.length === 0 ? <p className="muted">No notes yet.</p> : null}
+      <h2>{t('Notes')}</h2>
+      {notes.length === 0 ? <p className="muted">{t('No notes yet.')}</p> : null}
       <ul className="notes">
         {notes.map((note) => (
           <li key={note.id} id={`note-${String(note.id)}`}>
@@ -70,16 +71,16 @@ export function Notes({
                 type="button"
                 className="link"
                 onClick={() => void remove(note.id)}
-                aria-label={`Delete note from ${when(note.createdAt)}`}
+                aria-label={t('Delete note from {when}', { when: when(note.createdAt) })}
               >
-                Delete
+                {t('Delete')}
               </button>
             </p>
           </li>
         ))}
       </ul>
       <form className="note-form" onSubmit={(event) => void add(event)}>
-        <label htmlFor="new-note">Add a note</label>
+        <label htmlFor="new-note">{t('Add a note')}</label>
         <textarea
           id="new-note"
           rows={2}
@@ -88,7 +89,7 @@ export function Notes({
           onChange={(event) => setDraft(event.target.value)}
         />
         <button type="submit" disabled={draft.trim() === ''}>
-          Add note
+          {t('Add note')}
         </button>
       </form>
       {error === null ? null : <p className="error">{error}</p>}

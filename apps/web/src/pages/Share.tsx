@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import type { ShareLink } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { when } from '../format';
+import { mark, t } from '../i18n';
 
 const EXPIRY: readonly { days: number | null; text: string }[] = [
-  { days: 7, text: 'for a week' },
-  { days: 30, text: 'for a month' },
-  { days: 1, text: 'for a day' },
-  { days: null, text: 'until I revoke it' },
+  { days: 7, text: mark('for a week') },
+  { days: 30, text: mark('for a month') },
+  { days: 1, text: mark('for a day') },
+  { days: null, text: mark('until I revoke it') },
 ];
 
 /** Links that open this document for anyone who has them. */
@@ -51,15 +52,17 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
       await navigator.clipboard.writeText(api.shareUrl(link.slug));
       setCopied(link.id);
     } catch {
-      setError('Could not copy; select the link and copy it instead.');
+      setError(t('Could not copy; select the link and copy it instead.'));
     }
   };
 
   const now = Date.now();
   return (
     <section>
-      <h2>Share</h2>
-      <p className="muted small">Anyone with a link can open this document, without a token.</p>
+      <h2>{t('Share')}</h2>
+      <p className="muted small">
+        {t('Anyone with a link can open this document, without a token.')}
+      </p>
       <ul className="links share-links">
         {links.map((link) => {
           const expired = link.expiresAt !== null && link.expiresAt <= now;
@@ -67,22 +70,22 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
             <li key={link.id}>
               <input
                 readOnly
-                aria-label="Share link"
+                aria-label={t('Share link')}
                 value={api.shareUrl(link.slug)}
                 onFocus={(event) => event.target.select()}
               />
               <span className="muted small">
                 {expired
-                  ? 'Expired'
+                  ? t('Expired')
                   : link.expiresAt === null
-                    ? 'Until revoked'
-                    : `Until ${when(link.expiresAt)}`}
+                    ? t('Until revoked')
+                    : t('Until {when}', { when: when(link.expiresAt) })}
               </span>
               <button type="button" className="secondary" onClick={() => void copy(link)}>
-                {copied === link.id ? 'Copied' : 'Copy'}
+                {copied === link.id ? t('Copied') : t('Copy')}
               </button>
               <button type="button" className="link" onClick={() => void revoke(link.id)}>
-                Revoke
+                {t('Revoke')}
               </button>
             </li>
           );
@@ -90,7 +93,7 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
       </ul>
       <div className="asn-input">
         <select
-          aria-label="How long the link works"
+          aria-label={t('How long the link works')}
           value={days === null ? '' : String(days)}
           onChange={(event) =>
             setDays(event.target.value === '' ? null : Number(event.target.value))
@@ -98,12 +101,12 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
         >
           {EXPIRY.map((option) => (
             <option key={option.text} value={option.days === null ? '' : String(option.days)}>
-              {option.text}
+              {t(option.text)}
             </option>
           ))}
         </select>
         <button type="button" onClick={() => void create()}>
-          Make a link
+          {t('Make a link')}
         </button>
       </div>
       {error === null ? null : <p className="error">{error}</p>}

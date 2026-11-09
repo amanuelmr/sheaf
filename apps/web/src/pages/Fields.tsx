@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CUSTOM_FIELD_TYPES, type CustomField, type CustomFieldType } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 
+/** Each kind's name, marked here and put through `t` where it is drawn. */
 export const TYPE_LABELS: Readonly<Record<CustomFieldType, string>> = {
-  text: 'Text',
-  boolean: 'Yes / no',
-  date: 'Date',
-  url: 'Link (URL)',
-  integer: 'Whole number',
-  number: 'Number',
-  monetary: 'Amount of money',
-  documentLink: 'Other documents',
-  select: 'Choice from a list',
+  text: mark('Text'),
+  boolean: mark('Yes / no'),
+  date: mark('Date'),
+  url: mark('Link (URL)'),
+  integer: mark('Whole number'),
+  number: mark('Number'),
+  monetary: mark('Amount of money'),
+  documentLink: mark('Other documents'),
+  select: mark('Choice from a list'),
 };
 
 /** Custom fields: the details you want to track that Sheaf does not read on its own. */
@@ -66,23 +68,27 @@ export function Fields({ api }: { api: Api }) {
 
   return (
     <div>
-      <h1>Fields</h1>
+      <h1>{t('Fields')}</h1>
       <p className="subtitle">
-        Details you want to keep on documents, like an invoice number or a warranty date.
+        {t('Details you want to keep on documents, like an invoice number or a warranty date.')}
       </p>
       {error === null ? null : <p className="error">{error}</p>}
 
-      {fields === null ? <p className="muted">Loading…</p> : null}
-      {fields !== null && fields.length === 0 ? <p className="muted">No fields yet.</p> : null}
+      {fields === null ? <p className="muted">{t('Loading…')}</p> : null}
+      {fields !== null && fields.length === 0 ? (
+        <p className="muted">{t('No fields yet.')}</p>
+      ) : null}
       <ul className="list">
         {(fields ?? []).map((field) => (
           <li key={field.id} id={`field-${String(field.id)}`}>
             <div>
               <strong>{field.name}</strong>
               <span className="muted">
-                {TYPE_LABELS[field.type]}
-                {field.type === 'select' ? `: ${field.options.join(', ')}` : ''} · on{' '}
-                {String(field.documentCount)} document{field.documentCount === 1 ? '' : 's'}
+                {t(TYPE_LABELS[field.type])}
+                {field.type === 'select' ? `: ${field.options.join(', ')}` : ''} ·{' '}
+                {field.documentCount === 1
+                  ? t('on 1 document')
+                  : t('on {count} documents', { count: field.documentCount })}
               </span>
               <label className="check">
                 <input
@@ -97,46 +103,46 @@ export function Fields({ api }: { api: Api }) {
                       })
                   }
                 />{' '}
-                Every document needs it
+                {t('Every document needs it')}
               </label>
             </div>
             {confirming === field.id ? (
               <div className="actions">
                 <button type="button" className="danger" onClick={() => void remove(field.id)}>
-                  Delete it and its values
+                  {t('Delete it and its values')}
                 </button>
                 <button type="button" className="secondary" onClick={() => setConfirming(null)}>
-                  Keep it
+                  {t('Keep it')}
                 </button>
               </div>
             ) : (
               <button type="button" className="secondary" onClick={() => setConfirming(field.id)}>
-                Delete…
+                {t('Delete…')}
               </button>
             )}
           </li>
         ))}
       </ul>
 
-      <h2>New field</h2>
+      <h2>{t('New field')}</h2>
       <form className="card" onSubmit={(event) => void create(event)}>
-        <label htmlFor="field-name">Name</label>
+        <label htmlFor="field-name">{t('Name')}</label>
         <input id="field-name" value={name} onChange={(event) => setName(event.target.value)} />
-        <label htmlFor="field-type">Kind</label>
+        <label htmlFor="field-type">{t('Kind')}</label>
         <select
           id="field-type"
           value={type}
           onChange={(event) => setType(event.target.value as CustomFieldType)}
         >
-          {CUSTOM_FIELD_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {TYPE_LABELS[t]}
+          {CUSTOM_FIELD_TYPES.map((kind) => (
+            <option key={kind} value={kind}>
+              {t(TYPE_LABELS[kind])}
             </option>
           ))}
         </select>
         {type === 'select' ? (
           <>
-            <label htmlFor="field-options">Choices, one per line</label>
+            <label htmlFor="field-options">{t('Choices, one per line')}</label>
             <textarea
               id="field-options"
               rows={4}
@@ -151,10 +157,10 @@ export function Fields({ api }: { api: Api }) {
             checked={required}
             onChange={(event) => setRequired(event.target.checked)}
           />{' '}
-          Every document needs it
+          {t('Every document needs it')}
         </label>
         <button type="submit" disabled={name.trim() === ''}>
-          Add field
+          {t('Add field')}
         </button>
       </form>
     </div>

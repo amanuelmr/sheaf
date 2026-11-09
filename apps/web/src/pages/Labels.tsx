@@ -8,13 +8,35 @@ import {
   type MatchingRule,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 import { ALGORITHM_NAMES, describeRule } from '../label-rule';
 import { href } from '../route';
 
-const KIND_NAMES: Readonly<Record<LabelKind, { plural: string; one: string }>> = {
-  tag: { plural: 'Tags', one: 'tag' },
-  correspondent: { plural: 'Correspondents', one: 'correspondent' },
-  documentType: { plural: 'Document types', one: 'document type' },
+/** Each kind's words, marked here and put through `t` where they are drawn. */
+const KIND_NAMES: Readonly<
+  Record<LabelKind, { plural: string; none: string; heading: string; add: string; remove: string }>
+> = {
+  tag: {
+    plural: mark('Tags'),
+    none: mark('No tags yet.'),
+    heading: mark('New tag'),
+    add: mark('Add tag'),
+    remove: mark('Delete tag {name}'),
+  },
+  correspondent: {
+    plural: mark('Correspondents'),
+    none: mark('No correspondents yet.'),
+    heading: mark('New correspondent'),
+    add: mark('Add correspondent'),
+    remove: mark('Delete correspondent {name}'),
+  },
+  documentType: {
+    plural: mark('Document types'),
+    none: mark('No document types yet.'),
+    heading: mark('New document type'),
+    add: mark('Add document type'),
+    remove: mark('Delete document type {name}'),
+  },
 };
 
 /** What one row is in the middle of, if anything. */
@@ -65,7 +87,7 @@ export function Labels({ api }: { api: Api }) {
   const apply = async (change: Promise<{ ok: boolean; message?: string }>) => {
     const result = await change;
     if (!result.ok) {
-      setError(result.message ?? 'That did not work.');
+      setError(result.message ?? t('That did not work.'));
       return false;
     }
     setError(null);
@@ -87,20 +109,23 @@ export function Labels({ api }: { api: Api }) {
       return;
     }
     const { changed } = result.value;
-    setApplied(`Filed ${String(changed)} document${changed === 1 ? '' : 's'}.`);
+    setApplied(
+      changed === 1 ? t('Filed 1 document.') : t('Filed {count} documents.', { count: changed }),
+    );
     await load();
   };
 
-  const { plural, one } = KIND_NAMES[kind];
+  const names = KIND_NAMES[kind];
 
   return (
     <div>
-      <h1>Labels</h1>
+      <h1>{t('Labels')}</h1>
       <p className="subtitle">
-        The names documents are filed under. Renaming or merging one changes every document that
-        carries it.
+        {t(
+          'The names documents are filed under. Renaming or merging one changes every document that carries it.',
+        )}
       </p>
-      <div className="tabs" role="group" aria-label="Kind of label">
+      <div className="tabs" role="group" aria-label={t('Kind of label')}>
         {LABEL_KINDS.map((k) => (
           <button
             key={k}
@@ -109,16 +134,14 @@ export function Labels({ api }: { api: Api }) {
             aria-pressed={k === kind}
             onClick={() => setKind(k)}
           >
-            {KIND_NAMES[k].plural}
+            {t(KIND_NAMES[k].plural)}
           </button>
         ))}
       </div>
       {error === null ? null : <p className="error">{error}</p>}
 
-      {labels === null ? <p className="muted">Loading…</p> : null}
-      {labels !== null && labels.length === 0 ? (
-        <p className="muted">No {plural.toLowerCase()} yet.</p>
-      ) : null}
+      {labels === null ? <p className="muted">{t('Loading…')}</p> : null}
+      {labels !== null && labels.length === 0 ? <p className="muted">{t(names.none)}</p> : null}
       <ul className="list">
         {tree(labels ?? []).map(({ label, depth }) => (
           <li
@@ -135,17 +158,17 @@ export function Labels({ api }: { api: Api }) {
                 }}
               >
                 <input
-                  aria-label={`New name for ${label.name}`}
+                  aria-label={t('New name for {name}', { name: label.name })}
                   // Opened by the Rename button, so typing should go straight in.
                   autoFocus
                   value={editing.text}
                   onChange={(event) => setEditing({ ...editing, text: event.target.value })}
                 />
                 <button type="submit" disabled={editing.text.trim() === ''}>
-                  Rename
+                  {t('Rename')}
                 </button>
                 <button type="button" className="secondary" onClick={() => setEditing(null)}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
               </form>
             ) : editing?.id === label.id && editing.mode === 'rule' ? (
@@ -175,9 +198,11 @@ export function Labels({ api }: { api: Api }) {
                 </strong>
                 <span className="muted">
                   <a href={href({ page: 'search', filter: filterFor(label) })}>
-                    on {String(label.documents)} document{label.documents === 1 ? '' : 's'}
+                    {label.documents === 1
+                      ? t('on 1 document')
+                      : t('on {count} documents', { count: label.documents })}
                   </a>
-                  {label.inbox ? ' · added to every new document' : ''}
+                  {label.inbox ? ` · ${t('added to every new document')}` : ''}
                   {describeRule(label.matching) === null
                     ? ''
                     : ` · ${describeRule(label.matching)}`}
@@ -189,7 +214,6 @@ export function Labels({ api }: { api: Api }) {
               others={(labels ?? []).filter((other) => other.id !== label.id)}
               editing={editing?.id === label.id ? editing : null}
               setEditing={setEditing}
-              one={one}
               onColour={(colour) => void apply(api.updateLabel(kind, label.id, { colour }))}
               onMerge={(into) => void apply(api.mergeLabel(kind, label.id, into))}
               onDelete={() => void apply(api.deleteLabel(kind, label.id))}
@@ -198,24 +222,25 @@ export function Labels({ api }: { api: Api }) {
         ))}
       </ul>
 
-      <h2>Rules</h2>
+      <h2>{t('Rules')}</h2>
       <p className="muted">
-        New documents are filed by these rules as they arrive. Rules never change what a person
-        chose.
+        {t(
+          'New documents are filed by these rules as they arrive. Rules never change what a person chose.',
+        )}
       </p>
       <p>
         <button type="button" className="secondary" onClick={() => void applyRules()}>
-          Apply rules to documents already here
+          {t('Apply rules to documents already here')}
         </button>{' '}
         {applied === null ? null : <span className="badge ok">{applied}</span>}
       </p>
 
-      <h2>New {one}</h2>
+      <h2>{t(names.heading)}</h2>
       <form className="card" onSubmit={(event) => void create(event)}>
-        <label htmlFor="label-name">Name</label>
+        <label htmlFor="label-name">{t('Name')}</label>
         <input id="label-name" value={name} onChange={(event) => setName(event.target.value)} />
         <button type="submit" disabled={name.trim() === ''}>
-          Add {one}
+          {t(names.add)}
         </button>
       </form>
     </div>
@@ -227,7 +252,6 @@ function Actions({
   others,
   editing,
   setEditing,
-  one,
   onColour,
   onMerge,
   onDelete,
@@ -236,7 +260,6 @@ function Actions({
   others: readonly Label[];
   editing: Editing | null;
   setEditing: (editing: Editing | null) => void;
-  one: string;
   onColour: (colour: string | null) => void;
   onMerge: (into: number) => void;
   onDelete: () => void;
@@ -246,10 +269,12 @@ function Actions({
     return (
       <div className="actions">
         <button type="button" className="danger" onClick={onDelete}>
-          Remove from {String(label.documents)} document{label.documents === 1 ? '' : 's'}
+          {label.documents === 1
+            ? t('Remove from 1 document')
+            : t('Remove from {count} documents', { count: label.documents })}
         </button>
         <button type="button" className="secondary" onClick={() => setEditing(null)}>
-          Keep it
+          {t('Keep it')}
         </button>
       </div>
     );
@@ -258,7 +283,7 @@ function Actions({
     return (
       <div className="actions">
         <select
-          aria-label={`Merge ${label.name} into`}
+          aria-label={t('Merge {name} into', { name: label.name })}
           value={editing.into ?? ''}
           onChange={(event) =>
             setEditing({
@@ -267,7 +292,7 @@ function Actions({
             })
           }
         >
-          <option value="">Merge into…</option>
+          <option value="">{t('Merge into…')}</option>
           {others.map((other) => (
             <option key={other.id} value={other.id}>
               {other.name}
@@ -279,10 +304,10 @@ function Actions({
           disabled={editing.into === null}
           onClick={() => editing.into !== null && onMerge(editing.into)}
         >
-          Merge
+          {t('Merge')}
         </button>
         <button type="button" className="secondary" onClick={() => setEditing(null)}>
-          Cancel
+          {t('Cancel')}
         </button>
       </div>
     );
@@ -294,7 +319,7 @@ function Actions({
           <ColourPicker label={label} onColour={onColour} />
           {label.colour === null ? null : (
             <button type="button" className="link" onClick={() => onColour(null)}>
-              No colour
+              {t('No colour')}
             </button>
           )}
         </>
@@ -304,7 +329,7 @@ function Actions({
         className="secondary"
         onClick={() => setEditing({ id: label.id, mode: 'rename', text: label.name })}
       >
-        Rename
+        {t('Rename')}
       </button>
       <button
         type="button"
@@ -319,7 +344,7 @@ function Actions({
           })
         }
       >
-        {label.kind === 'tag' ? 'Settings…' : 'Rule…'}
+        {label.kind === 'tag' ? t('Settings…') : t('Rule…')}
       </button>
       {others.length === 0 ? null : (
         <button
@@ -327,16 +352,16 @@ function Actions({
           className="secondary"
           onClick={() => setEditing({ id: label.id, mode: 'merge', into: null })}
         >
-          Merge…
+          {t('Merge…')}
         </button>
       )}
       <button
         type="button"
         className="secondary"
-        aria-label={`Delete ${one} ${label.name}`}
+        aria-label={t(KIND_NAMES[label.kind].remove, { name: label.name })}
         onClick={() => setEditing({ id: label.id, mode: 'delete' })}
       >
-        Delete…
+        {t('Delete…')}
       </button>
     </div>
   );
@@ -349,7 +374,7 @@ function ColourPicker({ label, onColour }: { label: Label; onColour: (colour: st
   return (
     <input
       type="color"
-      aria-label={`Colour of ${label.name}`}
+      aria-label={t('Colour of {name}', { name: label.name })}
       value={colour}
       onChange={(event) => setColour(event.target.value)}
       onBlur={() => {
@@ -389,7 +414,7 @@ function RuleEditor({
       }}
     >
       <strong>{label.name}</strong>
-      <label htmlFor={`${id}-algorithm`}>Find it by</label>
+      <label htmlFor={`${id}-algorithm`}>{t('Find it by')}</label>
       <select
         id={`${id}-algorithm`}
         value={rule.algorithm}
@@ -397,7 +422,7 @@ function RuleEditor({
       >
         {MATCHING_ALGORITHMS.map((algorithm) => (
           <option key={algorithm} value={algorithm}>
-            {ALGORITHM_NAMES[algorithm]}
+            {t(ALGORITHM_NAMES[algorithm])}
           </option>
         ))}
       </select>
@@ -405,10 +430,10 @@ function RuleEditor({
         <>
           <label htmlFor={`${id}-pattern`}>
             {rule.algorithm === 'any' || rule.algorithm === 'all'
-              ? 'Words (put "a phrase" in quotes)'
+              ? t('Words (put "a phrase" in quotes)')
               : rule.algorithm === 'regex'
-                ? 'Pattern'
-                : 'Text'}
+                ? t('Pattern')
+                : t('Text')}
           </label>
           <input
             id={`${id}-pattern`}
@@ -421,7 +446,7 @@ function RuleEditor({
               checked={rule.caseSensitive}
               onChange={(event) => set({ caseSensitive: event.target.checked })}
             />{' '}
-            Upper and lower case must match
+            {t('Upper and lower case must match')}
           </label>
         </>
       )}
@@ -432,12 +457,12 @@ function RuleEditor({
             checked={editing.inbox}
             onChange={(event) => setEditing({ ...editing, inbox: event.target.checked })}
           />{' '}
-          Add to every new document, to mark it as not yet looked at
+          {t('Add to every new document, to mark it as not yet looked at')}
         </label>
       ) : null}
       {label.kind === 'tag' ? (
         <>
-          <label htmlFor={`${id}-parent`}>Inside</label>
+          <label htmlFor={`${id}-parent`}>{t('Inside')}</label>
           <select
             id={`${id}-parent`}
             value={editing.parent === null ? '' : String(editing.parent)}
@@ -448,7 +473,7 @@ function RuleEditor({
               })
             }
           >
-            <option value="">No other tag</option>
+            <option value="">{t('No other tag')}</option>
             {tags
               .filter((tag) => tag.id !== label.id && !within(tags, tag.id, label.id))
               .map((tag) => (
@@ -461,10 +486,10 @@ function RuleEditor({
       ) : null}
       <div className="actions">
         <button type="submit" disabled={rule.algorithm !== 'none' && rule.pattern.trim() === ''}>
-          Save rule
+          {t('Save rule')}
         </button>
         <button type="button" className="secondary" onClick={() => setEditing(null)}>
-          Cancel
+          {t('Cancel')}
         </button>
       </div>
     </form>

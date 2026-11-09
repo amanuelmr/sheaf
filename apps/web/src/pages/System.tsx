@@ -12,9 +12,22 @@ import {
 import type { Api } from '../api';
 import { forgetAsnSeries } from '../asn-series';
 import { shortSha, when } from '../format';
+import { mark, t } from '../i18n';
 import { href } from '../route';
 
 const POLL_MS = 5_000;
+
+/** `text` with `{name}` drawn as `code`, so a file or variable name keeps its look. */
+function withCode(text: string, name: string, code: string) {
+  const [before, after] = text.split(`{${name}}`);
+  return (
+    <>
+      {before}
+      <code>{code}</code>
+      {after}
+    </>
+  );
+}
 
 /** The server's own health: documents held, forwarding, reconciliation, retention. */
 export function System({ api }: { api: Api }) {
@@ -48,34 +61,41 @@ export function System({ api }: { api: Api }) {
 
   return (
     <>
-      <h1>System</h1>
+      <h1>{t('System')}</h1>
 
-      {error === null ? null : <p className="error">Couldn't reach the server: {error}</p>}
+      {error === null ? null : (
+        <p className="error">{t('Couldn’t reach the server: {reason}', { reason: error })}</p>
+      )}
 
       {health === null ? (
-        <p className="muted">Loading…</p>
+        <p className="muted">{t('Loading…')}</p>
       ) : (
         <>
           <div className="card">
-            <h2>Storage</h2>
+            <h2>{t('Storage')}</h2>
             <div className="row">
-              <span>Documents held</span>
+              <span>{t('Documents held')}</span>
               <span>{health.documents}</span>
             </div>
           </div>
 
           {health.forwarding === undefined ? (
             <div className="card">
-              <h2>Forwarding</h2>
+              <h2>{t('Forwarding')}</h2>
               <p className="muted">
-                No connectors. Documents are kept and searched here. Add Paperless with{' '}
-                <code>compose.paperless.yml</code> to send each one on as well.
+                {withCode(
+                  t(
+                    'No connectors. Documents are kept and searched here. Add Paperless with {file} to send each one on as well.',
+                  ),
+                  'file',
+                  'compose.paperless.yml',
+                )}
               </p>
             </div>
           ) : (
             <>
               <div className="card">
-                <h2>Forwarding to {health.forwarding.target}</h2>
+                <h2>{t('Forwarding to {target}', { target: health.forwarding.target })}</h2>
                 {Object.entries(health.forwarding.counts).map(([state, count]) => (
                   <div className="row" key={state}>
                     <span>{state}</span>
@@ -83,17 +103,17 @@ export function System({ api }: { api: Api }) {
                   </div>
                 ))}
                 {Object.keys(health.forwarding.counts).length === 0 ? (
-                  <p className="muted">Nothing forwarded yet.</p>
+                  <p className="muted">{t('Nothing forwarded yet.')}</p>
                 ) : null}
               </div>
 
               <div className="card">
-                <h2>Reconciliation</h2>
+                <h2>{t('Reconciliation')}</h2>
                 <ReconciliationRow reconciliation={health.forwarding.reconciliation} />
               </div>
 
               <div className="card">
-                <h2>Retention</h2>
+                <h2>{t('Retention')}</h2>
                 <RetentionRow retention={health.forwarding.retention} />
               </div>
             </>
@@ -116,15 +136,21 @@ function ReconciliationRow({
   reconciliation: NonNullable<HealthResponse['forwarding']>['reconciliation'];
 }) {
   if (reconciliation === undefined) {
-    return <p className="muted">Probing…</p>;
+    return <p className="muted">{t('Probing…')}</p>;
   }
   if (!reconciliation.conclusive) {
-    return <p className="badge neutral">○ Inconclusive -- {reconciliation.detail}</p>;
+    return (
+      <p className="badge neutral">
+        ○ {t('Inconclusive -- {detail}', { detail: reconciliation.detail })}
+      </p>
+    );
   }
   return reconciliation.filterSupported ? (
-    <p className="badge ok">✓ Filter works as expected</p>
+    <p className="badge ok">✓ {t('Filter works as expected')}</p>
   ) : (
-    <p className="badge danger">✕ Filter is being ignored -- {reconciliation.detail}</p>
+    <p className="badge danger">
+      ✕ {t('Filter is being ignored -- {detail}', { detail: reconciliation.detail })}
+    </p>
   );
 }
 
@@ -136,20 +162,24 @@ function RetentionRow({
   if (retention === undefined) {
     return (
       <p className="muted">
-        Off. Set <code>SHEAF_RETENTION_DAYS</code> to free bytes once Paperless confirms a document.
+        {withCode(
+          t('Off. Set {variable} to free bytes once Paperless confirms a document.'),
+          'variable',
+          'SHEAF_RETENTION_DAYS',
+        )}
       </p>
     );
   }
   return (
     <>
       <div className="row">
-        <span>Freed after</span>
+        <span>{t('Freed after')}</span>
         <span>
-          {retention.days} {retention.days === 1 ? 'day' : 'days'}
+          {retention.days === 1 ? t('1 day') : t('{count} days', { count: retention.days })}
         </span>
       </div>
       <div className="row">
-        <span>Documents released</span>
+        <span>{t('Documents released')}</span>
         <span>{retention.released}</span>
       </div>
     </>
@@ -199,10 +229,11 @@ function AsnSeriesCard({ api }: { api: Api }) {
   if (series === null) return null;
   return (
     <div className="card">
-      <h2>Serial number series</h2>
+      <h2>{t('Serial number series')}</h2>
       <p className="muted">
-        Number documents apart, one series per binder or household: B-1, B-2… beside the main 1, 2….
-        Barcodes such as B-42 or B00042 give a document its number in that series.
+        {t(
+          'Number documents apart, one series per binder or household: B-1, B-2… beside the main 1, 2…. Barcodes such as B-42 or B00042 give a document its number in that series.',
+        )}
       </p>
       {series.length === 0 ? null : (
         <ul className="list">
@@ -212,10 +243,10 @@ function AsnSeriesCard({ api }: { api: Api }) {
               <button
                 type="button"
                 className="link"
-                aria-label={`Remove series ${s.prefix}`}
+                aria-label={t('Remove series {prefix}', { prefix: s.prefix })}
                 onClick={() => void remove(s)}
               >
-                Remove
+                {t('Remove')}
               </button>
             </li>
           ))}
@@ -223,7 +254,7 @@ function AsnSeriesCard({ api }: { api: Api }) {
       )}
       <form className="filter-row" onSubmit={(event) => void add(event)}>
         <div>
-          <label htmlFor="series-prefix">Prefix</label>
+          <label htmlFor="series-prefix">{t('Prefix')}</label>
           <input
             id="series-prefix"
             value={prefix}
@@ -232,17 +263,17 @@ function AsnSeriesCard({ api }: { api: Api }) {
           />
         </div>
         <div>
-          <label htmlFor="series-name">Name</label>
+          <label htmlFor="series-name">{t('Name')}</label>
           <input
             id="series-name"
             value={name}
-            placeholder="Business"
+            placeholder={t('Business')}
             onChange={(event) => setName(event.target.value)}
           />
         </div>
         <div>
           <button type="submit" disabled={prefix.trim() === '' || name.trim() === ''}>
-            Start series
+            {t('Start series')}
           </button>
         </div>
       </form>
@@ -272,8 +303,8 @@ function RecentChanges({ api }: { api: Api }) {
   if (entries === null) return null;
   return (
     <div className="card">
-      <h2>Recent changes</h2>
-      {entries.length === 0 ? <p className="muted">Nothing changed yet.</p> : null}
+      <h2>{t('Recent changes')}</h2>
+      {entries.length === 0 ? <p className="muted">{t('Nothing changed yet.')}</p> : null}
       <ol className="timeline">
         {entries.map((entry) => (
           <li key={entry.id}>
@@ -291,17 +322,18 @@ function RecentChanges({ api }: { api: Api }) {
       </ol>
       {more && entries.length > 0 ? (
         <button type="button" className="secondary" onClick={() => void load(entries.at(-1)!.id)}>
-          Older
+          {t('Older')}
         </button>
       ) : null}
     </div>
   );
 }
 
+// English: each is put through `t` where it is drawn.
 const SOURCE_TEXT: Readonly<Record<SettingSource, string>> = {
-  default: 'built-in default',
-  environment: 'from the environment',
-  saved: 'saved here',
+  default: mark('built-in default'),
+  environment: mark('from the environment'),
+  saved: mark('saved here'),
 };
 
 /** Settings an admin can change without restarting the server; nothing for anyone else. */
@@ -339,17 +371,17 @@ function ServerSettingsCard({ api }: { api: Api }) {
     setSettings(result.value.settings);
     setSources(result.value.sources);
     setDraft(result.value.settings);
-    setMessage({ ok: true, text: 'Saved' });
+    setMessage({ ok: true, text: t('Saved') });
   };
 
   const note = (key: keyof ServerSettings) => (
     <span className="muted small">
-      {SOURCE_TEXT[sources[key]]}
+      {t(SOURCE_TEXT[sources[key]])}
       {sources[key] === 'saved' ? (
         <>
           {' · '}
           <button type="button" className="link" onClick={() => void save({ [key]: null })}>
-            undo
+            {t('undo')}
           </button>
         </>
       ) : null}
@@ -364,8 +396,8 @@ function ServerSettingsCard({ api }: { api: Api }) {
         void save(Object.fromEntries(changed.map((key) => [key, draft[key]])));
       }}
     >
-      <h2>Settings</h2>
-      <label htmlFor="set-trash">Days in the trash before deleting for good</label>
+      <h2>{t('Settings')}</h2>
+      <label htmlFor="set-trash">{t('Days in the trash before deleting for good')}</label>
       <input
         id="set-trash"
         inputMode="numeric"
@@ -373,7 +405,7 @@ function ServerSettingsCard({ api }: { api: Api }) {
         onChange={(event) => setDraft({ ...draft, trashDays: Number(event.target.value) })}
       />
       {note('trashDays')}
-      <label htmlFor="set-format">Export file names</label>
+      <label htmlFor="set-format">{t('Export file names')}</label>
       <input
         id="set-format"
         value={draft.filenameFormat}
@@ -386,12 +418,12 @@ function ServerSettingsCard({ api }: { api: Api }) {
           checked={draft.barcodesEnabled}
           onChange={(event) => setDraft({ ...draft, barcodesEnabled: event.target.checked })}
         />{' '}
-        Read barcodes on new documents
+        {t('Read barcodes on new documents')}
       </label>
       {note('barcodesEnabled')}
       <div className="filter-row">
         <div>
-          <label htmlFor="set-separator">Separator page barcode</label>
+          <label htmlFor="set-separator">{t('Separator page barcode')}</label>
           <input
             id="set-separator"
             value={draft.barcodeSeparator}
@@ -400,7 +432,7 @@ function ServerSettingsCard({ api }: { api: Api }) {
           {note('barcodeSeparator')}
         </div>
         <div>
-          <label htmlFor="set-asn">Serial number barcode prefix</label>
+          <label htmlFor="set-asn">{t('Serial number barcode prefix')}</label>
           <input
             id="set-asn"
             value={draft.barcodeAsnPrefix}
@@ -411,7 +443,7 @@ function ServerSettingsCard({ api }: { api: Api }) {
       </div>
       <div className="filter-row">
         <div>
-          <label htmlFor="set-date-order">Dates written in numbers, like 03/04/2026</label>
+          <label htmlFor="set-date-order">{t('Dates written in numbers, like 03/04/2026')}</label>
           <select
             id="set-date-order"
             value={draft.dateOrder}
@@ -419,14 +451,14 @@ function ServerSettingsCard({ api }: { api: Api }) {
               setDraft({ ...draft, dateOrder: event.target.value as DateOrderSetting })
             }
           >
-            <option value="DMY">Day first: 3 April 2026</option>
-            <option value="MDY">Month first: March 4, 2026</option>
-            <option value="YMD">Year first: 2026, March 4</option>
+            <option value="DMY">{t('Day first: 3 April 2026')}</option>
+            <option value="MDY">{t('Month first: March 4, 2026')}</option>
+            <option value="YMD">{t('Year first: 2026, March 4')}</option>
           </select>
           {note('dateOrder')}
         </div>
         <div>
-          <label htmlFor="set-currency">Currency of amounts with none written</label>
+          <label htmlFor="set-currency">{t('Currency of amounts with none written')}</label>
           <input
             id="set-currency"
             maxLength={3}
@@ -441,7 +473,7 @@ function ServerSettingsCard({ api }: { api: Api }) {
       {problem === null ? null : <p className="error">{problem}</p>}
       <p className="actions">
         <button type="submit" disabled={changed.length === 0 || problem !== null}>
-          Save settings
+          {t('Save settings')}
         </button>
         {message === null ? null : (
           <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>

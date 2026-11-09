@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { DocumentVersion } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { shortSha, when } from '../format';
+import { t } from '../i18n';
 import { initialRows, move, pagesToSend, parseParts, turn, type PageRow } from '../page-edit';
 import { href } from '../route';
 
@@ -50,7 +51,10 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
     const chosen = count === null ? null : parseParts(parts, count);
     if (chosen === null) {
       setError(
-        `Parts like "1-2; 3-${String(count ?? 3)}", within the ${String(count ?? 0)} pages.`,
+        t('Parts like "1-2; 3-{last}", within the {count} pages.', {
+          last: String(count ?? 3),
+          count: String(count ?? 0),
+        }),
       );
       return;
     }
@@ -84,11 +88,11 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
 
   return (
     <section>
-      <h2>Pages</h2>
+      <h2>{t('Pages')}</h2>
       <p className="muted small">
-        {count} page{count === 1 ? '' : 's'}.{' '}
+        {count === 1 ? t('1 page.') : t('{count} pages.', { count })}{' '}
         <button type="button" className="link" onClick={() => setOpen(!open)}>
-          {open ? 'Close' : 'Turn, remove, reorder or split'}
+          {open ? t('Close') : t('Turn, remove, reorder or split')}
         </button>
       </p>
       {open ? (
@@ -97,14 +101,15 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
             {rows.map((row, i) => (
               <li key={row.page} className={row.removed ? 'removed' : undefined}>
                 <span>
-                  Page {row.page}
-                  {row.rotate === 0 ? '' : `, turned ${String(row.rotate)}°`}
+                  {row.rotate === 0
+                    ? t('Page {page}', { page: row.page })
+                    : t('Page {page}, turned {degrees}°', { page: row.page, degrees: row.rotate })}
                 </span>
                 <span className="actions">
                   <button
                     type="button"
                     className="secondary"
-                    aria-label={`Turn page ${String(row.page)} left`}
+                    aria-label={t('Turn page {page} left', { page: row.page })}
                     onClick={() => setRows(turn(rows, i, 270))}
                   >
                     ⟲
@@ -112,7 +117,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
                   <button
                     type="button"
                     className="secondary"
-                    aria-label={`Turn page ${String(row.page)} right`}
+                    aria-label={t('Turn page {page} right', { page: row.page })}
                     onClick={() => setRows(turn(rows, i, 90))}
                   >
                     ⟳
@@ -120,7 +125,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
                   <button
                     type="button"
                     className="secondary"
-                    aria-label={`Move page ${String(row.page)} up`}
+                    aria-label={t('Move page {page} up', { page: row.page })}
                     onClick={() => setRows(move(rows, i, -1))}
                   >
                     ↑
@@ -128,7 +133,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
                   <button
                     type="button"
                     className="secondary"
-                    aria-label={`Move page ${String(row.page)} down`}
+                    aria-label={t('Move page {page} down', { page: row.page })}
                     onClick={() => setRows(move(rows, i, 1))}
                   >
                     ↓
@@ -140,7 +145,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
                       setRows(rows.map((r, j) => (j === i ? { ...r, removed: !r.removed } : r)))
                     }
                   >
-                    {row.removed ? 'Keep' : 'Remove'}
+                    {row.removed ? t('Keep') : t('Remove')}
                   </button>
                 </span>
               </li>
@@ -148,12 +153,14 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
           </ol>
           <p className="actions">
             <button type="button" disabled={!changed || left === 0} onClick={() => void save()}>
-              Save pages
+              {t('Save pages')}
             </button>
-            <span className="muted small">The current file is kept as an earlier version.</span>
+            <span className="muted small">
+              {t('The current file is kept as an earlier version.')}
+            </span>
           </p>
 
-          <label htmlFor="split-parts">Split into documents</label>
+          <label htmlFor="split-parts">{t('Split into documents')}</label>
           <span className="asn-input">
             <input
               id="split-parts"
@@ -167,7 +174,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
               disabled={parts.trim() === ''}
               onClick={() => void split()}
             >
-              Split
+              {t('Split')}
             </button>
           </span>
           <label className="check">
@@ -176,11 +183,11 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
               checked={keepOriginal}
               onChange={(event) => setKeepOriginal(event.target.checked)}
             />{' '}
-            Keep this document too (otherwise it goes to the trash)
+            {t('Keep this document too (otherwise it goes to the trash)')}
           </label>
           {made.length === 0 ? null : (
             <p>
-              Made{' '}
+              {t('Made')}{' '}
               {made.map((doc, i) => (
                 <span key={doc}>
                   {i === 0 ? '' : ', '}
@@ -195,24 +202,26 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
 
       {versions.length === 0 ? null : (
         <>
-          <h3>Earlier versions</h3>
+          <h3>{t('Earlier versions')}</h3>
           <ul className="links share-links">
             {versions.map((version) => (
               <li key={version.sha256}>
                 <span>
                   {shortSha(version.sha256)} ·{' '}
-                  {version.pageCount === null ? '' : `${String(version.pageCount)} pages · `}
-                  replaced {when(version.replacedAt)}
+                  {version.pageCount === null
+                    ? ''
+                    : `${t('{count} pages', { count: version.pageCount })} · `}
+                  {t('replaced {when}', { when: when(version.replacedAt) })}
                 </span>
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => void view(version.sha256)}
                 >
-                  View
+                  {t('View')}
                 </button>
                 <button type="button" className="link" onClick={() => void restore(version.sha256)}>
-                  Restore
+                  {t('Restore')}
                 </button>
               </li>
             ))}

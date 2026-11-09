@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SimilarDocument } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { shortSha, when } from '../format';
+import { t } from '../i18n';
 import { href } from '../route';
 
 /**
@@ -22,17 +23,20 @@ export function Similar({ api, sha256 }: { api: Api; sha256: string }) {
     <div className="notice">
       <strong>
         {similar.length === 1
-          ? 'This looks like the same paper as another document'
-          : 'This looks like the same paper as other documents'}
+          ? t('This looks like the same paper as another document')
+          : t('This looks like the same paper as other documents')}
       </strong>
       <ul>
         {similar.map((doc) => (
           <li key={doc.sha256}>
             <a href={href({ page: 'document', sha256: doc.sha256 })}>
-              {doc.title ?? `Scan ${shortSha(doc.sha256)}`}
+              {doc.title ?? t('Scan {id}', { id: shortSha(doc.sha256) })}
             </a>{' '}
             <span className="muted">
-              {String(Math.round(doc.similarity * 100))}% alike · {when(doc.receivedAt)}
+              {t('{percent}% alike · {when}', {
+                percent: Math.round(doc.similarity * 100),
+                when: when(doc.receivedAt),
+              })}
             </span>
           </li>
         ))}

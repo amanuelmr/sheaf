@@ -8,11 +8,19 @@ import {
 } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { when } from '../format';
+import { mark, t } from '../i18n';
 
+// English: each is put through `t` where it is drawn.
 const ROLE_NAMES: Readonly<Record<Role, string>> = {
-  admin: 'Admin: everything',
-  editor: 'Editor: read and change documents',
-  viewer: 'Viewer: read only',
+  admin: mark('Admin: everything'),
+  editor: mark('Editor: read and change documents'),
+  viewer: mark('Viewer: read only'),
+};
+
+const ROLE_SHORT: Readonly<Record<Role, string>> = {
+  admin: mark('admin'),
+  editor: mark('editor'),
+  viewer: mark('viewer'),
 };
 
 /** People who sign in, and what each may do. */
@@ -37,7 +45,7 @@ export function Users({ api }: { api: Api }) {
   const run = async (change: Promise<{ ok: boolean; message?: string }>) => {
     const result = await change;
     if (!result.ok) {
-      setError(result.message ?? 'That did not work.');
+      setError(result.message ?? t('That did not work.'));
       return false;
     }
     setError(null);
@@ -59,31 +67,34 @@ export function Users({ api }: { api: Api }) {
 
   return (
     <div>
-      <h1>Users</h1>
+      <h1>{t('Users')}</h1>
       <p className="subtitle">
-        People who sign in with a username and password. The admin token and paired phones keep
-        working alongside them.
+        {t(
+          'People who sign in with a username and password. The admin token and paired phones keep working alongside them.',
+        )}
       </p>
       {error === null ? null : <p className="error">{error}</p>}
-      {users === null ? <p className="muted">Loading…</p> : null}
-      {users !== null && users.length === 0 ? <p className="muted">No users yet.</p> : null}
+      {users === null ? <p className="muted">{t('Loading…')}</p> : null}
+      {users !== null && users.length === 0 ? <p className="muted">{t('No users yet.')}</p> : null}
       <ul className="list">
         {(users ?? []).map((user) => (
           <li key={user.id}>
             <div>
               <strong>
                 {user.username}
-                {user.disabledAt === null ? null : <span className="badge neutral">disabled</span>}
+                {user.disabledAt === null ? null : (
+                  <span className="badge neutral">{t('disabled')}</span>
+                )}
               </strong>
               <span className="muted">
                 {user.lastSignIn === null
-                  ? 'Never signed in'
-                  : `Last signed in ${when(user.lastSignIn)}`}
+                  ? t('Never signed in')
+                  : t('Last signed in {when}', { when: when(user.lastSignIn) })}
               </span>
             </div>
             <div className="actions">
               <select
-                aria-label={`Role of ${user.username}`}
+                aria-label={t('Role of {name}', { name: user.username })}
                 value={user.role}
                 onChange={(event) =>
                   void run(api.updateUser(user.id, { role: event.target.value as Role }))
@@ -91,7 +102,7 @@ export function Users({ api }: { api: Api }) {
               >
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {t(ROLE_SHORT[r])}
                   </option>
                 ))}
               </select>
@@ -109,7 +120,7 @@ export function Users({ api }: { api: Api }) {
                 >
                   <input
                     type="password"
-                    aria-label={`New password for ${user.username}`}
+                    aria-label={t('New password for {name}', { name: user.username })}
                     autoComplete="new-password"
                     value={resetting.password}
                     onChange={(event) =>
@@ -117,7 +128,7 @@ export function Users({ api }: { api: Api }) {
                     }
                   />
                   <button type="submit" disabled={resetting.password.length < MIN_PASSWORD_LENGTH}>
-                    Set
+                    {t('Set')}
                   </button>
                 </form>
               ) : (
@@ -126,7 +137,7 @@ export function Users({ api }: { api: Api }) {
                   className="secondary"
                   onClick={() => setResetting({ id: user.id, password: '' })}
                 >
-                  New password
+                  {t('New password')}
                 </button>
               )}
               <button
@@ -136,23 +147,23 @@ export function Users({ api }: { api: Api }) {
                   void run(api.updateUser(user.id, { disabled: user.disabledAt === null }))
                 }
               >
-                {user.disabledAt === null ? 'Disable' : 'Enable'}
+                {user.disabledAt === null ? t('Disable') : t('Enable')}
               </button>
               <button
                 type="button"
                 className="link"
                 onClick={() => void run(api.deleteUser(user.id))}
               >
-                Remove
+                {t('Remove')}
               </button>
             </div>
           </li>
         ))}
       </ul>
 
-      <h2>New user</h2>
+      <h2>{t('New user')}</h2>
       <form className="card" onSubmit={(event) => void create(event)}>
-        <label htmlFor="user-name">Username</label>
+        <label htmlFor="user-name">{t('Username')}</label>
         <input
           id="user-name"
           autoComplete="off"
@@ -161,10 +172,10 @@ export function Users({ api }: { api: Api }) {
         />
         {username === '' || nameOk ? null : (
           <p className="muted small">
-            Lower case letters, digits, dots, dashes and underscores; 2 to 32 of them.
+            {t('Lower case letters, digits, dots, dashes and underscores; 2 to 32 of them.')}
           </p>
         )}
-        <label htmlFor="user-password">Password</label>
+        <label htmlFor="user-password">{t('Password')}</label>
         <input
           id="user-password"
           type="password"
@@ -173,9 +184,11 @@ export function Users({ api }: { api: Api }) {
           onChange={(event) => setPassword(event.target.value)}
         />
         {password === '' || passwordOk ? null : (
-          <p className="muted small">At least {MIN_PASSWORD_LENGTH} characters.</p>
+          <p className="muted small">
+            {t('At least {count} characters.', { count: MIN_PASSWORD_LENGTH })}
+          </p>
         )}
-        <label htmlFor="user-role">Role</label>
+        <label htmlFor="user-role">{t('Role')}</label>
         <select
           id="user-role"
           value={role}
@@ -183,12 +196,12 @@ export function Users({ api }: { api: Api }) {
         >
           {ROLES.map((r) => (
             <option key={r} value={r}>
-              {ROLE_NAMES[r]}
+              {t(ROLE_NAMES[r])}
             </option>
           ))}
         </select>
         <button type="submit" disabled={!nameOk || !passwordOk}>
-          Add user
+          {t('Add user')}
         </button>
       </form>
     </div>
