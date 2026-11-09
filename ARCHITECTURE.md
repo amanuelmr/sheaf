@@ -12,16 +12,18 @@ flowchart LR
     CAM[Platform scanner] --> LOG[(Intent log)]
     CAM --> EOCR[On-device OCR]
   end
-  subgraph Server["services/ingest — Node, no runtime dependencies"]
-    API[HTTP /v1] --> BLOB[(objects/ by sha256)]
-    API --> DB[(ingest.db: catalog, jobs,<br/>deliveries, text, FTS5)]
-    DB --> JOBS[Job runner]
+  subgraph Server["services/ingest — Node"]
+    API[HTTP or HTTPS /v1] --> BLOB[(objects/ by sha256,<br/>optionally encrypted)]
+    API --> DB[(ingest.db: catalog, jobs, deliveries,<br/>text, FTS5, users, labels, fields)]
+    DB --> JOBS[Job runner: barcodes,<br/>filing rules, extraction, OCR]
     DB --> FWD[Forwarder per connector]
+    IN[Consume folder, IMAP] --> API
   end
+  WEB[apps/web] -- "token or session" --> API
   LOG -- "PUT /v1/documents/{sha256}" --> API
   EOCR -- "PUT …/{sha256}/text" --> API
   JOBS -. "no text after 2 min" .-> OCR[OCR sidecar<br/>compose.ocr.yml]
-  FWD -. optional .-> PL[Paperless-ngx<br/>compose.paperless.yml]
+  FWD -. optional .-> DEST[WebDAV · folder · S3 · Papra ·<br/>Paperless-ngx]
 ```
 
 | Piece      | Where                                                           | What it guarantees                                                                                                        |
@@ -32,6 +34,10 @@ flowchart LR
 | Connectors | `forwarder.ts`, one `deliveries` row per document per connector | A failing destination never holds up another, or the document                                                             |
 | Search     | FTS5 in `ingest.db`, `GET /v1/search`                           | Typed input can never break a query; p95 16.7 ms at 10,000 documents                                                      |
 | Archive    | `native-archive.ts` behind `/v1/archive`                        | The phone's library works with no Paperless, with ids that survive `VACUUM`                                               |
+| Accounts   | `users.ts`, `sso.ts`, `share-links.ts`, `audit.ts`              | People see only what they own or were given; secrets are stored only as hashes (see [SECURITY.md](SECURITY.md))           |
+| Filing     | `rules.ts`, `workflows.ts`, `custom-fields.ts`, `labels.ts`     | Rules and workflows run once per new document; extraction never overwrites what a person set                              |
+| Intake     | `consume.ts`, `mail.ts`, `epub.ts`, `POST /v1/books`            | Every way in ends in the same content-addressed store, so a file sent twice is one document                               |
+| At rest    | `encryption.ts`, `tls.ts`                                       | Files encrypted with AES-256-GCM when a key is set; HTTPS of its own, with the pin given out at pairing                   |
 
 Schema changes past the original columns are ordered, run-once migrations
 (`services/ingest/src/migrations.ts`), each tested against a database the previous
@@ -83,7 +89,7 @@ DRAFT ──Enqueued──▶ QUEUED ──▶ UPLOADING ──TaskAccepted─�
                                     └─ RetryRequested ─▶ QUEUED
 ```
 
-Three invariants matter more than the rest:
+Four invariants matter more than the rest:
 
 1. **Nothing leaves `AWAITING_SERVER` by uploading.** Once a task id exists the bytes
    may be on the server; the only legal move is to poll. Asserted exhaustively over
@@ -188,11 +194,13 @@ Different failure mode from the simulator in `packages/sim`: that proves the
 _engine_ survives a hostile network talking to a well-understood target; this
 proves the _target_ still behaves the way the engine assumes.
 
-## Browsing the archive: a live proxy on the server, a small deliberate cache on the phone
+## Browsing the archive: the server's own catalog, a small deliberate cache on the phone
 
-The app can search and edit documents already in Paperless -- `GET /v1/archive`,
-served by `services/ingest/src/paperless-browse.ts` -- which sits deliberately
-apart from everything above it. Capture is a write the engine must get exactly
+The app's library browses `GET /v1/archive`. By default that is the server's own
+catalog (`native-archive.ts`, ADR 0007). With `SHEAF_ARCHIVE_SOURCE=paperless` it
+is everything a Paperless-ngx holds instead, served by
+`services/ingest/src/paperless-browse.ts` -- which sits deliberately apart from
+everything above it. Capture is a write the engine must get exactly
 right no matter what the network does to it; browsing is a read with nothing to
 get wrong that a retry does not already fix. So the server side gets none of the
 event log, the state machine, or the simulator: `paperless-browse.ts` is a
@@ -215,9 +223,9 @@ no need of a ranked index to answer well under a frame.
 
 ## Searching the outbox: OCR before Paperless ever sees it
 
-`archive-cache`'s search only covers what Paperless has already stored -- a
-document still in the outbox has no OCR text anywhere yet, because Paperless
-is the thing that produces it, and Paperless hasn't consumed this document.
+`archive-cache`'s search only covers what the server has already stored -- a
+document still in the outbox has no text anywhere yet, because it has not reached
+the server, which reads it (or receives the phone's own reading) once it does.
 `packages/outbox-ocr` closes that gap: `expo-ocr-kit` (Google ML Kit on
 Android, Apple's own Vision on iOS -- an OS framework, not a bundled model)
 runs against each captured page right after `commit()` in `app/index.tsx`,
@@ -249,14 +257,14 @@ cost of `expo-ocr-kit` being a much smaller, single-maintainer package --
 a supply-chain tradeoff accepted deliberately, and only after the alternative
 was shown to be broken rather than just less established.
 
-## `apps/web`: a second client, reading the same server
+## `apps/web`: a second client, on the same server
 
-The first browser client this project has had, and deliberately the smallest
-kind of thing it could be: it polls `GET /v1/health` and draws what comes back
--- forwarding, reconciliation, retention -- rather than leaving that JSON to be
-read by hand. No write path, on purpose: managing documents is `/v1/archive`,
-which the mobile app already does, and a second client reimplementing that
-would be duplicated surface for no new capability.
+It began as the smallest thing it could be -- a page polling `GET /v1/health` --
+and is now the full desk-side client: search with filters and saved views,
+reviewing suggestions, editing a document's details, fields, notes, pages and
+stamps, uploading, sharing, labels and rules, workflows, users and settings, in
+English, German, French or Spanish. It talks only to the same `/v1` the phone
+does; there is no route just for it. See [`apps/web/README.md`](apps/web/README.md).
 
 Getting a browser talking to the ingest server at all needed one real change:
 `services/ingest/src/server.ts` now answers every response, and every `OPTIONS`
@@ -270,7 +278,7 @@ ported) instance of the server surfaced `Failed to fetch`.
 
 ## Multiple profiles: isolation by file, not by column
 
-More than one named Paperless connection on one phone -- home and work, say --
+More than one server on one phone -- home and work, say --
 turned out to need no change at all to `packages/core`, `packages/engine`, or
 `packages/store`: every one of them was already parameterised over an injected
 `SqlDriver` rather than assuming a single database, because that is what let
@@ -312,9 +320,9 @@ foreground would.
 
 ## Deliberate non-goals
 
-No full mirror of the archive -- only what was actually opened or starred, ever.
-No bulk document management -- Paperless's own web UI already does that well,
-and duplicating it is not the differentiator here. No cloud account, no second
-way to edit a document beyond what `/v1/archive` already offers. Capture and
-reliable delivery are still the product's centre of gravity; browsing and a
-dashboard, on- or offline, are what make that delivery worth checking on.
+No full mirror of the archive on the phone -- only what was actually opened or
+starred, ever. No cloud account and no Sheaf-run service: the server is yours.
+Since ADR 0007 the server is the system of record, so managing documents --
+bulk edits included -- lives in the web app rather than being left to
+Paperless-ngx. Capture and reliable delivery are still the centre of gravity;
+everything else exists to make what was delivered worth keeping.
