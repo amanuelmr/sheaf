@@ -1,6 +1,6 @@
 # 6. Keep the ingest server, but stop it being a second thing to run
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR 0007](0007-sheaf-is-the-system-of-record.md) — Paperless-ngx is now optional, in `compose.paperless.yml`, so `docker compose up -d` starts Sheaf alone
 - Date: 2026-08-25
 
 ## Context
