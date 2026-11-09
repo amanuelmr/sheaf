@@ -2232,6 +2232,12 @@ export interface PairingCodeResponse {
   /** Base32 in groups of four, e.g. `K7QX-…`; case and dashes do not matter. */
   readonly code: string;
   readonly expiresAt: number;
+  /**
+   * The server's certificate, as `sha256/<base64>` of its public key, when it is
+   * reached over HTTPS: the phone keeps it at pairing and trusts no other, which
+   * lets a server use a self-signed certificate or a private CA. Absent over HTTP.
+   */
+  readonly pin?: string;
 }
 
 export interface PairRequest {
@@ -2261,12 +2267,24 @@ export interface DevicesResponse {
  * The link a pairing QR code holds. Scanning it with the phone's own camera opens
  * Sheaf (the `sheaf` scheme), already knowing where to connect and with what code.
  */
-export function pairingUri(server: string, code: string): string {
-  return `sheaf://pair?server=${encodeURIComponent(server)}&code=${encodeURIComponent(code)}`;
+export function pairingUri(server: string, code: string, pin?: string): string {
+  const base = `sheaf://pair?server=${encodeURIComponent(server)}&code=${encodeURIComponent(code)}`;
+  return pin === undefined ? base : `${base}&pin=${encodeURIComponent(pin)}`;
 }
 
-/** The server and code in a pairing link, or null for anything else. */
-export function parsePairingUri(uri: string): { server: string; code: string } | null {
+/** A certificate pin: `sha256/` and the base64 of 32 bytes. */
+export function isCertificatePin(value: string): boolean {
+  return /^sha256\/[A-Za-z0-9+/]{43}=$/.test(value);
+}
+
+/**
+ * The server, code and certificate pin in a pairing link, or null for anything
+ * else. A pin that is not one is refused rather than dropped: a link that names
+ * a certificate must not quietly pair with any.
+ */
+export function parsePairingUri(
+  uri: string,
+): { server: string; code: string; pin?: string } | null {
   const match = /^sheaf:\/\/pair\?(.*)$/i.exec(uri.trim());
   if (match === null) return null;
   const params = new URLSearchParams(match[1]);
@@ -2274,7 +2292,13 @@ export function parsePairingUri(uri: string): { server: string; code: string } |
   const code = params.get('code');
   if (server === null || code === null || code.trim() === '') return null;
   if (!/^https?:\/\/[^\s/]+/i.test(server)) return null;
-  return { server: server.replace(/\/+$/, ''), code: code.trim() };
+  const pin = params.get('pin');
+  if (pin !== null && (!isCertificatePin(pin) || !/^https:/i.test(server))) return null;
+  return {
+    server: server.replace(/\/+$/, ''),
+    code: code.trim(),
+    ...(pin === null ? {} : { pin }),
+  };
 }
 
 export function authorization(token: string): string {

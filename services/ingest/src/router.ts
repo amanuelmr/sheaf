@@ -172,6 +172,11 @@ export interface RouterDeps {
   readonly rules?: Rules;
   /** Filters kept under a name. Absent, those routes answer 404. */
   readonly views?: SavedViews;
+  /**
+   * The pin of the certificate phones reach this server through, given out with
+   * each pairing code so a phone trusts that certificate and no other.
+   */
+  readonly certificatePin?: string;
   /** Serial number series. Absent, those routes answer 404. */
   readonly asnSeries?: AsnSeriesStore;
   /** One change to many documents. Absent, the route answers 404. */
@@ -278,11 +283,18 @@ async function pair(
   return { status: 200, json: response };
 }
 
-async function manageDevices(request: IngestRequest, devices: Devices): Promise<IngestResponse> {
+async function manageDevices(
+  request: IngestRequest,
+  devices: Devices,
+  pin: string | undefined,
+): Promise<IngestResponse> {
   const { method, path } = request;
   if (path === paths.pairingCodes()) {
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    const response: PairingCodeResponse = await devices.createPairingCode();
+    const response: PairingCodeResponse = {
+      ...(await devices.createPairingCode()),
+      ...(pin === undefined ? {} : { pin }),
+    };
     return { status: 201, json: response };
   }
   if (path === paths.devices()) {
@@ -512,7 +524,7 @@ async function authenticated(
   ) {
     if (!isAdmin(principal)) return fail('forbidden', 'only the admin token manages devices');
     if (deps.devices === undefined) return fail('not_found');
-    return manageDevices(request, deps.devices);
+    return manageDevices(request, deps.devices, deps.certificatePin);
   }
 
   if (path === paths.health()) {
