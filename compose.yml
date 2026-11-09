@@ -8,8 +8,14 @@
 #
 #   docker compose -f compose.yml -f compose.paperless.yml up -d
 #
-# For local development you do not need this at all -- the server has no runtime
-# dependencies, so `pnpm --filter @sheaf/ingest start` is faster and equivalent.
+# Every other setting in services/ingest/README.md (copies to WebDAV, S3 or Papra,
+# email, single sign-on, encryption, HTTPS…) goes in server.env beside this file,
+# one NAME=value per line; it is handed to the server whole. (.env stays for what
+# the compose files themselves read.) A setting naming a folder or a file, such as
+# SHEAF_CONSUME_DIR or SHEAF_TLS_CERT, also needs that path mounted below.
+#
+# For local development you do not need this at all:
+# `pnpm --filter @sheaf/ingest start` is faster and equivalent.
 services:
   ingest:
     build:
@@ -18,6 +24,9 @@ services:
     restart: unless-stopped
     ports:
       - '8787:8787'
+    env_file:
+      - path: server.env
+        required: false
     environment:
       # No default. A server holding documents should not come up guessable.
       SHEAF_TOKEN: ${SHEAF_TOKEN:?set SHEAF_TOKEN to a long random string}

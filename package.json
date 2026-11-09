@@ -10,7 +10,7 @@
     "url": "git+https://github.com/amanuelmr/sheaf.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.6"
   },
   "packageManager": "pnpm@10.30.2",
   "scripts": {
