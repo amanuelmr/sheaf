@@ -8,6 +8,7 @@ import { Forwarder, type Connector } from './forwarder.ts';
 import { folderTarget } from './folder-target.ts';
 import { webdavTarget } from './webdav-target.ts';
 import { papraTarget } from './papra-target.ts';
+import { s3Target } from './s3-target.ts';
 import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
@@ -623,6 +624,21 @@ if (copyDir !== undefined && copyDir !== '') {
       prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
     }),
     copyDir,
+  );
+}
+const s3Bucket = process.env['SHEAF_S3_BUCKET'];
+if (s3Bucket !== undefined && s3Bucket !== '') {
+  const endpoint = process.env['SHEAF_S3_ENDPOINT'];
+  copyEverything(
+    s3Target({
+      bucket: s3Bucket,
+      region: process.env['SHEAF_S3_REGION'] ?? 'us-east-1',
+      accessKeyId: process.env['SHEAF_S3_ACCESS_KEY_ID'] ?? '',
+      secretAccessKey: process.env['SHEAF_S3_SECRET_ACCESS_KEY'] ?? '',
+      prefix: process.env['SHEAF_S3_PREFIX'] ?? '',
+      ...(endpoint === undefined || endpoint === '' ? {} : { endpoint }),
+    }),
+    `bucket ${s3Bucket}`,
   );
 }
 const papraUrl = process.env['SHEAF_PAPRA_URL'];
