@@ -499,6 +499,18 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'required_custom_fields',
     statements: ['ALTER TABLE custom_fields ADD COLUMN required INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    // Serial numbers in separate series, each a block of numbers of its own.
+    id: 29,
+    name: 'asn_series',
+    statements: [
+      `CREATE TABLE asn_series (
+         prefix TEXT    PRIMARY KEY COLLATE NOCASE,
+         name   TEXT    NOT NULL,
+         first  INTEGER NOT NULL UNIQUE
+       )`,
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

@@ -7,6 +7,7 @@ import {
   type DocumentFilter,
   type LabelKind,
   type MatchingRule,
+  type AsnSeries,
 } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import type { CustomFields } from './custom-fields.ts';
@@ -45,6 +46,8 @@ export interface Manifest {
     readonly position: number;
   }[];
   readonly documents: readonly ManifestDocument[];
+  /** Absent from exports made before there were series. */
+  readonly asnSeries?: readonly AsnSeries[];
 }
 
 export interface ManifestDocument {
@@ -157,6 +160,9 @@ export async function exportTo(
       position,
     })),
     documents,
+    asnSeries: await driver.all<AsnSeries>(
+      'SELECT prefix, name, first FROM asn_series ORDER BY first',
+    ),
   };
   writeFileSync(join(root, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
   return { documents: documents.length, withoutFile };
@@ -190,6 +196,22 @@ export async function importFrom(
     );
   }
   const problems: string[] = [];
+
+  // Before the documents, so their numbers fall in the series they were in. A
+  // series keeps its block, as its documents' numbers do.
+  for (const series of manifest.asnSeries ?? []) {
+    await parts.driver.run(
+      'INSERT OR IGNORE INTO asn_series (prefix, name, first) VALUES (?, ?, ?)',
+      [series.prefix, series.name, series.first],
+    );
+    const here = await parts.driver.all<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM asn_series WHERE prefix = ? AND first = ?',
+      [series.prefix, series.first],
+    );
+    if ((here[0]?.n ?? 0) === 0) {
+      problems.push(`serial number series ${series.prefix}: here it is another series' numbers`);
+    }
+  }
 
   for (const label of manifest.labels) {
     const existing = (await labels.list(label.kind)).find((l) => l.name === label.name);

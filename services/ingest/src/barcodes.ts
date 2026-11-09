@@ -1,3 +1,4 @@
+import { ASN_SERIES_SIZE, MAX_ASN } from '@sheaf/protocol';
 import { inflateSync } from 'node:zlib';
 import {
   BarcodeFormat,
@@ -211,25 +212,45 @@ export interface BarcodePlan {
   readonly asn: number | null;
 }
 
+/** A serial number series as barcodes name it: its prefix, and the stored number of its 1. */
+export interface BarcodeSeries {
+  readonly prefix: string;
+  readonly first: number;
+}
+
 export function plan(
   pages: readonly (readonly string[])[],
   separator: string,
-  asnPrefix: string,
+  series: readonly BarcodeSeries[],
 ): BarcodePlan {
   const isSeparator = (page: readonly string[]) => page.some((text) => text === separator);
-  const asnPattern = new RegExp(
-    `^${asnPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*0*(\\d{1,10})$`,
-    'i',
-  );
+  // Longest prefix first, so ASN00042 is not read as series A's number SN00042.
+  const patterns = [...series]
+    .filter((s) => s.prefix !== '')
+    .sort((a, b) => b.prefix.length - a.prefix.length)
+    .map((s) => ({
+      ...s,
+      pattern: new RegExp(
+        `^${s.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-?\\s*0*(\\d{1,10})$`,
+        'i',
+      ),
+    }));
   let asn: number | null = null;
   for (const page of pages) {
     for (const text of page) {
-      const match = asnPattern.exec(text);
-      if (match !== null && asn === null) asn = Number(match[1]);
+      if (asn !== null) break;
+      for (const { pattern, first } of patterns) {
+        const match = pattern.exec(text);
+        if (match === null) continue;
+        const n = Number(match[1]);
+        // The main series starts at 1 and runs on; another stops at its block's end.
+        if (n >= 1 && (first === 1 || n <= ASN_SERIES_SIZE)) asn = first + n - 1;
+        break;
+      }
     }
   }
   if (!pages.some(isSeparator))
-    return { parts: null, asn: asn !== null && asn <= 2_147_483_647 ? asn : null };
+    return { parts: null, asn: asn !== null && asn <= MAX_ASN ? asn : null };
   const parts: number[][] = [[]];
   pages.forEach((page, i) => {
     if (isSeparator(page)) parts.push([]);

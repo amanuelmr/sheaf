@@ -9,6 +9,7 @@ import { folderTarget } from './folder-target.ts';
 import { webdavTarget } from './webdav-target.ts';
 import { papraTarget } from './papra-target.ts';
 import { s3Target } from './s3-target.ts';
+import { AsnSeriesStore } from './asn-series.ts';
 import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
@@ -379,6 +380,7 @@ const server = createIngestServer({
   labels: new Labels(driver, storage),
   rules,
   views: new SavedViews(driver),
+  asnSeries: new AsnSeriesStore(driver),
   bulk: new BulkEditor(storage, customFields, rules),
   shareLinks: new ShareLinks(driver, storage),
   workflows,

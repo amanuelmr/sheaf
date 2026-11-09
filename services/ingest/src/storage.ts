@@ -26,6 +26,7 @@ import type {
   SearchResponse,
   Suggestions,
 } from '@sheaf/protocol';
+import { ASN_SERIES_SIZE } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import { FIELD_NAMES, type ExtractedFields, type Usage } from '@sheaf/extract';
 import { migrate } from './migrations.ts';
@@ -1343,12 +1344,17 @@ export class Storage {
     });
   }
 
-  /** One more than the highest archive serial number in use, trash included. */
-  async nextAsn(): Promise<number> {
+  /**
+   * One more than the highest archive serial number in use in a series, trash
+   * included: the main series by default, numbers below the first series' block.
+   * `first` is the stored number of a series' 1, and `size` how many it holds.
+   */
+  async nextAsn(first = 1, size = ASN_SERIES_SIZE - 1): Promise<number> {
     const rows = await this.#driver.all<{ n: number | null }>(
-      'SELECT MAX(asn) AS n FROM documents',
+      'SELECT MAX(asn) AS n FROM documents WHERE asn >= ? AND asn < ?',
+      [first, first + size],
     );
-    return (rows[0]?.n ?? 0) + 1;
+    return Math.max((rows[0]?.n ?? 0) + 1, first);
   }
 
   async #addName(kind: NameKind, name: string): Promise<void> {

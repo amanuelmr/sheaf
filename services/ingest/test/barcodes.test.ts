@@ -11,6 +11,8 @@ import { barcodeStep } from '../src/steps/barcodes';
 import { Storage, sha256Hex } from '../src/storage';
 import { names, scanned } from './pdf-helpers';
 
+const MAIN = [{ prefix: 'ASN', first: 1 }];
+
 suite('reading barcodes', () => {
   it('reads a Data Matrix pictured as a JPEG and a QR code as a deflated image, page by page', async () => {
     const pdf = await scanned('cover', { matrix: 'PATCHT' }, { qr: 'ASN00042' });
@@ -20,18 +22,26 @@ suite('reading barcodes', () => {
 
 suite('what the barcodes ask for', () => {
   it('splits at separator pages, dropping them and empty parts', () => {
-    expect(plan([[], ['PATCHT'], [], [], ['PATCHT'], ['PATCHT']], 'PATCHT', 'ASN')).toEqual({
+    expect(plan([[], ['PATCHT'], [], [], ['PATCHT'], ['PATCHT']], 'PATCHT', MAIN)).toEqual({
       parts: [[1], [3, 4]],
       asn: null,
     });
   });
 
   it('takes the first serial number when there is nothing to split', () => {
-    expect(plan([['hello'], ['ASN 0007'], ['asn9']], 'PATCHT', 'ASN')).toEqual({
+    expect(plan([['hello'], ['ASN 0007'], ['asn9']], 'PATCHT', MAIN)).toEqual({
       parts: null,
       asn: 7,
     });
-    expect(plan([['ASNx']], 'PATCHT', 'ASN')).toEqual({ parts: null, asn: null });
+    expect(plan([['ASNx']], 'PATCHT', MAIN)).toEqual({ parts: null, asn: null });
+  });
+
+  it('reads a number in another series as its place in that series', () => {
+    const series = [...MAIN, { prefix: 'A', first: 10_000_000 }];
+    expect(plan([['A-42']], 'PATCHT', series)).toEqual({ parts: null, asn: 10_000_041 });
+    // The longer prefix wins: this is the main series' 42, not series A's "SN".
+    expect(plan([['ASN00042']], 'PATCHT', series)).toEqual({ parts: null, asn: 42 });
+    expect(plan([['A 10000001']], 'PATCHT', series)).toEqual({ parts: null, asn: null });
   });
 });
 

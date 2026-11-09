@@ -107,8 +107,15 @@ export const paths = {
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
   /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
   workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
-  /** `GET` the lowest archive serial number above every one in use. */
+  /**
+   * `GET ?series=` the lowest archive serial number above every one in use, in the
+   * series with that prefix, or the main one without it.
+   */
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
+  /** `GET` the serial number series; admin `POST`s an `AsnSeriesBody` to start one. */
+  asnSeries: () => `/${PROTOCOL_VERSION}/asn-series`,
+  /** Admin: `DELETE` a series no document has a number in. */
+  asnSeriesOne: (prefix: string) => `/${PROTOCOL_VERSION}/asn-series/${encodeURIComponent(prefix)}`,
   /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
   documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
   /**
@@ -374,6 +381,69 @@ export const MAX_ASN = 2_147_483_647;
 
 export interface NextAsnResponse {
   readonly asn: number;
+}
+
+/**
+ * Serial numbers in separate series, one per binder, household or company: B-1,
+ * B-2… beside the main 1, 2…. Each series is a block of `ASN_SERIES_SIZE` numbers,
+ * so a document still has one number, unique across all of them, and the series
+ * is where it falls: `first` is the stored number of the series' 1.
+ */
+export const ASN_SERIES_SIZE = 10_000_000;
+export const MAX_ASN_SERIES = Math.floor(MAX_ASN / ASN_SERIES_SIZE) - 1;
+
+export interface AsnSeries {
+  /** Letters and digits, such as `B` or `WORK`; printed before the number and on barcodes. */
+  readonly prefix: string;
+  readonly name: string;
+  /** The stored number of the series' first document. */
+  readonly first: number;
+}
+
+export interface AsnSeriesResponse {
+  readonly series: readonly AsnSeries[];
+}
+
+export interface AsnSeriesBody {
+  readonly prefix: string;
+  readonly name: string;
+}
+
+export function asnSeriesBodyProblem(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return 'the body must be an object';
+  const { prefix, name } = body as Record<string, unknown>;
+  if (typeof prefix !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,9}$/.test(prefix)) {
+    return 'prefix must be 1 to 10 letters and digits, starting with a letter';
+  }
+  if (typeof name !== 'string' || name.trim() === '' || name.length > 100) {
+    return 'name must be 1 to 100 characters';
+  }
+  return null;
+}
+
+/** The series a stored number falls in, or null for the main series. */
+export function asnSeriesOf(asn: number, series: readonly AsnSeries[]): AsnSeries | null {
+  return series.find((s) => asn >= s.first && asn < s.first + ASN_SERIES_SIZE) ?? null;
+}
+
+/** A stored number as people write it: `B-42` in a series, `42` in the main one. */
+export function asnLabel(asn: number, series: readonly AsnSeries[]): string {
+  const own = asnSeriesOf(asn, series);
+  return own === null ? String(asn) : `${own.prefix}-${String(asn - own.first + 1)}`;
+}
+
+/**
+ * The stored number for what a person typed: `42`, `B-42` or `B42`. Null when it
+ * names no series, or a number past the end of one.
+ */
+export function asnFromLabel(text: string, series: readonly AsnSeries[]): number | null {
+  const match = /^\s*(?:([A-Za-z][A-Za-z0-9]*?)\s*-?\s*)?0*([1-9][0-9]{0,9})\s*$/.exec(text);
+  if (match === null) return null;
+  const n = Number(match[2]);
+  if (match[1] === undefined) return n <= MAX_ASN ? n : null;
+  const own = series.find((s) => s.prefix.toLowerCase() === match[1]!.toLowerCase());
+  if (own === undefined || n > ASN_SERIES_SIZE) return null;
+  return own.first + n - 1;
 }
 
 /**
