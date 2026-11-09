@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { asnLabel, type DocumentRecord, type FieldEntry, type HistoryEvent } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 import { useAsnSeries } from '../asn-series';
 import { money, shortSha, when } from '../format';
 import { href } from '../route';
@@ -15,13 +16,13 @@ import { Similar } from './Similar';
 import { Stamp } from './Stamp';
 
 const LABELS: Readonly<Record<string, string>> = {
-  title: 'Title',
-  date: 'Date',
-  correspondent: 'From',
-  documentType: 'Type',
-  total: 'Total',
-  tags: 'Tags',
-  asn: 'Serial number',
+  title: mark('Title'),
+  date: mark('Date'),
+  correspondent: mark('From'),
+  documentType: mark('Type'),
+  total: mark('Total'),
+  tags: mark('Tags'),
+  asn: mark('Serial number'),
 };
 
 /** One document: the PDF, its details with who set each one, and its history here. */
@@ -99,12 +100,12 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         {pdf === null ? (
           <p className="muted">
             {record.bytesReleased
-              ? 'The file was released once a connector confirmed it.'
-              : 'Loading…'}
+              ? t('The file was released once a connector confirmed it.')
+              : t('Loading…')}
           </p>
         ) : (
           <>
-            <iframe title="The document" src={pdf} />
+            <iframe title={t('The document')} src={pdf} />
             <p className="small">
               <button
                 type="button"
@@ -117,7 +118,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
                     })
                 }
               >
-                Download with its text inside
+                {t('Download with its text inside')}
               </button>
             </p>
           </>
@@ -125,21 +126,23 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
       </div>
 
       <div className="details">
-        <h1>{record.title ?? record.suggestions?.title ?? `Scan ${shortSha(sha256)}`}</h1>
+        <h1>
+          {record.title ?? record.suggestions?.title ?? t('Scan {id}', { id: shortSha(sha256) })}
+        </h1>
         <p className="muted">
           {[
-            record.created === null ? null : `Dated ${record.created}`,
+            record.created === null ? null : t('Dated {date}', { date: record.created }),
             record.asn === null ? null : `ASN ${asnLabel(record.asn, series)}`,
-            `Received ${when(record.receivedAt)}`,
+            t('Received {when}', { when: when(record.receivedAt) }),
           ]
             .filter(Boolean)
             .join(' · ')}
         </p>
         {record.trashedAt === undefined ? null : (
           <p className="card">
-            In the trash since {when(record.trashedAt)}.{' '}
+            {t('In the trash since {when}.', { when: when(record.trashedAt) })}{' '}
             <button type="button" className="secondary" onClick={() => void restore()}>
-              Restore
+              {t('Restore')}
             </button>
           </p>
         )}
@@ -148,22 +151,22 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
 
         <DocumentDetails api={api} record={record} onSaved={(next) => void saved(next)} />
 
-        <h2>Details</h2>
+        <h2>{t('Details')}</h2>
         {fields.length === 0 ? (
-          <p className="muted">Nothing read from this document yet.</p>
+          <p className="muted">{t('Nothing read from this document yet.')}</p>
         ) : (
           <table className="fields">
             <tbody>
               {fields.map((field) => (
                 <tr key={field.name}>
-                  <th scope="row">{LABELS[field.name] ?? field.name}</th>
+                  <th scope="row">{t(LABELS[field.name] ?? field.name)}</th>
                   <td>{display(field)}</td>
                   <td>
                     {field.source === 'user' ? (
-                      <span className="badge ok">you</span>
+                      <span className="badge ok">{t('you')}</span>
                     ) : (
-                      <span className="badge neutral" title="How sure the machine was">
-                        machine · {field.confidence.toFixed(2)}
+                      <span className="badge neutral" title={t('How sure the machine was')}>
+                        {t('machine')} · {field.confidence.toFixed(2)}
                       </span>
                     )}
                   </td>
@@ -204,7 +207,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
 
         <Access api={api} sha256={sha256} />
 
-        <h2>History</h2>
+        <h2>{t('History')}</h2>
         <ol className="timeline">
           {events.map((event, i) => (
             <li key={i}>
@@ -216,16 +219,16 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         {record.trashedAt !== undefined ? null : confirmTrash ? (
           <p className="actions">
             <button type="button" className="danger" onClick={() => void moveToTrash()}>
-              Move to trash
+              {t('Move to trash')}
             </button>
             <button type="button" className="secondary" onClick={() => setConfirmTrash(false)}>
-              Keep it
+              {t('Keep it')}
             </button>
           </p>
         ) : (
           <p>
             <button type="button" className="secondary" onClick={() => setConfirmTrash(true)}>
-              Delete…
+              {t('Delete…')}
             </button>
           </p>
         )}
@@ -235,7 +238,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
 }
 
 function display(field: FieldEntry): string {
-  if (field.value === null) return '(cleared)';
+  if (field.value === null) return t('(cleared)');
   if (field.name === 'total') return money(field.value) ?? '—';
   if (Array.isArray(field.value)) return field.value.join(', ');
   return typeof field.value === 'string' || typeof field.value === 'number'

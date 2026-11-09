@@ -9,6 +9,7 @@ import {
   type LabelKind,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { t } from '../i18n';
 import { useAsnSeries } from '../asn-series';
 
 export interface DetailsDraft {
@@ -134,8 +135,10 @@ export function DocumentDetails({
         ok: false,
         text:
           series.length === 0
-            ? 'The serial number must be a whole number.'
-            : `The serial number must be a whole number, or one in a series such as ${series[0]!.prefix}-1.`,
+            ? t('The serial number must be a whole number.')
+            : t('The serial number must be a whole number, or one in a series such as {example}.', {
+                example: `${series[0]!.prefix}-1`,
+              }),
       });
       return;
     }
@@ -145,7 +148,7 @@ export function DocumentDetails({
       return;
     }
     setDraft(draftOf(result.value, series));
-    setMessage({ ok: true, text: 'Saved' });
+    setMessage({ ok: true, text: t('Saved') });
     onSaved(result.value);
   };
 
@@ -157,7 +160,7 @@ export function DocumentDetails({
 
   return (
     <form className="card details-form" onSubmit={(event) => void save(event)}>
-      <label htmlFor="title">Title</label>
+      <label htmlFor="title">{t('Title')}</label>
       <input
         id="title"
         value={draft.title}
@@ -166,7 +169,7 @@ export function DocumentDetails({
 
       <div className="filter-row">
         <div>
-          <label htmlFor="created">Date on the document</label>
+          <label htmlFor="created">{t('Date on the document')}</label>
           <input
             id="created"
             type="date"
@@ -175,7 +178,7 @@ export function DocumentDetails({
           />
         </div>
         <div>
-          <label htmlFor="asn">Serial number (ASN)</label>
+          <label htmlFor="asn">{t('Serial number')} (ASN)</label>
           <span className="asn-input">
             <input
               id="asn"
@@ -185,11 +188,11 @@ export function DocumentDetails({
             />
             {series.length === 0 ? null : (
               <select
-                aria-label="Series for the next number"
+                aria-label={t('Series for the next number')}
                 value={nextIn}
                 onChange={(event) => setNextIn(event.target.value)}
               >
-                <option value="">Main</option>
+                <option value="">{t('Main')}</option>
                 {series.map((s) => (
                   <option key={s.prefix} value={s.prefix}>
                     {s.prefix} · {s.name}
@@ -198,7 +201,7 @@ export function DocumentDetails({
               </select>
             )}
             <button type="button" className="secondary" onClick={() => void nextAsn()}>
-              Next
+              {t('Next')}
             </button>
           </span>
         </div>
@@ -206,7 +209,7 @@ export function DocumentDetails({
 
       <div className="filter-row">
         <div>
-          <label htmlFor="correspondent">From</label>
+          <label htmlFor="correspondent">{t('From')}</label>
           <input
             id="correspondent"
             list="details-correspondents"
@@ -225,7 +228,7 @@ export function DocumentDetails({
                 <button
                   type="button"
                   className="link"
-                  aria-label={`Remove ${name}`}
+                  aria-label={t('Remove {name}', { name })}
                   onClick={() => set({ others: draft.others.filter((t) => t !== name) })}
                 >
                   ×
@@ -235,9 +238,9 @@ export function DocumentDetails({
           </div>
           <span className="asn-input">
             <input
-              aria-label="Also from"
+              aria-label={t('Also from')}
               list="details-correspondents"
-              placeholder="Also from…"
+              placeholder={t('Also from…')}
               value={other}
               onChange={(event) => setOther(event.target.value)}
               onKeyDown={(event) => {
@@ -253,12 +256,12 @@ export function DocumentDetails({
               onClick={addOther}
               disabled={other.trim() === ''}
             >
-              Add
+              {t('Add')}
             </button>
           </span>
         </div>
         <div>
-          <label htmlFor="documentType">Type</label>
+          <label htmlFor="documentType">{t('Type')}</label>
           <input
             id="documentType"
             list="details-types"
@@ -273,7 +276,7 @@ export function DocumentDetails({
         </div>
       </div>
 
-      <label htmlFor="add-tag">Tags</label>
+      <label htmlFor="add-tag">{t('Tags')}</label>
       <div className="tags editable">
         {draft.tags.map((name) => (
           <span key={name} className="tag">
@@ -281,7 +284,7 @@ export function DocumentDetails({
             <button
               type="button"
               className="link"
-              aria-label={`Remove tag ${name}`}
+              aria-label={t('Remove tag {name}', { name })}
               onClick={() => set({ tags: draft.tags.filter((t) => t !== name) })}
             >
               ×
@@ -293,7 +296,7 @@ export function DocumentDetails({
         <input
           id="add-tag"
           list="details-tags"
-          placeholder="Add a tag"
+          placeholder={t('Add a tag')}
           value={tag}
           onChange={(event) => setTag(event.target.value)}
           onKeyDown={(event) => {
@@ -304,7 +307,7 @@ export function DocumentDetails({
           }}
         />
         <button type="button" className="secondary" onClick={addTag} disabled={tag.trim() === ''}>
-          Add
+          {t('Add')}
         </button>
       </span>
       <datalist id="details-tags">
@@ -317,7 +320,7 @@ export function DocumentDetails({
 
       <p className="actions">
         <button type="submit" disabled={unchanged}>
-          Save details
+          {t('Save details')}
         </button>
         {message === null ? null : (
           <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>

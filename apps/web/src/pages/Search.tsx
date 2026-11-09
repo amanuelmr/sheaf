@@ -11,6 +11,7 @@ import {
   type SearchSort,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 import { useAsnSeries } from '../asn-series';
 import { Snippet, shortSha, when } from '../format';
 import { href } from '../route';
@@ -20,12 +21,12 @@ import { INBOX_CHANGED } from './Inbox';
 const DEBOUNCE_MS = 200;
 
 const SORT_NAMES: Readonly<Record<SearchSort, string>> = {
-  relevance: 'Best match',
-  newest: 'Newest first',
-  oldest: 'Oldest first',
-  title: 'By title',
-  created: 'By date on the document',
-  asn: 'By serial number',
+  relevance: mark('Best match'),
+  newest: mark('Newest first'),
+  oldest: mark('Oldest first'),
+  title: mark('By title'),
+  created: mark('By date on the document'),
+  asn: mark('By serial number'),
 };
 
 /** A filter being edited, where a part just cleared is still there as `undefined`. */
@@ -159,13 +160,13 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
   return (
     <>
       <label className="visually-hidden" htmlFor="search">
-        Search documents
+        {t('Search documents')}
       </label>
       <input
         id="search"
         className="search"
         type="search"
-        placeholder="Search every word in every document"
+        placeholder={t('Search every word in every document')}
         value={filter.text ?? ''}
         onChange={(event) => setFilter({ ...filter, text: event.target.value })}
         autoFocus
@@ -178,7 +179,8 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
           aria-expanded={showFilters}
           onClick={() => setShowFilters(!showFilters)}
         >
-          Filters{empty ? '' : ' •'}
+          {t('Filters')}
+          {empty ? '' : ' •'}
         </button>
         {views.map((view) => (
           <button
@@ -200,7 +202,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
               setActiveView(null);
             }}
           >
-            Clear
+            {t('Clear')}
           </button>
         )}
       </div>
@@ -226,7 +228,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
             }}
           />
           <p className="muted small result-count">
-            {String(total)} document{total === 1 ? '' : 's'}
+            {total === 1 ? t('1 document') : t('{count} documents', { count: total })}
             {total === 0 ? null : (
               <button
                 className="link"
@@ -236,12 +238,12 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
                   });
                 }}
               >
-                Export CSV
+                {t('Export CSV')}
               </button>
             )}
           </p>
           {hits.length === 0 ? (
-            <p className="muted">Nothing matches.</p>
+            <p className="muted">{t('Nothing matches.')}</p>
           ) : (
             <>
               <BulkBar
@@ -308,7 +310,9 @@ function HitList({
             />
           )}
           <a href={href({ page: 'document', sha256: hit.sha256 })}>
-            <strong>{hit.title ?? hit.suggestedTitle ?? `Scan ${shortSha(hit.sha256)}`}</strong>
+            <strong>
+              {hit.title ?? hit.suggestedTitle ?? t('Scan {id}', { id: shortSha(hit.sha256) })}
+            </strong>
             <span className="muted">
               {[
                 hit.asn === null ? null : `#${asnLabel(hit.asn, series)}`,
@@ -352,13 +356,13 @@ function FilterPanel({
   labels: Readonly<Record<LabelKind, readonly Label[]>> | null;
   onChange: (filter: FilterDraft) => void;
 }) {
-  if (labels === null) return <p className="muted">Loading filters…</p>;
+  if (labels === null) return <p className="muted">{t('Loading filters…')}</p>;
   const one = (values: readonly string[] | undefined) => values?.[0] ?? '';
   return (
     <div className="card filters">
       <div className="filter-row">
         <div>
-          <label htmlFor="filter-correspondent">Correspondent</label>
+          <label htmlFor="filter-correspondent">{t('Correspondent')}</label>
           <select
             id="filter-correspondent"
             value={one(filter.correspondents)}
@@ -369,7 +373,7 @@ function FilterPanel({
               })
             }
           >
-            <option value="">Any</option>
+            <option value="">{t('Any')}</option>
             {labels.correspondent.map((label) => (
               <option key={label.id} value={label.name}>
                 {label.name}
@@ -378,7 +382,7 @@ function FilterPanel({
           </select>
         </div>
         <div>
-          <label htmlFor="filter-type">Document type</label>
+          <label htmlFor="filter-type">{t('Document type')}</label>
           <select
             id="filter-type"
             value={one(filter.documentTypes)}
@@ -389,7 +393,7 @@ function FilterPanel({
               })
             }
           >
-            <option value="">Any</option>
+            <option value="">{t('Any')}</option>
             {labels.documentType.map((label) => (
               <option key={label.id} value={label.name}>
                 {label.name}
@@ -400,7 +404,7 @@ function FilterPanel({
       </div>
       <div className="filter-row">
         <div>
-          <label htmlFor="filter-created-from">Dated from</label>
+          <label htmlFor="filter-created-from">{t('Dated from')}</label>
           <input
             id="filter-created-from"
             type="date"
@@ -411,7 +415,7 @@ function FilterPanel({
           />
         </div>
         <div>
-          <label htmlFor="filter-created-to">Dated to</label>
+          <label htmlFor="filter-created-to">{t('Dated to')}</label>
           <input
             id="filter-created-to"
             type="date"
@@ -424,7 +428,7 @@ function FilterPanel({
       </div>
       <div className="filter-row">
         <div>
-          <label htmlFor="filter-from">Received from</label>
+          <label htmlFor="filter-from">{t('Received from')}</label>
           <input
             id="filter-from"
             type="date"
@@ -435,7 +439,7 @@ function FilterPanel({
           />
         </div>
         <div>
-          <label htmlFor="filter-to">Received to</label>
+          <label htmlFor="filter-to">{t('Received to')}</label>
           <input
             id="filter-to"
             type="date"
@@ -446,7 +450,7 @@ function FilterPanel({
           />
         </div>
         <div>
-          <label htmlFor="filter-sort">Order</label>
+          <label htmlFor="filter-sort">{t('Order')}</label>
           <select
             id="filter-sort"
             value={filter.sort ?? ''}
@@ -457,10 +461,10 @@ function FilterPanel({
               })
             }
           >
-            <option value="">Best match, or newest</option>
+            <option value="">{t('Best match, or newest')}</option>
             {SEARCH_SORTS.map((sort) => (
               <option key={sort} value={sort}>
-                {SORT_NAMES[sort]}
+                {t(SORT_NAMES[sort])}
               </option>
             ))}
           </select>
@@ -468,7 +472,7 @@ function FilterPanel({
       </div>
       {labels.tag.length === 0 ? null : (
         <>
-          <span className="label-text">Tags: click once to require, twice to exclude</span>
+          <span className="label-text">{t('Tags: click once to require, twice to exclude')}</span>
           <div className="tag-toggles">
             {labels.tag.map((tag) => {
               const state = tagState(filter, tag.name);
@@ -562,7 +566,7 @@ function ViewControls({
             })
           }
         >
-          Delete view
+          {t('Delete view')}
         </button>
       </div>
     );
@@ -570,8 +574,8 @@ function ViewControls({
   return (
     <form className="view-controls" onSubmit={(event) => void save(event)}>
       <input
-        aria-label="Name for this view"
-        placeholder="Save these results as a view…"
+        aria-label={t('Name for this view')}
+        placeholder={t('Save these results as a view…')}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
@@ -581,10 +585,10 @@ function ViewControls({
           checked={onDashboard}
           onChange={(event) => setOnDashboard(event.target.checked)}
         />{' '}
-        On the home page
+        {t('On the home page')}
       </label>
       <button type="submit" disabled={name.trim() === ''}>
-        Save view
+        {t('Save view')}
       </button>
       {error === null ? null : <span className="error">{error}</span>}
     </form>
@@ -664,7 +668,7 @@ function DashboardView({
           <span className="count">{result.total}</span>
         )}
       </h2>
-      {result === null ? <p className="muted">Loading…</p> : null}
+      {result === null ? <p className="muted">{t('Loading…')}</p> : null}
       {result !== null && result.hits.length === 0 ? (
         <p className="muted">
           {onOpen === undefined ? 'Nothing stored yet. Scan something.' : 'Nothing here.'}

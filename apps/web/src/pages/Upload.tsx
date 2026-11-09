@@ -1,5 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import type { Api } from '../api';
+import { t } from '../i18n';
 import { href } from '../route';
 import { browserJpeg, picked, plan, prepare } from '../upload';
 
@@ -24,7 +25,7 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
     const out: Line[] = skipped.map((name) => ({
       name,
       state: 'failed' as const,
-      detail: 'only PDFs, EPUB books and photos can be added',
+      detail: t('only PDFs, EPUB books and photos can be added'),
     }));
     const show = () => setLines([...out]);
     for (const part of parts) {
@@ -76,13 +77,15 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
     >
-      <h2>Add documents</h2>
+      <h2>{t('Add documents')}</h2>
       <p className="muted">
-        Drop PDFs or photos here. Photos chosen together become the pages of one document.
+        {t(
+          'Drop PDFs, EPUB books or photos here. Photos chosen together become the pages of one document.',
+        )}
       </p>
       <div className="actions">
         <label className="button">
-          Choose files
+          {t('Choose files')}
           <input
             type="file"
             multiple
@@ -95,7 +98,7 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
           />
         </label>
         <label className="button secondary">
-          Take a photo
+          {t('Take a photo')}
           <input
             type="file"
             accept="image/*"
@@ -119,12 +122,12 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
               )}
               :{' '}
               {line.state === 'sending'
-                ? 'sending…'
+                ? t('sending…')
                 : line.state === 'stored'
-                  ? 'added'
+                  ? t('added')
                   : line.state === 'known'
-                    ? 'already here'
-                    : (line.detail ?? 'failed')}
+                    ? t('already here')
+                    : (line.detail ?? t('failed'))}
             </li>
           ))}
         </ul>

@@ -900,3 +900,14 @@ nav {
 .notice.field-suggestions li + li {
   margin-top: 4px;
 }
+
+select.language {
+  width: auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.9em;
+}
+
+.page.narrow select.language {
+  margin-bottom: 16px;
+}

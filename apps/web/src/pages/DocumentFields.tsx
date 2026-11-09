@@ -8,6 +8,7 @@ import type {
   SearchHit,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { t } from '../i18n';
 import { fromInput, toInput } from '../custom-field-input';
 import { shortSha } from '../format';
 import { href } from '../route';
@@ -69,7 +70,7 @@ export function DocumentFields({
     for (const draft of drafts) {
       const value = fromInput(draft.field.type, draft.text, draft.currency);
       if (value === undefined) {
-        setError(`${draft.field.name}: that is not a valid value.`);
+        setError(t('{field}: that is not a valid value.', { field: draft.field.name }));
         return;
       }
       values.push({ field: draft.field.id, value });
@@ -88,9 +89,9 @@ export function DocumentFields({
   if (definitions.length === 0) {
     return (
       <section>
-        <h2>Fields</h2>
+        <h2>{t('Fields')}</h2>
         <p className="muted">
-          No custom fields yet. <a href={href({ page: 'fields' })}>Make one</a>.
+          {t('No custom fields yet.')} <a href={href({ page: 'fields' })}>{t('Make one')}</a>
         </p>
       </section>
     );
@@ -117,17 +118,17 @@ export function DocumentFields({
 
   return (
     <section>
-      <h2>Fields</h2>
+      <h2>{t('Fields')}</h2>
       {offered.length === 0 ? null : (
         <ul className="notice field-suggestions">
           {offered.map(({ suggestion, field }) => (
             <li key={field.id}>
               {field.name}: <strong>{toInput(field.type, suggestion.value)}</strong>{' '}
               <span className="muted">
-                like {String(suggestion.basedOn)} documents similar to this one
+                {t('like {count} documents similar to this one', { count: suggestion.basedOn })}
               </span>{' '}
               <button type="button" className="link" onClick={() => use(field, suggestion.value)}>
-                Use
+                {t('Use')}
               </button>
             </li>
           ))}
@@ -146,12 +147,12 @@ export function DocumentFields({
                 <button
                   type="button"
                   className="link"
-                  aria-label={`Remove ${draft.field.name}`}
+                  aria-label={t('Remove {name}', { name: draft.field.name })}
                   onClick={() =>
                     setDrafts((current) => current.filter((d) => d.field.id !== draft.field.id))
                   }
                 >
-                  Remove
+                  {t('Remove')}
                 </button>
               )}
             </div>
@@ -159,7 +160,7 @@ export function DocumentFields({
         ))}
         {unused.length === 0 ? null : (
           <>
-            <label htmlFor="add-field">Add a field</label>
+            <label htmlFor="add-field">{t('Add a field')}</label>
             <select
               id="add-field"
               value=""
@@ -170,7 +171,7 @@ export function DocumentFields({
                 }
               }}
             >
-              <option value="">Choose…</option>
+              <option value="">{t('Choose…')}</option>
               {unused.map((field) => (
                 <option key={field.id} value={field.id}>
                   {field.name}
@@ -180,8 +181,8 @@ export function DocumentFields({
           </>
         )}
         <p>
-          <button type="submit">Save fields</button>{' '}
-          {saved ? <span className="badge ok">Saved</span> : null}
+          <button type="submit">{t('Save fields')}</button>{' '}
+          {saved ? <span className="badge ok">{t('Saved')}</span> : null}
         </p>
       </form>
       {error === null ? null : <p className="error">{error}</p>}
@@ -207,8 +208,8 @@ function FieldInput({
       return (
         <select id={id} value={draft.text} onChange={(event) => set(event.target.value)}>
           <option value="">—</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
+          <option value="true">{t('Yes')}</option>
+          <option value="false">{t('No')}</option>
         </select>
       );
     case 'select':
@@ -303,7 +304,7 @@ function LinkPicker({
               className="link"
               onClick={() => set(linked.filter((l) => l !== other).join(','))}
             >
-              Unlink
+              {t('Unlink')}
             </button>
           </li>
         ))}

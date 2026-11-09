@@ -19,6 +19,7 @@ import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
+import { LANGUAGES, mark, setLanguage, t, useLanguage, type Language } from './i18n';
 
 /**
  * Back from single sign-on: the server put a session token and its own address in
@@ -72,7 +73,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
       if (server === '' || username.trim() === '' || password === '') return;
       const signed = await signIn(server, username.trim().toLowerCase(), password);
       if (!signed.ok) {
-        setError(`Couldn’t sign in: ${signed.message}`);
+        setError(t('Couldn’t sign in: {reason}', { reason: signed.message }));
         return;
       }
       secret = signed.value.token;
@@ -82,21 +83,23 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
     // Check before keeping it, so a typo is caught here rather than on every page.
     const health = await makeApi(connection).health();
     if (!health.ok) {
-      setError(`Couldn’t connect: ${health.message}`);
+      setError(t('Couldn’t connect: {reason}', { reason: health.message }));
       return;
     }
     saveConnection(connection);
     onConnect(connection);
   };
 
+  useLanguage();
   return (
     <div className="page narrow">
       <h1>Sheaf</h1>
       <p className="subtitle">
-        Your documents, on your server. Connect with the admin token it was started with.
+        {t('Your documents, on your server. Connect with the admin token it was started with.')}
       </p>
+      <LanguagePicker />
       <form className="card" onSubmit={(event) => void submit(event)}>
-        <label htmlFor="baseUrl">Server address</label>
+        <label htmlFor="baseUrl">{t('Server address')}</label>
         <input
           id="baseUrl"
           value={baseUrl}
@@ -104,14 +107,14 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
           placeholder="http://192.168.1.20:8787"
           autoComplete="url"
         />
-        <div className="tabs" role="group" aria-label="How to connect">
+        <div className="tabs" role="group" aria-label={t('How to connect')}>
           <button
             type="button"
             className="secondary"
             aria-pressed={!useAccount}
             onClick={() => setUseAccount(false)}
           >
-            Admin token
+            {t('Admin token')}
           </button>
           <button
             type="button"
@@ -119,19 +122,19 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
             aria-pressed={useAccount}
             onClick={() => setUseAccount(true)}
           >
-            Username and password
+            {t('Username and password')}
           </button>
         </div>
         {useAccount ? (
           <>
-            <label htmlFor="username">Username</label>
+            <label htmlFor="username">{t('Username')}</label>
             <input
               id="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               autoComplete="username"
             />
-            <label htmlFor="password">Password</label>
+            <label htmlFor="password">{t('Password')}</label>
             <input
               id="password"
               type="password"
@@ -142,7 +145,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
           </>
         ) : (
           <>
-            <label htmlFor="token">Admin token (SHEAF_TOKEN)</label>
+            <label htmlFor="token">{t('Admin token')} (SHEAF_TOKEN)</label>
             <input
               id="token"
               type="password"
@@ -153,9 +156,9 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
           </>
         )}
         {error === null ? null : <p className="error">{error}</p>}
-        <button type="submit">Connect</button>
+        <button type="submit">{t('Connect')}</button>
         <SingleSignOn baseUrl={baseUrl} />
-        <p className="muted small">The token is forgotten when you close this tab.</p>
+        <p className="muted small">{t('The token is forgotten when you close this tab.')}</p>
       </form>
     </div>
   );
@@ -165,20 +168,23 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
 const ADMIN_PAGES: ReadonlySet<Route['page']> = new Set(['devices', 'workflows', 'users']);
 
 const NAV: readonly { route: Route; label: string }[] = [
-  { route: { page: 'search' }, label: 'Search' },
-  { route: { page: 'inbox' }, label: 'To review' },
-  { route: { page: 'devices' }, label: 'Phones' },
-  { route: { page: 'labels' }, label: 'Labels' },
-  { route: { page: 'fields' }, label: 'Fields' },
-  { route: { page: 'workflows' }, label: 'Workflows' },
-  { route: { page: 'trash' }, label: 'Trash' },
-  { route: { page: 'users' }, label: 'Users' },
-  { route: { page: 'system' }, label: 'System' },
+  // English: each is put through `t` as the menu is drawn.
+  { route: { page: 'search' }, label: mark('Search') },
+  { route: { page: 'inbox' }, label: mark('To review') },
+  { route: { page: 'devices' }, label: mark('Phones') },
+  { route: { page: 'labels' }, label: mark('Labels') },
+  { route: { page: 'fields' }, label: mark('Fields') },
+  { route: { page: 'workflows' }, label: mark('Workflows') },
+  { route: { page: 'trash' }, label: mark('Trash') },
+  { route: { page: 'users' }, label: mark('Users') },
+  { route: { page: 'system' }, label: mark('System') },
 ];
 
 function Shell({ connection, onDisconnect }: { connection: Connection; onDisconnect: () => void }) {
   const api = useMemo(() => makeApi(connection), [connection]);
   const route = useRoute();
+  // Every page below is drawn again in the new language when it changes.
+  useLanguage();
   const toReview = useInboxCount(api, route);
   const [role, setRole] = useState<Role | null>(null);
   const [who, setWho] = useState<string | null>(null);
@@ -209,7 +215,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
                 href={href(target)}
                 aria-current={route.page === target.page ? 'page' : undefined}
               >
-                {label}
+                {t(label)}
                 {target.page === 'inbox' && toReview > 0 ? (
                   <span className="count">{toReview}</span>
                 ) : null}
@@ -217,14 +223,16 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
             ),
           )}
         </nav>
+        <LanguagePicker />
         <button className="link" onClick={() => void signOut()}>
-          {who === null ? 'Disconnect' : `Sign out ${who}`}
+          {who === null ? t('Disconnect') : t('Sign out {name}', { name: who })}
         </button>
       </header>
       <main>
         {role !== null && role !== 'admin' && ADMIN_PAGES.has(route.page) ? (
           <p className="muted">
-            This page is for admins. <a href={href({ page: 'search' })}>Go to search</a>.
+            {t('This page is for admins.')}{' '}
+            <a href={href({ page: 'search' })}>{t('Go to search')}</a>
           </p>
         ) : null}
         {route.page === 'search' ? (
@@ -273,6 +281,25 @@ function useInboxCount(api: Api, route: Route): number {
   return count;
 }
 
+/** The language the web app speaks, kept in this browser. */
+function LanguagePicker() {
+  const current = useLanguage();
+  return (
+    <select
+      className="language"
+      aria-label={t('Language')}
+      value={current}
+      onChange={(event) => setLanguage(event.target.value as Language)}
+    >
+      {Object.entries(LANGUAGES).map(([code, name]) => (
+        <option key={code} value={code}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** "Sign in with …", when the server at the address typed offers single sign-on. */
 function SingleSignOn({ baseUrl }: { baseUrl: string }) {
   const [provider, setProvider] = useState<string | null>(null);
@@ -285,7 +312,7 @@ function SingleSignOn({ baseUrl }: { baseUrl: string }) {
       void fetch(new URL(paths.sso(), server).toString())
         .then((response) => (response.ok ? (response.json() as Promise<SsoResponse>) : null))
         .then((sso) => {
-          if (current && sso?.enabled === true) setProvider(sso.name ?? 'single sign-on');
+          if (current && sso?.enabled === true) setProvider(sso.name ?? t('single sign-on'));
         })
         .catch(() => undefined);
     }, 400);
@@ -297,7 +324,7 @@ function SingleSignOn({ baseUrl }: { baseUrl: string }) {
   if (provider === null) return null;
   return (
     <a className="button secondary" href={new URL(paths.ssoStart(), server).toString()}>
-      Sign in with {provider}
+      {t('Sign in with {provider}', { provider })}
     </a>
   );
 }
