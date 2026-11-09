@@ -26,6 +26,11 @@ export const PROTOCOL_VERSION = 'v1';
 export const paths = {
   health: () => `/${PROTOCOL_VERSION}/health`,
   documents: () => `/${PROTOCOL_VERSION}/documents`,
+  /**
+   * `POST` an EPUB as the body: it is kept as a PDF made from it, with the book's
+   * own text and title. Answers the `DocumentRecord`, 201 when new.
+   */
+  books: () => `/${PROTOCOL_VERSION}/books`,
   /** Admin: `POST` creates a one-time pairing code (ADR 0008). */
   pairingCodes: () => `/${PROTOCOL_VERSION}/pairing-codes`,
   /** `POST` a code to become a paired device. The only route that needs no token. */

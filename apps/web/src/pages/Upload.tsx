@@ -24,13 +24,21 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
     const out: Line[] = skipped.map((name) => ({
       name,
       state: 'failed' as const,
-      detail: 'only PDFs and photos can be added',
+      detail: 'only PDFs, EPUB books and photos can be added',
     }));
     const show = () => setLines([...out]);
     for (const part of parts) {
       const index = out.push({ name: part.name, state: 'sending' }) - 1;
       show();
       try {
+        if (part.kind === 'book') {
+          const sent = await api.uploadBook(await part.file.bytes());
+          out[index] = sent.ok
+            ? { name: part.name, state: sent.value.state, sha256: sent.value.sha256 }
+            : { name: part.name, state: 'failed', detail: sent.message };
+          show();
+          continue;
+        }
         const ready = await prepare(part, (file) => browserJpeg(file as ReturnType<typeof picked>));
         if ('problem' in ready) {
           out[index] = { name: part.name, state: 'failed', detail: ready.problem };
@@ -78,7 +86,7 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
           <input
             type="file"
             multiple
-            accept="application/pdf,image/*"
+            accept="application/pdf,application/epub+zip,.epub,image/*"
             hidden
             onChange={(event) => {
               void send([...(event.target.files ?? [])]);

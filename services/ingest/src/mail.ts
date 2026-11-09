@@ -1,5 +1,6 @@
 import type { Duplex } from 'node:stream';
 import { MAX_DOCUMENT_BYTES } from '@sheaf/protocol';
+import { isEpub, storeBook } from './epub.ts';
 import { ImapSession } from './imap.ts';
 import { parseMail } from './mime.ts';
 import { sha256Hex, type Storage } from './storage.ts';
@@ -66,8 +67,18 @@ export class MailFetcher {
               failed++;
               continue;
             }
-            const sha256 = sha256Hex(attachment.bytes);
-            const outcome = await this.#storage.put(sha256, attachment.bytes, options.now(), null);
+            let sha256: string;
+            let outcome: 'stored' | 'already-stored';
+            if (isEpub(attachment.bytes)) {
+              ({ sha256, outcome } = await storeBook(
+                this.#storage,
+                attachment.bytes,
+                options.now(),
+              ));
+            } else {
+              sha256 = sha256Hex(attachment.bytes);
+              outcome = await this.#storage.put(sha256, attachment.bytes, options.now(), null);
+            }
             if (outcome === 'stored') stored++;
             else duplicates++;
             if (options.tag !== null) await this.#storage.addTags(sha256, [options.tag]);

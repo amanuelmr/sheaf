@@ -289,6 +289,26 @@ export function api(connection: Connection) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
     },
+    /** An EPUB, which the server keeps as a PDF made from it. Answers that document. */
+    uploadBook: async (
+      bytes: Uint8Array,
+    ): Promise<Result<{ state: 'stored' | 'known'; sha256: string }>> => {
+      try {
+        const response = await fetch(url(paths.books()), {
+          method: 'POST',
+          headers: headers({ 'content-type': 'application/epub+zip' }),
+          body: bytes as BodyInit,
+        });
+        if (!response.ok) return { ok: false, message: await explain(response) };
+        const record = (await response.json()) as DocumentRecord;
+        return {
+          ok: true,
+          value: { state: response.status === 201 ? 'stored' : 'known', sha256: record.sha256 },
+        };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {

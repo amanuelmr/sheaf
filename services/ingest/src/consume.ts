@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { MAX_DOCUMENT_BYTES } from '@sheaf/protocol';
+import { isEpub, storeBook } from './epub.ts';
 import { collate } from './pdf-edit.ts';
 import { sha256Hex, type Storage } from './storage.ts';
 
@@ -87,11 +88,17 @@ export class ConsumeFolder {
     path: string,
     size: number,
   ): Promise<'stored' | 'already-stored' | 'failed' | 'waiting'> {
-    if (size === 0 || size > MAX_DOCUMENT_BYTES || !path.toLowerCase().endsWith('.pdf')) {
+    const lower = path.toLowerCase();
+    if (
+      size === 0 ||
+      size > MAX_DOCUMENT_BYTES ||
+      !(lower.endsWith('.pdf') || lower.endsWith('.epub'))
+    ) {
       this.#fail(path);
       return 'failed';
     }
     const bytes = new Uint8Array(readFileSync(path));
+    if (lower.endsWith('.epub')) return this.#takeBook(path, bytes);
     if (Buffer.from(bytes.subarray(0, 5)).toString('latin1') !== '%PDF-') {
       this.#fail(path);
       return 'failed';
@@ -115,6 +122,32 @@ export class ConsumeFolder {
     }
     if (existsSync(path)) unlinkSync(path);
     return outcome;
+  }
+
+  /** A book: kept as the PDF made from it, tagged by its folders like any other file. */
+  async #takeBook(
+    path: string,
+    bytes: Uint8Array,
+  ): Promise<'stored' | 'already-stored' | 'failed'> {
+    if (!isEpub(bytes)) {
+      this.#fail(path);
+      return 'failed';
+    }
+    let kept: Awaited<ReturnType<typeof storeBook>>;
+    try {
+      kept = await storeBook(this.#storage, bytes, this.#options.now());
+    } catch {
+      this.#fail(path);
+      return 'failed';
+    }
+    const folders = relative(this.#dir, dirname(path))
+      .split(sep)
+      .filter((part) => part !== '');
+    if (this.#options.subdirsAsTags && folders.length > 0) {
+      await this.#storage.addTags(kept.sha256, folders);
+    }
+    if (existsSync(path)) unlinkSync(path);
+    return kept.outcome;
   }
 
   /**

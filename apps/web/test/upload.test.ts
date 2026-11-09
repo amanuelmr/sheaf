@@ -18,11 +18,13 @@ suite('uploading from the web app', () => {
       file('notes.txt', 'text/plain'),
       file('B.PDF', ''),
       file('back.png', 'image/png'),
+      file('handbook.epub', ''),
     ];
     const { parts, skipped } = plan(picked);
     expect(parts.map((p) => [p.kind, p.name])).toEqual([
       ['pdf', 'a.pdf'],
       ['pdf', 'B.PDF'],
+      ['book', 'handbook.epub'],
       ['photos', '2 photos'],
     ]);
     expect(skipped).toEqual(['notes.txt']);

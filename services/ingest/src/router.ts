@@ -105,6 +105,7 @@ import type { DocumentEdits, EditRefusal } from './document-edits.ts';
 import type { Settings } from './settings.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
 import type { AsnSeriesStore } from './asn-series.ts';
+import { NotAnEpub, isEpub, storeBook } from './epub.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -682,6 +683,26 @@ async function authenticated(
     if (!outcome.ok) return fail('bad_request', outcome.message);
     const response: BulkEditResponse = { changed: outcome.changed };
     return { status: 200, json: response };
+  }
+
+  if (path === paths.books()) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (request.body.length === 0) return fail('bad_request', 'empty body');
+    if (request.body.length > MAX_DOCUMENT_BYTES) return fail('too_large');
+    if (!isEpub(request.body)) return fail('bad_request', 'the body must be an EPUB');
+    try {
+      const { sha256, outcome } = await storeBook(
+        deps.storage,
+        request.body,
+        deps.now(),
+        principal.kind === 'user' ? principal.id : null,
+      );
+      return { status: outcome === 'stored' ? 201 : 200, json: await deps.storage.record(sha256) };
+    } catch (error) {
+      if (error instanceof NotAnEpub)
+        return fail('bad_request', `not a readable EPUB: ${error.message}`);
+      throw error;
+    }
   }
 
   if (path === paths.documents()) {
