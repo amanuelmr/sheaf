@@ -133,4 +133,5 @@ export const fr: Readonly<Record<string, string>> = {
   added: 'ajouté',
   'already here': 'déjà présent',
   failed: 'échec',
+  Recent: 'Récents',
 };

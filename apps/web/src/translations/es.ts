@@ -131,4 +131,5 @@ export const es: Readonly<Record<string, string>> = {
   added: 'añadido',
   'already here': 'ya está aquí',
   failed: 'falló',
+  Recent: 'Recientes',
 };

@@ -132,4 +132,5 @@ export const de: Readonly<Record<string, string>> = {
   added: 'hinzugefügt',
   'already here': 'schon vorhanden',
   failed: 'fehlgeschlagen',
+  Recent: 'Neueste',
 };

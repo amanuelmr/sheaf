@@ -19,6 +19,7 @@ const LABELS: Readonly<Record<string, string>> = {
   title: mark('Title'),
   date: mark('Date'),
   correspondent: mark('From'),
+  otherCorrespondents: mark('Also from'),
   documentType: mark('Type'),
   total: mark('Total'),
   tags: mark('Tags'),

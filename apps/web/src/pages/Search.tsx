@@ -624,7 +624,7 @@ function Dashboard({
       <DashboardView
         api={api}
         labels={labels}
-        view={{ id: 0, name: 'Recent', filter: {}, onDashboard: true, position: 0 }}
+        view={{ id: 0, name: t('Recent'), filter: {}, onDashboard: true, position: 0 }}
       />
     </>
   );
