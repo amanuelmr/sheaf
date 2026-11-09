@@ -5,6 +5,9 @@ documents — and forwards copies to Paperless-ngx only if you ask.**
 
 Scan a document; it is already safe. Everything after that is optional.
 
+**Free, with no account and no subscription.** Sending scans to your own server, and
+copies on to WebDAV, a folder, an S3 bucket or Papra, is never a paid feature.
+
 [![CI](https://github.com/amanuelmr/sheaf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/amanuelmr/sheaf/actions/workflows/ci.yml) [![TypeScript](https://img.shields.io/badge/typescript-strict-3178c6)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 
 > Sheaf is an independent project. It is not affiliated with, endorsed by, or an

@@ -71,6 +71,11 @@ import {
   type WorkflowsResponse,
   type ShareLinksResponse,
   type NextAsnResponse,
+  type CustomFieldSuggestionsResponse,
+  type AsnSeriesBody,
+  type AsnSeriesResponse,
+  ASN_SERIES_SIZE,
+  asnSeriesBodyProblem,
   type BulkEditResponse,
   type SavedViewsResponse,
   type ApplyRulesResponse,
@@ -99,6 +104,8 @@ import type { Actor, AuditLog } from './audit.ts';
 import type { DocumentEdits, EditRefusal } from './document-edits.ts';
 import type { Settings } from './settings.ts';
 import type { SavedViews, ViewRefusal } from './views.ts';
+import type { AsnSeriesStore } from './asn-series.ts';
+import { NotAnEpub, isEpub, storeBook } from './epub.ts';
 import type { ArchiveSource } from './paperless-browse.ts';
 import type { Devices } from './devices.ts';
 import type { ServerMetrics } from './observability.ts';
@@ -165,6 +172,13 @@ export interface RouterDeps {
   readonly rules?: Rules;
   /** Filters kept under a name. Absent, those routes answer 404. */
   readonly views?: SavedViews;
+  /**
+   * The pin of the certificate phones reach this server through, given out with
+   * each pairing code so a phone trusts that certificate and no other.
+   */
+  readonly certificatePin?: string;
+  /** Serial number series. Absent, those routes answer 404. */
+  readonly asnSeries?: AsnSeriesStore;
   /** One change to many documents. Absent, the route answers 404. */
   readonly bulk?: BulkEditor;
   /** Links that open a document without a token. Absent, those routes answer 404. */
@@ -269,11 +283,18 @@ async function pair(
   return { status: 200, json: response };
 }
 
-async function manageDevices(request: IngestRequest, devices: Devices): Promise<IngestResponse> {
+async function manageDevices(
+  request: IngestRequest,
+  devices: Devices,
+  pin: string | undefined,
+): Promise<IngestResponse> {
   const { method, path } = request;
   if (path === paths.pairingCodes()) {
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    const response: PairingCodeResponse = await devices.createPairingCode();
+    const response: PairingCodeResponse = {
+      ...(await devices.createPairingCode()),
+      ...(pin === undefined ? {} : { pin }),
+    };
     return { status: 201, json: response };
   }
   if (path === paths.devices()) {
@@ -503,7 +524,7 @@ async function authenticated(
   ) {
     if (!isAdmin(principal)) return fail('forbidden', 'only the admin token manages devices');
     if (deps.devices === undefined) return fail('not_found');
-    return manageDevices(request, deps.devices);
+    return manageDevices(request, deps.devices, deps.certificatePin);
   }
 
   if (path === paths.health()) {
@@ -621,8 +642,24 @@ async function authenticated(
 
   if (path === paths.nextAsn()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
-    const response: NextAsnResponse = { asn: await deps.storage.nextAsn() };
+    const prefix = new URLSearchParams(request.query).get('series');
+    if (prefix === null || prefix === '') {
+      const response: NextAsnResponse = { asn: await deps.storage.nextAsn() };
+      return { status: 200, json: response };
+    }
+    const series = (await deps.asnSeries?.list())?.find(
+      (s) => s.prefix.toLowerCase() === prefix.toLowerCase(),
+    );
+    if (series === undefined) return fail('not_found', `no serial number series "${prefix}"`);
+    const response: NextAsnResponse = {
+      asn: await deps.storage.nextAsn(series.first, ASN_SERIES_SIZE),
+    };
     return { status: 200, json: response };
+  }
+
+  if (path === paths.asnSeries() || path.startsWith(`${paths.asnSeries()}/`)) {
+    if (deps.asnSeries === undefined) return fail('not_found');
+    return asnSeriesRoutes(request, deps.asnSeries, principal);
   }
 
   if (path === paths.mergeDocuments()) {
@@ -658,6 +695,26 @@ async function authenticated(
     if (!outcome.ok) return fail('bad_request', outcome.message);
     const response: BulkEditResponse = { changed: outcome.changed };
     return { status: 200, json: response };
+  }
+
+  if (path === paths.books()) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (request.body.length === 0) return fail('bad_request', 'empty body');
+    if (request.body.length > MAX_DOCUMENT_BYTES) return fail('too_large');
+    if (!isEpub(request.body)) return fail('bad_request', 'the body must be an EPUB');
+    try {
+      const { sha256, outcome } = await storeBook(
+        deps.storage,
+        request.body,
+        deps.now(),
+        principal.kind === 'user' ? principal.id : null,
+      );
+      return { status: outcome === 'stored' ? 201 : 200, json: await deps.storage.record(sha256) };
+    } catch (error) {
+      if (error instanceof NotAnEpub)
+        return fail('bad_request', `not a readable EPUB: ${error.message}`);
+      throw error;
+    }
   }
 
   if (path === paths.documents()) {
@@ -781,6 +838,20 @@ async function authenticated(
     }
     const response: SimilarResponse = {
       documents: await deps.nearDuplicates.similarTo(id, viewer),
+    };
+    return { status: 200, json: response };
+  }
+
+  const fieldSuggestionsSuffix = '/custom-field-suggestions';
+  if (rest.endsWith(fieldSuggestionsSuffix)) {
+    const id = rest.slice(0, -fieldSuggestionsSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    if (deps.customFields === undefined || !(await deps.storage.has(id))) {
+      return fail('not_found');
+    }
+    const response: CustomFieldSuggestionsResponse = {
+      suggestions: await deps.customFields.suggestions(id, viewer),
     };
     return { status: 200, json: response };
   }
@@ -1193,6 +1264,38 @@ async function workflowRoutes(
   if (!isBody(parsed)) return parsed;
   const replaced = await workflows.replace(id, parsed);
   return replaced === null ? fail('not_found') : { status: 200, json: replaced };
+}
+
+/** Serial number series: anyone reads them, an admin starts and removes them. */
+async function asnSeriesRoutes(
+  request: IngestRequest,
+  store: AsnSeriesStore,
+  principal: Principal,
+): Promise<IngestResponse> {
+  const { method, path } = request;
+  if (path === paths.asnSeries()) {
+    if (method === 'GET') {
+      const response: AsnSeriesResponse = { series: await store.list() };
+      return { status: 200, json: response };
+    }
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin starts a series');
+    const body = parseJson<unknown>(request.body);
+    const problem = asnSeriesBodyProblem(body);
+    if (problem !== null) return fail('bad_request', problem);
+    const created = await store.create(body as AsnSeriesBody);
+    if (created === 'taken') return fail('conflict', 'a series with that prefix already exists');
+    if (created === 'full') return fail('conflict', 'there is no room for another series');
+    return { status: 201, json: created };
+  }
+  if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
+  if (!isAdmin(principal)) return fail('forbidden', 'only an admin removes a series');
+  const prefix = decodeURIComponent(path.slice(paths.asnSeries().length + 1));
+  const removed = await store.remove(prefix);
+  if (removed === 'in_use') {
+    return fail('conflict', 'documents have numbers in this series: renumber them first');
+  }
+  return removed ? { status: 204 } : fail('not_found');
 }
 
 /** Saved views: anyone with a token keeps their own shortcuts here. */

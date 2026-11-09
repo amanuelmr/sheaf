@@ -5,11 +5,13 @@ import {
   type CustomFieldBody,
   type CustomFieldData,
   type CustomFieldPatch,
+  type CustomFieldSuggestion,
   type CustomFieldType,
   type CustomFieldValue,
   type DocumentCustomField,
 } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
+import { suggestFieldValues } from './field-suggestions.ts';
 import type { Storage } from './storage.ts';
 
 /** Why a change to custom fields was refused, in words a person can act on. */
@@ -190,6 +192,14 @@ export class CustomFields {
         ? { ...v, value: asLinks(v.value).filter((id) => present.has(id)) }
         : v,
     );
+  }
+
+  /** Values for the document's empty fields, learned from documents like it. */
+  async suggestions(
+    sha256: string,
+    viewer: number | null,
+  ): Promise<readonly CustomFieldSuggestion[]> {
+    return suggestFieldValues(this.#driver, sha256, viewer);
   }
 
   /** The required fields these values leave without a value, by name. */

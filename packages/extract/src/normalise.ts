@@ -38,8 +38,103 @@ const MONTHS: Readonly<Record<string, number>> = {
   nov: 11,
   dec: 12,
 };
-const MONTH = '(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\\.?';
-const ORDINAL = '(?:st|nd|rd|th)?';
+
+/**
+ * Month names in German, French, Spanish, Italian, Dutch and Portuguese, whole and
+ * shortened, where their first three letters do not already say the month in
+ * English: "März", "févr.", "enero", "mei".
+ */
+const LOCAL_MONTHS: Readonly<Record<string, number>> = {
+  januar: 1,
+  jänner: 1,
+  janvier: 1,
+  enero: 1,
+  gennaio: 1,
+  januari: 1,
+  janeiro: 1,
+  ene: 1,
+  gen: 1,
+  janv: 1,
+  februar: 2,
+  février: 2,
+  fevrier: 2,
+  febrero: 2,
+  febbraio: 2,
+  februari: 2,
+  fevereiro: 2,
+  févr: 2,
+  fev: 2,
+  fév: 2,
+  märz: 3,
+  maerz: 3,
+  mär: 3,
+  mars: 3,
+  marzo: 3,
+  maart: 3,
+  março: 3,
+  marco: 3,
+  avril: 4,
+  abril: 4,
+  aprile: 4,
+  avr: 4,
+  abr: 4,
+  mai: 5,
+  mayo: 5,
+  maggio: 5,
+  mei: 5,
+  maio: 5,
+  mag: 5,
+  juni: 6,
+  juin: 6,
+  junio: 6,
+  giugno: 6,
+  junho: 6,
+  giu: 6,
+  juli: 7,
+  juillet: 7,
+  julio: 7,
+  luglio: 7,
+  julho: 7,
+  juil: 7,
+  lug: 7,
+  août: 8,
+  aout: 8,
+  agosto: 8,
+  augustus: 8,
+  ago: 8,
+  septembre: 9,
+  septiembre: 9,
+  setiembre: 9,
+  settembre: 9,
+  setembro: 9,
+  set: 9,
+  oktober: 10,
+  octobre: 10,
+  octubre: 10,
+  ottobre: 10,
+  outubro: 10,
+  okt: 10,
+  ott: 10,
+  out: 10,
+  novembre: 11,
+  noviembre: 11,
+  novembro: 11,
+  dezember: 12,
+  décembre: 12,
+  decembre: 12,
+  diciembre: 12,
+  dicembre: 12,
+  dezembro: 12,
+  dez: 12,
+  déc: 12,
+  dic: 12,
+};
+const LOCAL_NAMES = Object.keys(LOCAL_MONTHS)
+  .sort((a, b) => b.length - a.length)
+  .join('|');
+const MONTH = `(${LOCAL_NAMES}|jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\\.?`;
+// 1st, 3. (German), 1er (French), 1º (Spanish and Portuguese).
+const ORDINAL = '(?:st|nd|rd|th|er|º|\\.)?';
 
 /** Every pattern, tried at each position. Groups are named by what they hold. */
 const PATTERNS: readonly {
@@ -49,7 +144,11 @@ const PATTERNS: readonly {
   { re: /\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/y, kind: 'ymd' },
   { re: /\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})\b/y, kind: 'numeric' },
   {
-    re: new RegExp(`\\b(\\d{1,2})${ORDINAL}\\s+${MONTH}\\s*,?\\s*(\\d{4}|\\d{2})\\b`, 'iy'),
+    // "15 de enero de 2026" in Spanish and Portuguese.
+    re: new RegExp(
+      `\\b(\\d{1,2})${ORDINAL}\\s+(?:de\\s+)?${MONTH}\\s*,?\\s*(?:de\\s+)?(\\d{4}|\\d{2})\\b`,
+      'iy',
+    ),
     kind: 'dmonth',
   },
   {
@@ -106,8 +205,12 @@ function toIso(
 }
 
 function monthNumber(name: string): number {
-  // Three letters are enough to tell the months apart, and "sept" starts with "sep".
-  return MONTHS[name.toLowerCase().slice(0, 3)] ?? 0;
+  const lower = name.toLowerCase().replace(/\.$/, '');
+  for (const [local, month] of Object.entries(LOCAL_MONTHS)) {
+    if (lower.startsWith(local)) return month;
+  }
+  // Three letters are enough to tell the English months apart; "sept" starts with "sep".
+  return MONTHS[lower.slice(0, 3)] ?? 0;
 }
 
 /** A two-digit year is this century, unless that puts it more than a year ahead. */

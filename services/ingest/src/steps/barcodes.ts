@@ -1,5 +1,6 @@
 import type { SqlDriver } from '@sheaf/store';
 import { plan, readBarcodes } from '../barcodes.ts';
+import { AsnSeriesStore } from '../asn-series.ts';
 import type { DocumentEdits } from '../document-edits.ts';
 import type { Step } from '../jobs.ts';
 import type { Settings } from '../settings.ts';
@@ -44,7 +45,11 @@ export function barcodeStep(
         // Not a PDF pdf-lib can read: nothing to find, and nothing to retry.
         return { ok: true, value: null };
       }
-      const wanted = plan(pages, barcodeSeparator, barcodeAsnPrefix);
+      const series = await new AsnSeriesStore(driver).list();
+      const wanted = plan(pages, barcodeSeparator, [
+        { prefix: barcodeAsnPrefix, first: 1 },
+        ...series,
+      ]);
       if (wanted.parts !== null) {
         const whole = wanted.parts.length === 1 && wanted.parts[0]!.length === pages.length;
         if (!whole && wanted.parts.length > 0) {

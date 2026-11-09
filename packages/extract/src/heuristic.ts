@@ -7,6 +7,7 @@
  * answer in numbers.
  */
 import { ok } from '@sheaf/http';
+import { minorDigits } from '@sheaf/protocol';
 import { NO_USAGE, type Extractor, type ExtractionInput } from './extractor.ts';
 import { findDates, matchVocabulary, parseMoney } from './normalise.ts';
 import type { ExtractedFields, Field, Money } from './schema.ts';
@@ -30,6 +31,15 @@ const LOOKAHEAD = 2;
 /** An amount with a decimal part, optionally with a currency: never a phone number. */
 const AMOUNT =
   /(?:(?:[€£$¥₹]|\b(?:RM|EUR|USD|GBP|CHF|MYR|INR|ETB)\b)\s*)?-?\d{1,3}(?:[.,' ]?\d{3})*[.,]\d{2}\b(?:\s*(?:€|EUR))?/g;
+
+/**
+ * A whole amount, for currencies with no minor unit: ¥2,780, ₩15,000. Trusted
+ * only with its currency's mark or on a line that says it is the total, since a
+ * bare whole number is as likely a year, a time or a quantity.
+ */
+const WHOLE_AMOUNT =
+  /(?:(?:[¥₩]|\b(?:JPY|KRW)\b)\s*)?(?<![\d.,'])\d{1,3}(?:[,' ]\d{3})*(?![\d.,:/])/g;
+const WHOLE_MARK = /[¥₩]|\b(?:JPY|KRW)\b/;
 
 const TYPES: readonly (readonly [RegExp, string])[] = [
   [/\b(invoice|rechnung|facture|tax\s+invoice)\b/i, 'Invoice'],
@@ -88,10 +98,18 @@ function findDate(lines: readonly string[], input: ExtractionInput): Field<strin
 }
 
 function findTotal(allLines: readonly string[], currency: string): Field<Money> | null {
-  const amounts = (line: string): Money[] =>
-    (line.match(AMOUNT) ?? [])
+  const whole = minorDigits(currency) === 0;
+  const amounts = (line: string, labelled = false): Money[] => {
+    const raws = [...(line.match(AMOUNT) ?? [])];
+    if (whole && raws.length === 0) {
+      raws.push(
+        ...(line.match(WHOLE_AMOUNT) ?? []).filter((raw) => labelled || WHOLE_MARK.test(raw)),
+      );
+    }
+    return raws
       .map((raw) => parseMoney(raw, currency))
       .filter((money): money is Money => money !== null && money.minor > 0);
+  };
 
   // The bill ends where the tax table starts.
   const end = allLines.findIndex((line) => TAX_TABLE.test(line));
@@ -99,7 +117,7 @@ function findTotal(allLines: readonly string[], currency: string): Field<Money> 
 
   /** The amount on a labelled line, or on one of the next few lines. */
   const amountFor = (i: number): Money | undefined => {
-    const own = amounts(lines[i]!).at(-1);
+    const own = amounts(lines[i]!, true).at(-1);
     if (own !== undefined) return own;
     for (let j = i + 1; j <= i + LOOKAHEAD && j < lines.length; j++) {
       const found = amounts(lines[j]!).at(0);
@@ -142,7 +160,7 @@ function findTotal(allLines: readonly string[], currency: string): Field<Money> 
     if (!CASH.test(line) && !CHANGE.test(line)) return;
     for (let j = i; j <= i + LOOKAHEAD; j++) paying.add(j);
   });
-  const all = lines.filter((_, i) => !paying.has(i)).flatMap(amounts);
+  const all = lines.filter((_, i) => !paying.has(i)).flatMap((line) => amounts(line));
   if (all.length === 0) return null;
   const largest = all.reduce((a, b) => (b.minor > a.minor ? b : a));
   return { value: largest, confidence: 0.4 };

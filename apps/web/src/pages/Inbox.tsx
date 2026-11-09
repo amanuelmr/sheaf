@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { InboxEntry } from '@sheaf/protocol';
+import { t } from '../i18n';
 import type { Api } from '../api';
 import { shortSha, when } from '../format';
 import { href } from '../route';
@@ -60,19 +61,24 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
   }, [entries, selected, accept]);
 
   if (entries === null)
-    return error === null ? <p className="muted">Loading…</p> : <p className="error">{error}</p>;
+    return error === null ? (
+      <p className="muted">{t('Loading…')}</p>
+    ) : (
+      <p className="error">{error}</p>
+    );
 
   return (
     <>
-      <h1>To review</h1>
+      <h1>{t('To review')}</h1>
       {canAdd ? <Upload api={api} onDone={() => void load()} /> : null}
       <Accuracy api={api} />
       <p className="muted">
-        <kbd>j</kbd> <kbd>k</kbd> to move, <kbd>a</kbd> to accept, <kbd>e</kbd> to edit.
+        <kbd>j</kbd> <kbd>k</kbd> {t('to move')}, <kbd>a</kbd> {t('to accept')}, <kbd>e</kbd>{' '}
+        {t('to edit')}.
       </p>
       {error === null ? null : <p className="error">{error}</p>}
       {entries.length === 0 ? (
-        <p className="muted">Nothing waiting. Everything read has been filed.</p>
+        <p className="muted">{t('Nothing waiting. Everything read has been filed.')}</p>
       ) : null}
       <ul className="list">
         {entries.map((entry, i) => {
@@ -80,7 +86,9 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
           return (
             <li key={entry.sha256} className={i === selected ? 'selected' : undefined}>
               <div>
-                <strong>{s.title ?? entry.title ?? `Scan ${shortSha(entry.sha256)}`}</strong>
+                <strong>
+                  {s.title ?? entry.title ?? t('Scan {id}', { id: shortSha(entry.sha256) })}
+                </strong>
                 <span className="muted">
                   {[s.correspondent, s.documentType, s.date, when(entry.receivedAt)]
                     .filter(Boolean)
@@ -91,20 +99,21 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
                 )}
                 {entry.looksLike === undefined ? null : (
                   <span className="badge waiting wrap">
-                    Looks like a re-scan of{' '}
+                    {t('Looks like a re-scan of')}{' '}
                     <a href={href({ page: 'document', sha256: entry.looksLike.sha256 })}>
-                      {entry.looksLike.title ?? `scan ${shortSha(entry.looksLike.sha256)}`}
+                      {entry.looksLike.title ??
+                        t('Scan {id}', { id: shortSha(entry.looksLike.sha256) })}
                     </a>
                   </span>
                 )}
               </div>
               <div className="actions">
-                <button onClick={() => void accept(entry)}>Accept</button>
+                <button onClick={() => void accept(entry)}>{t('Accept')}</button>
                 <a
                   className="button secondary"
                   href={href({ page: 'document', sha256: entry.sha256 })}
                 >
-                  Edit
+                  {t('Edit')}
                 </a>
               </div>
             </li>

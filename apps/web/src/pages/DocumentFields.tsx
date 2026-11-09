@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import type {
   CustomField,
+  CustomFieldSuggestion,
   CustomFieldValue,
   DocumentCustomField,
   MonetaryValue,
   SearchHit,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { t } from '../i18n';
 import { fromInput, toInput } from '../custom-field-input';
 import { shortSha } from '../format';
 import { href } from '../route';
@@ -32,6 +34,7 @@ export function DocumentFields({
   const [drafts, setDrafts] = useState<readonly Draft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [suggestions, setSuggestions] = useState<readonly CustomFieldSuggestion[]>([]);
 
   useEffect(() => {
     // A reply for a document this form has moved on from must not fill it in.
@@ -48,6 +51,8 @@ export function DocumentFields({
       }
       setDefinitions(defs.value.fields);
       setDrafts(toDrafts(defs.value.fields, values.value.values));
+      const learned = await api.fieldSuggestions(sha256);
+      if (current && learned.ok) setSuggestions(learned.value.suggestions);
     })();
     return () => {
       current = false;
@@ -65,7 +70,7 @@ export function DocumentFields({
     for (const draft of drafts) {
       const value = fromInput(draft.field.type, draft.text, draft.currency);
       if (value === undefined) {
-        setError(`${draft.field.name}: that is not a valid value.`);
+        setError(t('{field}: that is not a valid value.', { field: draft.field.name }));
         return;
       }
       values.push({ field: draft.field.id, value });
@@ -84,19 +89,51 @@ export function DocumentFields({
   if (definitions.length === 0) {
     return (
       <section>
-        <h2>Fields</h2>
+        <h2>{t('Fields')}</h2>
         <p className="muted">
-          No custom fields yet. <a href={href({ page: 'fields' })}>Make one</a>.
+          {t('No custom fields yet.')} <a href={href({ page: 'fields' })}>{t('Make one')}</a>
         </p>
       </section>
     );
   }
 
   const unused = definitions.filter((d) => !drafts.some((draft) => draft.field.id === d.id));
+  // Offered while the field is still empty here, whether or not it is on the form yet.
+  const offered = suggestions.flatMap((s) => {
+    const field = definitions.find((d) => d.id === s.field);
+    const draft = drafts.find((d) => d.field.id === s.field);
+    return field === undefined || (draft !== undefined && draft.text !== '')
+      ? []
+      : [{ suggestion: s, field }];
+  });
+  const use = (field: CustomField, value: CustomFieldSuggestion['value']) => {
+    const text = toInput(field.type, value);
+    setSaved(false);
+    setDrafts((current) =>
+      current.some((d) => d.field.id === field.id)
+        ? current.map((d) => (d.field.id === field.id ? { ...d, text } : d))
+        : [...current, { field, text, currency: 'EUR' }],
+    );
+  };
 
   return (
     <section>
-      <h2>Fields</h2>
+      <h2>{t('Fields')}</h2>
+      {offered.length === 0 ? null : (
+        <ul className="notice field-suggestions">
+          {offered.map(({ suggestion, field }) => (
+            <li key={field.id}>
+              {field.name}: <strong>{toInput(field.type, suggestion.value)}</strong>{' '}
+              <span className="muted">
+                {t('like {count} documents similar to this one', { count: suggestion.basedOn })}
+              </span>{' '}
+              <button type="button" className="link" onClick={() => use(field, suggestion.value)}>
+                {t('Use')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <form className="custom-fields" onSubmit={(event) => void save(event)}>
         {drafts.map((draft) => (
           <div key={draft.field.id} className="custom-field">
@@ -110,12 +147,12 @@ export function DocumentFields({
                 <button
                   type="button"
                   className="link"
-                  aria-label={`Remove ${draft.field.name}`}
+                  aria-label={t('Remove {name}', { name: draft.field.name })}
                   onClick={() =>
                     setDrafts((current) => current.filter((d) => d.field.id !== draft.field.id))
                   }
                 >
-                  Remove
+                  {t('Remove')}
                 </button>
               )}
             </div>
@@ -123,7 +160,7 @@ export function DocumentFields({
         ))}
         {unused.length === 0 ? null : (
           <>
-            <label htmlFor="add-field">Add a field</label>
+            <label htmlFor="add-field">{t('Add a field')}</label>
             <select
               id="add-field"
               value=""
@@ -134,7 +171,7 @@ export function DocumentFields({
                 }
               }}
             >
-              <option value="">Choose…</option>
+              <option value="">{t('Choose…')}</option>
               {unused.map((field) => (
                 <option key={field.id} value={field.id}>
                   {field.name}
@@ -144,8 +181,8 @@ export function DocumentFields({
           </>
         )}
         <p>
-          <button type="submit">Save fields</button>{' '}
-          {saved ? <span className="badge ok">Saved</span> : null}
+          <button type="submit">{t('Save fields')}</button>{' '}
+          {saved ? <span className="badge ok">{t('Saved')}</span> : null}
         </p>
       </form>
       {error === null ? null : <p className="error">{error}</p>}
@@ -171,8 +208,8 @@ function FieldInput({
       return (
         <select id={id} value={draft.text} onChange={(event) => set(event.target.value)}>
           <option value="">—</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
+          <option value="true">{t('Yes')}</option>
+          <option value="false">{t('No')}</option>
         </select>
       );
     case 'select':
@@ -267,7 +304,7 @@ function LinkPicker({
               className="link"
               onClick={() => set(linked.filter((l) => l !== other).join(','))}
             >
-              Unlink
+              {t('Unlink')}
             </button>
           </li>
         ))}

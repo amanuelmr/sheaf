@@ -41,6 +41,10 @@ import {
   type ShareLink,
   type ShareLinksResponse,
   type NextAsnResponse,
+  type CustomFieldSuggestionsResponse,
+  type AsnSeries,
+  type AsnSeriesBody,
+  type AsnSeriesResponse,
   type BulkAction,
   type BulkEditResponse,
   type DocumentFilter,
@@ -165,7 +169,16 @@ export function api(connection: Connection) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
     },
-    nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
+    nextAsn: (series?: string) =>
+      call<NextAsnResponse>(
+        'GET',
+        series === undefined
+          ? paths.nextAsn()
+          : `${paths.nextAsn()}?series=${encodeURIComponent(series)}`,
+      ),
+    asnSeries: () => call<AsnSeriesResponse>('GET', paths.asnSeries()),
+    createAsnSeries: (body: AsnSeriesBody) => call<AsnSeries>('POST', paths.asnSeries(), body),
+    deleteAsnSeries: (prefix: string) => call<undefined>('DELETE', paths.asnSeriesOne(prefix)),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
     updateView: (id: number, patch: SavedViewPatch) =>
@@ -203,6 +216,8 @@ export function api(connection: Connection) {
     updateCustomField: (id: number, patch: CustomFieldPatch) =>
       call<CustomField>('PATCH', paths.customField(id), patch),
     deleteCustomField: (id: number) => call<undefined>('DELETE', paths.customField(id)),
+    fieldSuggestions: (sha256: string) =>
+      call<CustomFieldSuggestionsResponse>('GET', paths.documentFieldSuggestions(sha256)),
     documentCustomFields: (sha256: string) =>
       call<DocumentCustomFieldsResponse>('GET', paths.documentCustomFields(sha256)),
     setDocumentCustomFields: (sha256: string, values: readonly CustomFieldValue[]) =>
@@ -270,6 +285,26 @@ export function api(connection: Connection) {
         });
         if (!response.ok) return { ok: false, message: await explain(response) };
         return { ok: true, value: response.status === 201 ? 'stored' : 'known' };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    /** An EPUB, which the server keeps as a PDF made from it. Answers that document. */
+    uploadBook: async (
+      bytes: Uint8Array,
+    ): Promise<Result<{ state: 'stored' | 'known'; sha256: string }>> => {
+      try {
+        const response = await fetch(url(paths.books()), {
+          method: 'POST',
+          headers: headers({ 'content-type': 'application/epub+zip' }),
+          body: bytes as BodyInit,
+        });
+        if (!response.ok) return { ok: false, message: await explain(response) };
+        const record = (await response.json()) as DocumentRecord;
+        return {
+          ok: true,
+          value: { state: response.status === 201 ? 'stored' : 'known', sha256: record.sha256 },
+        };
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }

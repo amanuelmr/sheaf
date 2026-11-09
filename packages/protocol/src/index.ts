@@ -26,6 +26,11 @@ export const PROTOCOL_VERSION = 'v1';
 export const paths = {
   health: () => `/${PROTOCOL_VERSION}/health`,
   documents: () => `/${PROTOCOL_VERSION}/documents`,
+  /**
+   * `POST` an EPUB as the body: it is kept as a PDF made from it, with the book's
+   * own text and title. Answers the `DocumentRecord`, 201 when new.
+   */
+  books: () => `/${PROTOCOL_VERSION}/books`,
   /** Admin: `POST` creates a one-time pairing code (ADR 0008). */
   pairingCodes: () => `/${PROTOCOL_VERSION}/pairing-codes`,
   /** `POST` a code to become a paired device. The only route that needs no token. */
@@ -107,8 +112,15 @@ export const paths = {
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
   /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
   workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
-  /** `GET` the lowest archive serial number above every one in use. */
+  /**
+   * `GET ?series=` the lowest archive serial number above every one in use, in the
+   * series with that prefix, or the main one without it.
+   */
   nextAsn: () => `/${PROTOCOL_VERSION}/documents/next-asn`,
+  /** `GET` the serial number series; admin `POST`s an `AsnSeriesBody` to start one. */
+  asnSeries: () => `/${PROTOCOL_VERSION}/asn-series`,
+  /** Admin: `DELETE` a series no document has a number in. */
+  asnSeriesOne: (prefix: string) => `/${PROTOCOL_VERSION}/asn-series/${encodeURIComponent(prefix)}`,
   /** `GET` how many pages; `POST` a `PagesBody` to turn, drop or reorder them. */
   documentPages: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/pages`,
   /**
@@ -126,6 +138,9 @@ export const paths = {
   accuracy: () => `/${PROTOCOL_VERSION}/accuracy`,
   /** `GET` documents whose text says much the same: re-scans of the same paper. */
   documentSimilar: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/similar`,
+  /** `GET` values for the document's empty custom fields, learned from documents like it. */
+  documentFieldSuggestions: (sha256: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/custom-field-suggestions`,
   /** `GET` a document's earlier files. */
   documentVersions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/versions`,
   /** `GET` one earlier file as a PDF. */
@@ -266,6 +281,12 @@ export interface DocumentRecord {
   readonly receivedAt: number;
   readonly title: string | null;
   readonly correspondent: string | null;
+  /**
+   * Everyone else it is from or between, beside `correspondent`: a joint letter, a
+   * contract. Filtering by a correspondent finds documents naming them here too.
+   * Absent from servers that predate it.
+   */
+  readonly otherCorrespondents?: readonly string[];
   readonly documentType: string | null;
   readonly tags: readonly string[];
   /** The date on the document itself, YYYY-MM-DD, as a person set it; null until then. */
@@ -362,6 +383,8 @@ export interface SuggestionsResponse {
 export interface DocumentPatch {
   readonly title?: string | null;
   readonly correspondent?: string | null;
+  /** The whole list: the main correspondent and repeats are left out. */
+  readonly otherCorrespondents?: readonly string[];
   readonly documentType?: string | null;
   readonly tags?: readonly string[];
   /** YYYY-MM-DD. */
@@ -374,6 +397,69 @@ export const MAX_ASN = 2_147_483_647;
 
 export interface NextAsnResponse {
   readonly asn: number;
+}
+
+/**
+ * Serial numbers in separate series, one per binder, household or company: B-1,
+ * B-2… beside the main 1, 2…. Each series is a block of `ASN_SERIES_SIZE` numbers,
+ * so a document still has one number, unique across all of them, and the series
+ * is where it falls: `first` is the stored number of the series' 1.
+ */
+export const ASN_SERIES_SIZE = 10_000_000;
+export const MAX_ASN_SERIES = Math.floor(MAX_ASN / ASN_SERIES_SIZE) - 1;
+
+export interface AsnSeries {
+  /** Letters and digits, such as `B` or `WORK`; printed before the number and on barcodes. */
+  readonly prefix: string;
+  readonly name: string;
+  /** The stored number of the series' first document. */
+  readonly first: number;
+}
+
+export interface AsnSeriesResponse {
+  readonly series: readonly AsnSeries[];
+}
+
+export interface AsnSeriesBody {
+  readonly prefix: string;
+  readonly name: string;
+}
+
+export function asnSeriesBodyProblem(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return 'the body must be an object';
+  const { prefix, name } = body as Record<string, unknown>;
+  if (typeof prefix !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,9}$/.test(prefix)) {
+    return 'prefix must be 1 to 10 letters and digits, starting with a letter';
+  }
+  if (typeof name !== 'string' || name.trim() === '' || name.length > 100) {
+    return 'name must be 1 to 100 characters';
+  }
+  return null;
+}
+
+/** The series a stored number falls in, or null for the main series. */
+export function asnSeriesOf(asn: number, series: readonly AsnSeries[]): AsnSeries | null {
+  return series.find((s) => asn >= s.first && asn < s.first + ASN_SERIES_SIZE) ?? null;
+}
+
+/** A stored number as people write it: `B-42` in a series, `42` in the main one. */
+export function asnLabel(asn: number, series: readonly AsnSeries[]): string {
+  const own = asnSeriesOf(asn, series);
+  return own === null ? String(asn) : `${own.prefix}-${String(asn - own.first + 1)}`;
+}
+
+/**
+ * The stored number for what a person typed: `42`, `B-42` or `B42`. Null when it
+ * names no series, or a number past the end of one.
+ */
+export function asnFromLabel(text: string, series: readonly AsnSeries[]): number | null {
+  const match = /^\s*(?:([A-Za-z][A-Za-z0-9]*?)\s*-?\s*)?0*([1-9][0-9]{0,9})\s*$/.exec(text);
+  if (match === null) return null;
+  const n = Number(match[2]);
+  if (match[1] === undefined) return n <= MAX_ASN ? n : null;
+  const own = series.find((s) => s.prefix.toLowerCase() === match[1]!.toLowerCase());
+  if (own === undefined || n > ASN_SERIES_SIZE) return null;
+  return own.first + n - 1;
 }
 
 /**
@@ -390,9 +476,11 @@ export function documentPatchProblem(value: unknown): string | null {
     if (v !== undefined && v !== null && typeof v !== 'string')
       return `${key} must be text or null`;
   }
-  const tags = patch['tags'];
-  if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
-    return 'tags must be a list of names';
+  for (const key of ['tags', 'otherCorrespondents']) {
+    const list = patch[key];
+    if (list !== undefined && (!Array.isArray(list) || !list.every((t) => typeof t === 'string'))) {
+      return `${key} must be a list of names`;
+    }
   }
   const created = patch['created'];
   if (
@@ -916,6 +1004,23 @@ export type CustomFieldData = string | number | boolean | MonetaryValue | readon
 export interface CustomFieldValue {
   readonly field: number;
   readonly value: CustomFieldData | null;
+}
+
+/**
+ * A value for an empty custom field, learned from the documents most like this
+ * one that have it: offered, never written until a person takes it.
+ */
+export interface CustomFieldSuggestion {
+  readonly field: number;
+  readonly value: CustomFieldData;
+  /** The winning value's share of the vote, 0 to 1. */
+  readonly confidence: number;
+  /** How many alike documents have this value. */
+  readonly basedOn: number;
+}
+
+export interface CustomFieldSuggestionsResponse {
+  readonly suggestions: readonly CustomFieldSuggestion[];
 }
 
 /** A field on a document, as read back. */
@@ -2127,6 +2232,12 @@ export interface PairingCodeResponse {
   /** Base32 in groups of four, e.g. `K7QX-…`; case and dashes do not matter. */
   readonly code: string;
   readonly expiresAt: number;
+  /**
+   * The server's certificate, as `sha256/<base64>` of its public key, when it is
+   * reached over HTTPS: the phone keeps it at pairing and trusts no other, which
+   * lets a server use a self-signed certificate or a private CA. Absent over HTTP.
+   */
+  readonly pin?: string;
 }
 
 export interface PairRequest {
@@ -2156,12 +2267,24 @@ export interface DevicesResponse {
  * The link a pairing QR code holds. Scanning it with the phone's own camera opens
  * Sheaf (the `sheaf` scheme), already knowing where to connect and with what code.
  */
-export function pairingUri(server: string, code: string): string {
-  return `sheaf://pair?server=${encodeURIComponent(server)}&code=${encodeURIComponent(code)}`;
+export function pairingUri(server: string, code: string, pin?: string): string {
+  const base = `sheaf://pair?server=${encodeURIComponent(server)}&code=${encodeURIComponent(code)}`;
+  return pin === undefined ? base : `${base}&pin=${encodeURIComponent(pin)}`;
 }
 
-/** The server and code in a pairing link, or null for anything else. */
-export function parsePairingUri(uri: string): { server: string; code: string } | null {
+/** A certificate pin: `sha256/` and the base64 of 32 bytes. */
+export function isCertificatePin(value: string): boolean {
+  return /^sha256\/[A-Za-z0-9+/]{43}=$/.test(value);
+}
+
+/**
+ * The server, code and certificate pin in a pairing link, or null for anything
+ * else. A pin that is not one is refused rather than dropped: a link that names
+ * a certificate must not quietly pair with any.
+ */
+export function parsePairingUri(
+  uri: string,
+): { server: string; code: string; pin?: string } | null {
   const match = /^sheaf:\/\/pair\?(.*)$/i.exec(uri.trim());
   if (match === null) return null;
   const params = new URLSearchParams(match[1]);
@@ -2169,7 +2292,13 @@ export function parsePairingUri(uri: string): { server: string; code: string } |
   const code = params.get('code');
   if (server === null || code === null || code.trim() === '') return null;
   if (!/^https?:\/\/[^\s/]+/i.test(server)) return null;
-  return { server: server.replace(/\/+$/, ''), code: code.trim() };
+  const pin = params.get('pin');
+  if (pin !== null && (!isCertificatePin(pin) || !/^https:/i.test(server))) return null;
+  return {
+    server: server.replace(/\/+$/, ''),
+    code: code.trim(),
+    ...(pin === null ? {} : { pin }),
+  };
 }
 
 export function authorization(token: string): string {

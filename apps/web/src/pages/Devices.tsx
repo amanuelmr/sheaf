@@ -44,7 +44,7 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
       setError(result.message);
       return;
     }
-    const qr = await QRCode.toDataURL(pairingUri(serverUrl, result.value.code), {
+    const qr = await QRCode.toDataURL(pairingUri(serverUrl, result.value.code, result.value.pin), {
       margin: 1,
       width: 240,
       errorCorrectionLevel: 'M',

@@ -499,6 +499,27 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'required_custom_fields',
     statements: ['ALTER TABLE custom_fields ADD COLUMN required INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    // Serial numbers in separate series, each a block of numbers of its own.
+    id: 29,
+    name: 'asn_series',
+    statements: [
+      `CREATE TABLE asn_series (
+         prefix TEXT    PRIMARY KEY COLLATE NOCASE,
+         name   TEXT    NOT NULL,
+         first  INTEGER NOT NULL UNIQUE
+       )`,
+    ],
+  },
+  {
+    // Documents from more than one sender: a joint letter, a contract between
+    // several parties. The main correspondent stays in its own column.
+    id: 30,
+    name: 'other_correspondents',
+    statements: [
+      "ALTER TABLE documents ADD COLUMN other_correspondents TEXT NOT NULL DEFAULT '[]'",
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */

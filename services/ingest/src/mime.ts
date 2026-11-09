@@ -1,8 +1,10 @@
 /**
- * Just enough MIME to find the PDFs in an email: headers (unfolded, RFC 2047
+ * Just enough MIME to find the PDFs and EPUBs in an email: headers (unfolded, RFC 2047
  * encoded words decoded), nested multiparts, and base64 or quoted-printable bodies.
- * Everything that is not a PDF is skipped, never interpreted.
+ * Everything else is skipped, never interpreted.
  */
+
+import { isEpub } from './epub.ts';
 
 export interface Attachment {
   readonly filename: string | null;
@@ -97,10 +99,16 @@ function collect(headers: Headers, body: Buffer, out: Attachment[], depth: numbe
     (filename !== null &&
       filename.toLowerCase().endsWith('.pdf') &&
       (mediaType === 'application/octet-stream' || mediaType === 'application/x-pdf'));
-  if (!isPdf) return;
+  const isBook =
+    mediaType === 'application/epub+zip' ||
+    (filename !== null &&
+      filename.toLowerCase().endsWith('.epub') &&
+      (mediaType === 'application/octet-stream' || mediaType === 'application/zip'));
+  if (!isPdf && !isBook) return;
   const bytes = decode(body, headers.get('content-transfer-encoding'));
-  // Trust the bytes, not the label: a PDF starts with %PDF-.
-  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return;
+  // Trust the bytes, not the label: a PDF starts with %PDF-, an EPUB says so first.
+  if (isPdf && bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return;
+  if (isBook && !isEpub(new Uint8Array(bytes))) return;
   out.push({ filename, bytes: new Uint8Array(bytes) });
 }
 

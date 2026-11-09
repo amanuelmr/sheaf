@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
+  asnSeriesBodyProblem,
   settingProblem,
+  type AsnSeries,
   type AuditEntry,
   type HealthResponse,
   type DateOrderSetting,
@@ -8,6 +10,7 @@ import {
   type SettingSource,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { forgetAsnSeries } from '../asn-series';
 import { shortSha, when } from '../format';
 import { href } from '../route';
 
@@ -100,6 +103,8 @@ export function System({ api }: { api: Api }) {
 
       <ServerSettingsCard api={api} />
 
+      <AsnSeriesCard api={api} />
+
       <RecentChanges api={api} />
     </>
   );
@@ -152,6 +157,100 @@ function RetentionRow({
 }
 
 /** The newest changes made through the API, for an admin; nothing for anyone else. */
+/** Serial number series: everyone sees them; the server lets only an admin change them. */
+function AsnSeriesCard({ api }: { api: Api }) {
+  const [series, setSeries] = useState<readonly AsnSeries[] | null>(null);
+  const [prefix, setPrefix] = useState('');
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    const result = await api.asnSeries();
+    if (result.ok) setSeries(result.value.series);
+  };
+  useEffect(() => {
+    void load();
+  }, [api]);
+
+  const add = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const body = { prefix: prefix.trim(), name: name.trim() };
+    const problem = asnSeriesBodyProblem(body);
+    if (problem !== null) {
+      setMessage(problem);
+      return;
+    }
+    const result = await api.createAsnSeries(body);
+    setMessage(result.ok ? null : result.message);
+    if (!result.ok) return;
+    setPrefix('');
+    setName('');
+    forgetAsnSeries();
+    await load();
+  };
+
+  const remove = async (s: AsnSeries) => {
+    const result = await api.deleteAsnSeries(s.prefix);
+    setMessage(result.ok ? null : result.message);
+    forgetAsnSeries();
+    await load();
+  };
+
+  if (series === null) return null;
+  return (
+    <div className="card">
+      <h2>Serial number series</h2>
+      <p className="muted">
+        Number documents apart, one series per binder or household: B-1, B-2… beside the main 1, 2….
+        Barcodes such as B-42 or B00042 give a document its number in that series.
+      </p>
+      {series.length === 0 ? null : (
+        <ul className="list">
+          {series.map((s) => (
+            <li key={s.prefix}>
+              <strong>{s.prefix}</strong> {s.name}{' '}
+              <button
+                type="button"
+                className="link"
+                aria-label={`Remove series ${s.prefix}`}
+                onClick={() => void remove(s)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="filter-row" onSubmit={(event) => void add(event)}>
+        <div>
+          <label htmlFor="series-prefix">Prefix</label>
+          <input
+            id="series-prefix"
+            value={prefix}
+            placeholder="B"
+            onChange={(event) => setPrefix(event.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="series-name">Name</label>
+          <input
+            id="series-name"
+            value={name}
+            placeholder="Business"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <div>
+          <button type="submit" disabled={prefix.trim() === '' || name.trim() === ''}>
+            Start series
+          </button>
+        </div>
+      </form>
+      {message === null ? null : <p className="error">{message}</p>}
+    </div>
+  );
+}
+
 function RecentChanges({ api }: { api: Api }) {
   const [entries, setEntries] = useState<readonly AuditEntry[] | null>(null);
   const [more, setMore] = useState(true);

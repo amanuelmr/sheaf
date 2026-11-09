@@ -313,6 +313,28 @@ export class Labels {
       return;
     }
 
+    if (kind === 'correspondent') {
+      // Named beside the main correspondent: renamed or dropped there too, and once.
+      const has = `EXISTS (SELECT 1 FROM json_each(other_correspondents) WHERE value = ?)`;
+      const others = await this.#driver.all<{ sha256: string }>(
+        `SELECT sha256 FROM documents WHERE ${has}`,
+        [from],
+      );
+      await run(
+        `UPDATE documents SET other_correspondents = ${rewrite('other_correspondents')} WHERE ${has}`,
+        [from, to, from],
+      );
+      // Renamed to the main correspondent: no need to name them twice.
+      await run(
+        `UPDATE documents SET other_correspondents = (
+           SELECT json_group_array(value) FROM json_each(other_correspondents)
+            WHERE value <> documents.correspondent)
+          WHERE correspondent = ? AND ${has}`,
+        [to, to],
+      );
+      await this.#storage.reindexMany(others.map((row) => row.sha256));
+    }
+
     const affected = await this.#driver.all<{ sha256: string }>(
       `SELECT sha256 FROM documents WHERE ${column} = ?`,
       [from],
@@ -354,7 +376,15 @@ function select(kind: LabelKind): string {
       ? `SELECT t.value AS name, COUNT(DISTINCT d.sha256) AS n
            FROM documents d, json_each(d.tags) t
           WHERE d.trashed_at IS NULL GROUP BY t.value`
-      : `SELECT ${STORE[kind].column} AS name, COUNT(*) AS n FROM documents
+      : kind === 'correspondent'
+        ? `SELECT name, COUNT(DISTINCT sha256) AS n FROM (
+             SELECT correspondent AS name, sha256 FROM documents
+              WHERE trashed_at IS NULL AND correspondent IS NOT NULL
+             UNION ALL
+             SELECT o.value AS name, d.sha256 FROM documents d, json_each(d.other_correspondents) o
+              WHERE d.trashed_at IS NULL)
+            GROUP BY name`
+        : `SELECT ${STORE[kind].column} AS name, COUNT(*) AS n FROM documents
           WHERE trashed_at IS NULL AND ${STORE[kind].column} IS NOT NULL
           GROUP BY ${STORE[kind].column}`;
   return `SELECT n.id, n.name, n.colour, n.match_algorithm, n.match_pattern, n.match_case,

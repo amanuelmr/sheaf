@@ -1,0 +1,1 @@
+Scan paper to your own server: offline queue, delivered exactly once, no fees.

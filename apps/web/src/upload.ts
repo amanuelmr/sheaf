@@ -10,16 +10,21 @@ export interface PickedFile {
 /** One document to send: a PDF as it is, or photos made into one. */
 export type UploadPart =
   | { readonly kind: 'pdf'; readonly name: string; readonly file: PickedFile }
+  /** An EPUB: the server makes the PDF, so it is sent as it is. */
+  | { readonly kind: 'book'; readonly name: string; readonly file: PickedFile }
   | { readonly kind: 'photos'; readonly name: string; readonly files: readonly PickedFile[] };
 
 export const isPdf = (file: PickedFile): boolean =>
   file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
+export const isBook = (file: PickedFile): boolean =>
+  file.type === 'application/epub+zip' || file.name.toLowerCase().endsWith('.epub');
+
 export const isImage = (file: PickedFile): boolean =>
   file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic)$/i.test(file.name);
 
 /**
- * Each PDF is a document of its own; photos picked together are the pages of one,
+ * Each PDF or EPUB is a document of its own; photos picked together are the pages of one,
  * in the order picked, as a phone's scanner would make them. Anything else is
  * left out and named, so nothing goes missing without a word.
  */
@@ -32,6 +37,7 @@ export function plan(files: readonly PickedFile[]): {
   const skipped: string[] = [];
   for (const file of files) {
     if (isPdf(file)) parts.push({ kind: 'pdf', name: file.name, file });
+    else if (isBook(file)) parts.push({ kind: 'book', name: file.name, file });
     else if (isImage(file)) photos.push(file);
     else skipped.push(file.name);
   }
@@ -55,7 +61,7 @@ export interface Prepared {
  * make the same document.
  */
 export async function prepare(
-  part: UploadPart,
+  part: Exclude<UploadPart, { kind: 'book' }>,
   toJpeg: (file: PickedFile) => Promise<Uint8Array>,
 ): Promise<Prepared | { readonly problem: string }> {
   if (part.kind === 'pdf') {

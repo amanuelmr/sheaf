@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { MAX_DOCUMENT_BYTES, ERROR_STATUS } from '@sheaf/protocol';
 import { handle, type RouterDeps } from './router.ts';
 
@@ -28,8 +29,12 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
  * header by design, so it can never reach `handle`'s auth check and must be
  * answered here instead.
  */
-export function createIngestServer(deps: RouterDeps): Server {
-  return createServer((req: IncomingMessage, res: ServerResponse) => {
+export function createIngestServer(
+  deps: RouterDeps,
+  /** PEM certificate and key: HTTPS when given, HTTP otherwise. */
+  tls?: { readonly cert: string; readonly key: string },
+): Server {
+  const listener = (req: IncomingMessage, res: ServerResponse): void => {
     const started = process.hrtime.bigint();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
     // Every answer is counted once it is sent, whichever branch sent it.
@@ -70,7 +75,8 @@ export function createIngestServer(deps: RouterDeps): Server {
         send(res, { status: 500, json: { error: 'server_error' } }, req.method);
       }
     })();
-  });
+  };
+  return tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
 }
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | 'too-large'> {

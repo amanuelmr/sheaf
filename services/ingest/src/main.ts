@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { PaperlessClient } from '@sheaf/paperless';
@@ -7,6 +7,10 @@ import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder, type Connector } from './forwarder.ts';
 import { folderTarget } from './folder-target.ts';
 import { webdavTarget } from './webdav-target.ts';
+import { papraTarget } from './papra-target.ts';
+import { s3Target } from './s3-target.ts';
+import { AsnSeriesStore } from './asn-series.ts';
+import { spkiPin } from './tls.ts';
 import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
@@ -27,7 +31,7 @@ import { keyFrom } from './encryption.ts';
 import { ShareLinks } from './share-links.ts';
 import { Workflows } from './workflows.ts';
 import { sendMail, type OutgoingMail } from './smtp.ts';
-import { EMAIL_PATTERN } from '@sheaf/protocol';
+import { EMAIL_PATTERN, isCertificatePin } from '@sheaf/protocol';
 import { connect as netConnect } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { Users } from './users.ts';
@@ -361,32 +365,57 @@ void nearDuplicates.fillMissing().then(
   (error: unknown) => log.error(`near-duplicates: ${String(error)}`),
 );
 
-const server = createIngestServer({
-  storage,
-  token,
-  // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
-  devices: new Devices(driver, { now: () => Date.now() }),
-  metrics: new ServerMetrics(driver),
-  now: () => Date.now(),
-  ...(forwardingTo === undefined ? {} : { forwardingTo }),
-  ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
-  ...(archiveSource === null ? {} : { archive: archiveSource }),
-  ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
-  trashDays,
-  customFields,
-  labels: new Labels(driver, storage),
-  rules,
-  views: new SavedViews(driver),
-  bulk: new BulkEditor(storage, customFields, rules),
-  shareLinks: new ShareLinks(driver, storage),
-  workflows,
-  users,
-  ...(sso === null ? {} : { sso }),
-  audit: new AuditLog(driver),
-  edits,
-  settings,
-  nearDuplicates,
-});
+// HTTPS of its own when given a certificate, for a server reached without a proxy
+// in front. Its pin goes out with each pairing code, so a phone trusts it even
+// when it is self-signed. Behind a proxy, SHEAF_TLS_PIN gives the proxy's.
+const tlsCert = process.env['SHEAF_TLS_CERT'];
+const tlsKey = process.env['SHEAF_TLS_KEY'];
+const tls =
+  tlsCert !== undefined && tlsCert !== '' && tlsKey !== undefined && tlsKey !== ''
+    ? { cert: readFileSync(tlsCert, 'utf8'), key: readFileSync(tlsKey, 'utf8') }
+    : undefined;
+const pinGiven = process.env['SHEAF_TLS_PIN'];
+if (pinGiven !== undefined && pinGiven !== '' && !isCertificatePin(pinGiven)) {
+  throw new Error('SHEAF_TLS_PIN must be sha256/ and the base64 of a public key hash');
+}
+const certificatePin =
+  pinGiven !== undefined && pinGiven !== ''
+    ? pinGiven
+    : tls === undefined
+      ? undefined
+      : spkiPin(tls.cert);
+
+const server = createIngestServer(
+  {
+    storage,
+    token,
+    // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
+    devices: new Devices(driver, { now: () => Date.now() }),
+    metrics: new ServerMetrics(driver),
+    now: () => Date.now(),
+    ...(forwardingTo === undefined ? {} : { forwardingTo }),
+    ...(paperlessClient === null ? {} : { reconciliation: () => reconciliationProbe }),
+    ...(archiveSource === null ? {} : { archive: archiveSource }),
+    ...(retention === null ? {} : { retentionDays: retention.ms / 86_400_000 }),
+    trashDays,
+    customFields,
+    labels: new Labels(driver, storage),
+    rules,
+    views: new SavedViews(driver),
+    asnSeries: new AsnSeriesStore(driver),
+    bulk: new BulkEditor(storage, customFields, rules),
+    shareLinks: new ShareLinks(driver, storage),
+    workflows,
+    users,
+    ...(sso === null ? {} : { sso }),
+    audit: new AuditLog(driver),
+    edits,
+    settings,
+    nearDuplicates,
+    ...(certificatePin === undefined ? {} : { certificatePin }),
+  },
+  tls,
+);
 
 // Deleted documents wait in the trash, then go for good (always on: everything it
 // deletes, a person deleted first).
@@ -624,6 +653,32 @@ if (copyDir !== undefined && copyDir !== '') {
     copyDir,
   );
 }
+const s3Bucket = process.env['SHEAF_S3_BUCKET'];
+if (s3Bucket !== undefined && s3Bucket !== '') {
+  const endpoint = process.env['SHEAF_S3_ENDPOINT'];
+  copyEverything(
+    s3Target({
+      bucket: s3Bucket,
+      region: process.env['SHEAF_S3_REGION'] ?? 'us-east-1',
+      accessKeyId: process.env['SHEAF_S3_ACCESS_KEY_ID'] ?? '',
+      secretAccessKey: process.env['SHEAF_S3_SECRET_ACCESS_KEY'] ?? '',
+      prefix: process.env['SHEAF_S3_PREFIX'] ?? '',
+      ...(endpoint === undefined || endpoint === '' ? {} : { endpoint }),
+    }),
+    `bucket ${s3Bucket}`,
+  );
+}
+const papraUrl = process.env['SHEAF_PAPRA_URL'];
+if (papraUrl !== undefined && papraUrl !== '') {
+  copyEverything(
+    papraTarget({
+      url: papraUrl,
+      apiKey: process.env['SHEAF_PAPRA_API_KEY'] ?? '',
+      organizationId: process.env['SHEAF_PAPRA_ORGANIZATION'] ?? '',
+    }),
+    new URL(papraUrl).host,
+  );
+}
 
 /**
  * Work each stored document goes through after it is safe: reading its text,
@@ -710,7 +765,8 @@ if (steps.length > 0) {
 }
 
 server.listen(port, () => {
-  log.info(`sheaf-ingest listening on http://localhost:${port}`);
+  log.info(`sheaf-ingest listening on ${tls === undefined ? 'http' : 'https'}://localhost:${port}`);
+  if (certificatePin !== undefined) log.info(`certificate pin given to phones: ${certificatePin}`);
   log.info(`documents: ${dataDir}`);
 });
 

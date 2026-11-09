@@ -813,11 +813,21 @@ h2 .count {
 
 .asn-input {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
+/* The box keeps room to type in; what is beside it moves under it when narrow. */
 .asn-input input {
-  flex: 1;
+  flex: 1 1 7em;
+  min-width: 7em;
+  margin-bottom: 0;
+}
+
+.asn-input select,
+.asn-input button {
+  flex: none;
+  width: auto;
   margin-bottom: 0;
 }
 
@@ -890,4 +900,24 @@ nav {
 
 .page-rows .actions button.secondary {
   min-width: 40px;
+}
+
+.notice.field-suggestions {
+  list-style: none;
+  border-color: var(--border);
+}
+
+.notice.field-suggestions li + li {
+  margin-top: 4px;
+}
+
+select.language {
+  width: auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.9em;
+}
+
+.page.narrow select.language {
+  margin-bottom: 16px;
 }

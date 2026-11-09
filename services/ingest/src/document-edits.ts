@@ -100,6 +100,7 @@ export class DocumentEdits {
         await this.#store(piece, parts[i]!.length, now, {
           title: title === null ? null : `${title} (${String(i + 1)} of ${String(pieces.length)})`,
           correspondent: record.correspondent,
+          otherCorrespondents: record.otherCorrespondents ?? [],
           documentType: record.documentType,
           tags: record.tags,
           created: record.created,
@@ -139,6 +140,7 @@ export class DocumentEdits {
     const sha256 = await this.#store(merged, await pageCount(merged), now, {
       title: first.title ?? first.suggestions?.title ?? null,
       correspondent: first.correspondent,
+      otherCorrespondents: first.otherCorrespondents ?? [],
       documentType: first.documentType,
       tags: [...new Set(tags)],
       created: first.created,
