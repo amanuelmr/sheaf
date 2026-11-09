@@ -133,6 +133,9 @@ export const paths = {
   accuracy: () => `/${PROTOCOL_VERSION}/accuracy`,
   /** `GET` documents whose text says much the same: re-scans of the same paper. */
   documentSimilar: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/similar`,
+  /** `GET` values for the document's empty custom fields, learned from documents like it. */
+  documentFieldSuggestions: (sha256: string) =>
+    `/${PROTOCOL_VERSION}/documents/${sha256}/custom-field-suggestions`,
   /** `GET` a document's earlier files. */
   documentVersions: (sha256: string) => `/${PROTOCOL_VERSION}/documents/${sha256}/versions`,
   /** `GET` one earlier file as a PDF. */
@@ -996,6 +999,23 @@ export type CustomFieldData = string | number | boolean | MonetaryValue | readon
 export interface CustomFieldValue {
   readonly field: number;
   readonly value: CustomFieldData | null;
+}
+
+/**
+ * A value for an empty custom field, learned from the documents most like this
+ * one that have it: offered, never written until a person takes it.
+ */
+export interface CustomFieldSuggestion {
+  readonly field: number;
+  readonly value: CustomFieldData;
+  /** The winning value's share of the vote, 0 to 1. */
+  readonly confidence: number;
+  /** How many alike documents have this value. */
+  readonly basedOn: number;
+}
+
+export interface CustomFieldSuggestionsResponse {
+  readonly suggestions: readonly CustomFieldSuggestion[];
 }
 
 /** A field on a document, as read back. */

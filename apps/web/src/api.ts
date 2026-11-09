@@ -41,6 +41,7 @@ import {
   type ShareLink,
   type ShareLinksResponse,
   type NextAsnResponse,
+  type CustomFieldSuggestionsResponse,
   type AsnSeries,
   type AsnSeriesBody,
   type AsnSeriesResponse,
@@ -215,6 +216,8 @@ export function api(connection: Connection) {
     updateCustomField: (id: number, patch: CustomFieldPatch) =>
       call<CustomField>('PATCH', paths.customField(id), patch),
     deleteCustomField: (id: number) => call<undefined>('DELETE', paths.customField(id)),
+    fieldSuggestions: (sha256: string) =>
+      call<CustomFieldSuggestionsResponse>('GET', paths.documentFieldSuggestions(sha256)),
     documentCustomFields: (sha256: string) =>
       call<DocumentCustomFieldsResponse>('GET', paths.documentCustomFields(sha256)),
     setDocumentCustomFields: (sha256: string, values: readonly CustomFieldValue[]) =>

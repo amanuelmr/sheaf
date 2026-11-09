@@ -71,6 +71,7 @@ import {
   type WorkflowsResponse,
   type ShareLinksResponse,
   type NextAsnResponse,
+  type CustomFieldSuggestionsResponse,
   type AsnSeriesBody,
   type AsnSeriesResponse,
   ASN_SERIES_SIZE,
@@ -804,6 +805,20 @@ async function authenticated(
     }
     const response: SimilarResponse = {
       documents: await deps.nearDuplicates.similarTo(id, viewer),
+    };
+    return { status: 200, json: response };
+  }
+
+  const fieldSuggestionsSuffix = '/custom-field-suggestions';
+  if (rest.endsWith(fieldSuggestionsSuffix)) {
+    const id = rest.slice(0, -fieldSuggestionsSuffix.length);
+    if (!isSha256(id)) return fail('malformed_id', 'document ids are lowercase hex SHA-256');
+    if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
+    if (deps.customFields === undefined || !(await deps.storage.has(id))) {
+      return fail('not_found');
+    }
+    const response: CustomFieldSuggestionsResponse = {
+      suggestions: await deps.customFields.suggestions(id, viewer),
     };
     return { status: 200, json: response };
   }

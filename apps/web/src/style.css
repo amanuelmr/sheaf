@@ -891,3 +891,12 @@ nav {
 .page-rows .actions button.secondary {
   min-width: 40px;
 }
+
+.notice.field-suggestions {
+  list-style: none;
+  border-color: var(--border);
+}
+
+.notice.field-suggestions li + li {
+  margin-top: 4px;
+}

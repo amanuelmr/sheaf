@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
   CustomField,
+  CustomFieldSuggestion,
   CustomFieldValue,
   DocumentCustomField,
   MonetaryValue,
@@ -32,6 +33,7 @@ export function DocumentFields({
   const [drafts, setDrafts] = useState<readonly Draft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [suggestions, setSuggestions] = useState<readonly CustomFieldSuggestion[]>([]);
 
   useEffect(() => {
     // A reply for a document this form has moved on from must not fill it in.
@@ -48,6 +50,8 @@ export function DocumentFields({
       }
       setDefinitions(defs.value.fields);
       setDrafts(toDrafts(defs.value.fields, values.value.values));
+      const learned = await api.fieldSuggestions(sha256);
+      if (current && learned.ok) setSuggestions(learned.value.suggestions);
     })();
     return () => {
       current = false;
@@ -93,10 +97,42 @@ export function DocumentFields({
   }
 
   const unused = definitions.filter((d) => !drafts.some((draft) => draft.field.id === d.id));
+  // Offered while the field is still empty here, whether or not it is on the form yet.
+  const offered = suggestions.flatMap((s) => {
+    const field = definitions.find((d) => d.id === s.field);
+    const draft = drafts.find((d) => d.field.id === s.field);
+    return field === undefined || (draft !== undefined && draft.text !== '')
+      ? []
+      : [{ suggestion: s, field }];
+  });
+  const use = (field: CustomField, value: CustomFieldSuggestion['value']) => {
+    const text = toInput(field.type, value);
+    setSaved(false);
+    setDrafts((current) =>
+      current.some((d) => d.field.id === field.id)
+        ? current.map((d) => (d.field.id === field.id ? { ...d, text } : d))
+        : [...current, { field, text, currency: 'EUR' }],
+    );
+  };
 
   return (
     <section>
       <h2>Fields</h2>
+      {offered.length === 0 ? null : (
+        <ul className="notice field-suggestions">
+          {offered.map(({ suggestion, field }) => (
+            <li key={field.id}>
+              {field.name}: <strong>{toInput(field.type, suggestion.value)}</strong>{' '}
+              <span className="muted">
+                like {String(suggestion.basedOn)} documents similar to this one
+              </span>{' '}
+              <button type="button" className="link" onClick={() => use(field, suggestion.value)}>
+                Use
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <form className="custom-fields" onSubmit={(event) => void save(event)}>
         {drafts.map((draft) => (
           <div key={draft.field.id} className="custom-field">
