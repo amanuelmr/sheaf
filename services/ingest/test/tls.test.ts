@@ -1,4 +1,5 @@
 /** HTTPS of the server's own, and the certificate pin phones are given to trust. */
+import { execFileSync, execSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { TLSSocket } from 'node:tls';
@@ -15,11 +16,41 @@ import { createIngestServer } from '../src/server';
 import { Storage } from '../src/storage';
 import { spkiPin } from '../src/tls';
 
-const FIXTURES = join(__dirname, 'fixtures', 'tls');
-const CERT = readFileSync(join(FIXTURES, 'cert.pem'), 'utf8');
-const KEY = readFileSync(join(FIXTURES, 'key.pem'), 'utf8');
-/** From `openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`. */
-const OPENSSL_PIN = 'sha256/yLVmlPUzILDcRBQ3iKFciUFoBSw2DAZZ6HsvuWZSdiw=';
+/**
+ * A throwaway self-signed certificate, made by openssl for this run so no private
+ * key is ever kept in the repository, and its pin as openssl itself computes it.
+ */
+const DIR = mkdtempSync(join(tmpdir(), 'sheaf-tls-cert-'));
+execFileSync(
+  'openssl',
+  [
+    'req',
+    '-x509',
+    '-newkey',
+    'ec',
+    '-pkeyopt',
+    'ec_paramgen_curve:prime256v1',
+    '-nodes',
+    '-keyout',
+    join(DIR, 'key.pem'),
+    '-out',
+    join(DIR, 'cert.pem'),
+    '-days',
+    '1',
+    '-subj',
+    '/CN=sheaf.test',
+    '-addext',
+    'subjectAltName=DNS:localhost,IP:127.0.0.1',
+  ],
+  { stdio: 'ignore' },
+);
+const CERT = readFileSync(join(DIR, 'cert.pem'), 'utf8');
+const KEY = readFileSync(join(DIR, 'key.pem'), 'utf8');
+const OPENSSL_PIN = `sha256/${execSync(
+  `openssl x509 -in "${join(DIR, 'cert.pem')}" -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`,
+)
+  .toString()
+  .trim()}`;
 const TOKEN = 'admin-token-tls-pinning';
 
 let close: (() => void) | null = null;
