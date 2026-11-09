@@ -1,7 +1,9 @@
 # Contributing to Sheaf
 
-Thanks for looking. Sheaf is early, so the most useful contributions right now are
-Paperless-ngx compatibility reports and scrutiny of the sync engine.
+Thanks for looking. The most useful contributions right now are running Sheaf on
+a real phone (iOS or Android) and saying what broke, translations, and scrutiny of
+the sync engine. Reports from Paperless-ngx users of the optional connector are
+welcome too.
 
 ## Getting set up
 
@@ -10,7 +12,13 @@ pnpm install
 pnpm verify      # format check + lint + typecheck + tests
 ```
 
-Node 20+ and pnpm. CI runs exactly `pnpm verify`, so a green local run is a green PR.
+Node 22.6+ (the server uses `node:sqlite`; `.nvmrc` pins 24) and pnpm.
+
+`pnpm verify` is the everyday check. CI runs a little more: tests with coverage
+floors (`pnpm test:coverage`), the search benchmark (`pnpm bench:search`), the
+server actually starting, the OCR sidecar's Python tests, and production bundles of
+both apps (`pnpm bundle`, `pnpm bundle:web`). Run those too if your change touches
+them.
 
 ## The one rule that matters
 
@@ -22,7 +30,9 @@ This is not aesthetics. Purity is what lets the simulator replay thousands of fa
 schedules deterministically, and what makes a failing seed reproducible on your
 laptop instead of a story about a flaky test.
 
-Effects belong in `apps/mobile` (the executor) or `packages/paperless` (HTTP).
+Effects belong at the edges: `apps/mobile` (the executor), `apps/web`,
+`services/ingest` (the server), and the HTTP packages (`packages/http`,
+`packages/client`, `packages/paperless`).
 
 ## Changing sync behaviour
 
@@ -39,6 +49,14 @@ Response shapes and consumer messages differ across Paperless-ngx versions —
 `interpretTask` is the place that cares. If Sheaf misreads your server, the most
 valuable thing you can send is the raw `/api/tasks/` row (with anything sensitive
 redacted) and your Paperless version. That becomes a test case.
+
+## Web app text
+
+The web app is translated into German, French and Spanish. Put visible text through
+`t('…')` from `apps/web/src/i18n.ts`, with a plain single-quoted English sentence,
+and add it to each file in `apps/web/src/translations/`. A test fails on any text
+left untranslated, or translated but no longer used. If you cannot translate it
+yourself, say so in the PR and someone will.
 
 ## Style
 

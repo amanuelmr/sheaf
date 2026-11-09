@@ -1,7 +1,60 @@
 # Changelog
 
-Notable changes, newest first. Versions are tagged in git; the plan behind them is in
-[docs/roadmap](docs/roadmap/README.md).
+Notable changes, newest first. Versions are not tagged in git yet; the plan behind
+them is in [docs/roadmap](docs/roadmap/README.md).
+
+## Unreleased
+
+**Everything you need to file paper is on the server.**
+
+Documents and filing:
+
+- Notes, a trash with restore, and custom fields: required fields, and suggested
+  values learned from the documents most like this one.
+- Labels you manage, with matching rules and inbox tags. Tags can sit inside tags.
+- Saved views on a dashboard, filters, bulk edits, and CSV export.
+- The date on the document and archive serial numbers, in several series (B-1,
+  B-2…), read from barcodes too.
+- More than one correspondent per document.
+- Pages turned, removed, reordered, split and merged, with earlier versions kept.
+  Rubber-stamp marks. PDFs downloaded with their text inside.
+- A warning when a new document looks like a re-scan of one already here.
+
+Getting documents in:
+
+- Upload from the web app, including photos taken in the browser.
+- A consume folder, with double-sided scans and subfolders as tags.
+- Attachments from an IMAP mailbox.
+- EPUB books, kept as PDFs made from their chapters.
+
+Getting copies out:
+
+- Copies to WebDAV, a folder, an S3 bucket (Amazon S3, MinIO, Garage, B2, R2) or
+  Papra.
+- Export and import of everything, with files named by a template.
+
+People and security:
+
+- Accounts with admin, editor and viewer roles.
+- Per-document permissions, share links, and single sign-on with OpenID Connect.
+- An audit log, and workflows that tag, file, email or call a webhook.
+- Document files encrypted on disk with `SHEAF_ENCRYPTION_KEY`.
+- The server can serve HTTPS itself. Pairing codes carry its certificate's pin,
+  though the phone does not check it yet.
+
+Reading and language:
+
+- Date order and default currency as settings.
+- Extraction reads month names in German, French, Spanish, Italian, Dutch and
+  Portuguese, and yen totals. It is tested on documents from seven countries.
+- The review page shows how often each suggestion was right.
+- The web app speaks English, German, French and Spanish.
+
+Running it:
+
+- Under docker compose, server settings go in `server.env`.
+- The server needs Node 22.6 or later.
+- The Android store listing for F-Droid is in the repository.
 
 ## 1.0.0
 

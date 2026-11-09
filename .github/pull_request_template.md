@@ -17,3 +17,4 @@
 - [ ] `packages/core` is still pure (no clock, randomness, I/O, or React)
 - [ ] If sync behaviour changed, a test covers it
 - [ ] No token or document content can reach a log
+- [ ] New web app text is translated (German, French, Spanish) or flagged in the PR
