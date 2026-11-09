@@ -41,6 +41,9 @@ import {
   type ShareLink,
   type ShareLinksResponse,
   type NextAsnResponse,
+  type AsnSeries,
+  type AsnSeriesBody,
+  type AsnSeriesResponse,
   type BulkAction,
   type BulkEditResponse,
   type DocumentFilter,
@@ -165,7 +168,16 @@ export function api(connection: Connection) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
     },
-    nextAsn: () => call<NextAsnResponse>('GET', paths.nextAsn()),
+    nextAsn: (series?: string) =>
+      call<NextAsnResponse>(
+        'GET',
+        series === undefined
+          ? paths.nextAsn()
+          : `${paths.nextAsn()}?series=${encodeURIComponent(series)}`,
+      ),
+    asnSeries: () => call<AsnSeriesResponse>('GET', paths.asnSeries()),
+    createAsnSeries: (body: AsnSeriesBody) => call<AsnSeries>('POST', paths.asnSeries(), body),
+    deleteAsnSeries: (prefix: string) => call<undefined>('DELETE', paths.asnSeriesOne(prefix)),
     views: () => call<SavedViewsResponse>('GET', paths.views()),
     createView: (body: SavedViewBody) => call<SavedView>('POST', paths.views(), body),
     updateView: (id: number, patch: SavedViewPatch) =>

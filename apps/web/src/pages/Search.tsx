@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   SEARCH_SORTS,
+  asnLabel,
+  type AsnSeries,
   type DocumentFilter,
   type Label,
   type LabelKind,
@@ -9,6 +11,7 @@ import {
   type SearchSort,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { useAsnSeries } from '../asn-series';
 import { Snippet, shortSha, when } from '../format';
 import { href } from '../route';
 import { BulkBar } from './BulkBar';
@@ -71,6 +74,7 @@ export function cycleTag(filter: DocumentFilter, tag: string): DocumentFilter {
 
 /** The home page: search every word, filter by label and date, and keep filters as views. */
 export function Search({ api, initial }: { api: Api; initial?: DocumentFilter }) {
+  const series = useAsnSeries(api);
   const [filter, setFilter] = useState<DocumentFilter>(initial ?? {});
   const [hits, setHits] = useState<readonly SearchHit[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -254,6 +258,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
               <HitList
                 hits={hits}
                 labels={labels}
+                series={series}
                 selected={selected}
                 onSelect={(sha256, on) =>
                   setSelected((current) => {
@@ -275,10 +280,12 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
 function HitList({
   hits,
   labels,
+  series,
   selected,
   onSelect,
 }: {
   hits: readonly SearchHit[];
+  series: readonly AsnSeries[];
   labels: Readonly<Record<LabelKind, readonly Label[]>> | null;
   /** With these two, each row can be ticked for a bulk edit. */
   selected?: ReadonlySet<string>;
@@ -304,7 +311,7 @@ function HitList({
             <strong>{hit.title ?? hit.suggestedTitle ?? `Scan ${shortSha(hit.sha256)}`}</strong>
             <span className="muted">
               {[
-                hit.asn === null ? null : `#${String(hit.asn)}`,
+                hit.asn === null ? null : `#${asnLabel(hit.asn, series)}`,
                 hit.correspondent,
                 hit.documentType,
                 hit.created ?? when(hit.receivedAt),
@@ -630,6 +637,7 @@ function DashboardView({
   labels: LabelLists;
   onOpen?: () => void;
 }) {
+  const series = useAsnSeries(api);
   const [result, setResult] = useState<{ hits: readonly SearchHit[]; total: number } | null>(null);
   const size = onOpen === undefined ? 20 : 5;
   useEffect(() => {
@@ -662,7 +670,7 @@ function DashboardView({
           {onOpen === undefined ? 'Nothing stored yet. Scan something.' : 'Nothing here.'}
         </p>
       ) : null}
-      {result === null ? null : <HitList hits={result.hits} labels={labels} />}
+      {result === null ? null : <HitList hits={result.hits} labels={labels} series={series} />}
     </section>
   );
 }

@@ -45,3 +45,18 @@ suite('the details form', () => {
     expect(detailsPatch(record, { ...draft, asn: '12a' })).toBeNull();
   });
 });
+
+suite('serial numbers in a series', () => {
+  const series = [{ prefix: 'B', name: 'Business', first: 10_000_000 }];
+  const inSeries: DocumentRecord = { ...record, asn: 10_000_041 };
+
+  it('shows the number with its series prefix, and saves what is typed back', () => {
+    expect(draftOf(inSeries, series).asn).toBe('B-42');
+    const draft = draftOf(inSeries, series);
+    expect(detailsPatch(inSeries, draft, series)).not.toHaveProperty('asn');
+    expect(detailsPatch(inSeries, { ...draft, asn: 'B-43' }, series)).toMatchObject({
+      asn: 10_000_042,
+    });
+    expect(detailsPatch(inSeries, { ...draft, asn: 'Q-1' }, series)).toBeNull();
+  });
+});

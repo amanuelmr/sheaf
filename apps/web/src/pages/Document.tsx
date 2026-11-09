@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { DocumentRecord, FieldEntry, HistoryEvent } from '@sheaf/protocol';
+import { asnLabel, type DocumentRecord, type FieldEntry, type HistoryEvent } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { useAsnSeries } from '../asn-series';
 import { money, shortSha, when } from '../format';
 import { href } from '../route';
 import { INBOX_CHANGED } from './Inbox';
@@ -25,6 +26,7 @@ const LABELS: Readonly<Record<string, string>> = {
 
 /** One document: the PDF, its details with who set each one, and its history here. */
 export function Document({ api, sha256 }: { api: Api; sha256: string }) {
+  const series = useAsnSeries(api);
   const [record, setRecord] = useState<DocumentRecord | null>(null);
   const [fields, setFields] = useState<readonly FieldEntry[]>([]);
   const [events, setEvents] = useState<readonly HistoryEvent[]>([]);
@@ -127,7 +129,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         <p className="muted">
           {[
             record.created === null ? null : `Dated ${record.created}`,
-            record.asn === null ? null : `ASN ${String(record.asn)}`,
+            record.asn === null ? null : `ASN ${asnLabel(record.asn, series)}`,
             `Received ${when(record.receivedAt)}`,
           ]
             .filter(Boolean)
