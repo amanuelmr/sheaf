@@ -273,6 +273,12 @@ export interface DocumentRecord {
   readonly receivedAt: number;
   readonly title: string | null;
   readonly correspondent: string | null;
+  /**
+   * Everyone else it is from or between, beside `correspondent`: a joint letter, a
+   * contract. Filtering by a correspondent finds documents naming them here too.
+   * Absent from servers that predate it.
+   */
+  readonly otherCorrespondents?: readonly string[];
   readonly documentType: string | null;
   readonly tags: readonly string[];
   /** The date on the document itself, YYYY-MM-DD, as a person set it; null until then. */
@@ -369,6 +375,8 @@ export interface SuggestionsResponse {
 export interface DocumentPatch {
   readonly title?: string | null;
   readonly correspondent?: string | null;
+  /** The whole list: the main correspondent and repeats are left out. */
+  readonly otherCorrespondents?: readonly string[];
   readonly documentType?: string | null;
   readonly tags?: readonly string[];
   /** YYYY-MM-DD. */
@@ -460,9 +468,11 @@ export function documentPatchProblem(value: unknown): string | null {
     if (v !== undefined && v !== null && typeof v !== 'string')
       return `${key} must be text or null`;
   }
-  const tags = patch['tags'];
-  if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
-    return 'tags must be a list of names';
+  for (const key of ['tags', 'otherCorrespondents']) {
+    const list = patch[key];
+    if (list !== undefined && (!Array.isArray(list) || !list.every((t) => typeof t === 'string'))) {
+      return `${key} must be a list of names`;
+    }
   }
   const created = patch['created'];
   if (

@@ -17,6 +17,8 @@ export interface DetailsDraft {
   readonly correspondent: string;
   readonly documentType: string;
   readonly tags: readonly string[];
+  /** Everyone else it is from or between. */
+  readonly others: readonly string[];
   /** As typed: `42`, `B-42` in a series, or empty for none. */
   readonly asn: string;
 }
@@ -29,6 +31,7 @@ export function draftOf(record: DocumentRecord, series: readonly AsnSeries[] = [
     correspondent: record.correspondent ?? '',
     documentType: record.documentType ?? '',
     tags: record.tags,
+    others: record.otherCorrespondents ?? [],
     asn: record.asn === null ? '' : asnLabel(record.asn, series),
   };
 }
@@ -59,6 +62,11 @@ export function detailsPatch(
   if (tags.length !== record.tags.length || tags.some((t, i) => t !== record.tags[i])) {
     patch.tags = tags;
   }
+  const others = [...new Set(draft.others.map((t) => t.trim()).filter((t) => t !== ''))];
+  const before = record.otherCorrespondents ?? [];
+  if (others.length !== before.length || others.some((t, i) => t !== before[i])) {
+    patch.otherCorrespondents = others;
+  }
   if (asn !== record.asn) patch.asn = asn;
   return patch;
 }
@@ -75,6 +83,7 @@ export function DocumentDetails({
 }) {
   const [draft, setDraft] = useState<DetailsDraft>(() => draftOf(record));
   const [tag, setTag] = useState('');
+  const [other, setOther] = useState('');
   const [labels, setLabels] = useState<Readonly<Record<LabelKind, readonly Label[]>> | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const series = useAsnSeries(api);
@@ -104,6 +113,11 @@ export function DocumentDetails({
   const set = (change: Partial<DetailsDraft>) => {
     setMessage(null);
     setDraft((current) => ({ ...current, ...change }));
+  };
+  const addOther = () => {
+    if (other.trim() === '') return;
+    set({ others: [...draft.others, other.trim()] });
+    setOther('');
   };
   const addTag = () => {
     if (tag.trim() === '') return;
@@ -204,6 +218,44 @@ export function DocumentDetails({
               <option key={label.id} value={label.name} />
             ))}
           </datalist>
+          <div className="tags editable">
+            {draft.others.map((name) => (
+              <span key={name} className="tag">
+                {name}{' '}
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Remove ${name}`}
+                  onClick={() => set({ others: draft.others.filter((t) => t !== name) })}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <span className="asn-input">
+            <input
+              aria-label="Also from"
+              list="details-correspondents"
+              placeholder="Also from…"
+              value={other}
+              onChange={(event) => setOther(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addOther();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="secondary"
+              onClick={addOther}
+              disabled={other.trim() === ''}
+            >
+              Add
+            </button>
+          </span>
         </div>
         <div>
           <label htmlFor="documentType">Type</label>

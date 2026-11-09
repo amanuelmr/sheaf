@@ -60,3 +60,14 @@ suite('serial numbers in a series', () => {
     expect(detailsPatch(inSeries, { ...draft, asn: 'Q-1' }, series)).toBeNull();
   });
 });
+
+suite('more than one correspondent', () => {
+  it('sends the others only when they changed, each once', () => {
+    const draft = draftOf(record);
+    expect(draft.others).toEqual([]);
+    expect(detailsPatch(record, draft)).not.toHaveProperty('otherCorrespondents');
+    expect(detailsPatch(record, { ...draft, others: ['Bob', ' Bob ', 'Acme'] })).toMatchObject({
+      otherCorrespondents: ['Bob', 'Acme'],
+    });
+  });
+});

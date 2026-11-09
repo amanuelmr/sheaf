@@ -58,6 +58,8 @@ export interface ManifestDocument {
   readonly pageCount: number | null;
   readonly title: string | null;
   readonly correspondent: string | null;
+  /** Absent from exports made before documents could have more than one. */
+  readonly otherCorrespondents?: readonly string[];
   readonly documentType: string | null;
   readonly tags: readonly string[];
   readonly created: string | null;
@@ -123,6 +125,7 @@ export async function exportTo(
       pageCount: record.pageCount,
       title: record.title,
       correspondent: record.correspondent,
+      otherCorrespondents: record.otherCorrespondents ?? [],
       documentType: record.documentType,
       tags: record.tags,
       created: record.created,
@@ -287,6 +290,7 @@ export async function importFrom(
     const patch = {
       title: doc.title,
       correspondent: doc.correspondent,
+      otherCorrespondents: doc.otherCorrespondents ?? [],
       documentType: doc.documentType,
       tags: doc.tags,
       created: doc.created,

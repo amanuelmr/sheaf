@@ -171,7 +171,7 @@ export const PRIMARY_CONNECTOR = 'paperless';
  */
 const WITH_DELIVERY = `
   SELECT d.sha256, d.bytes, d.page_count, d.received_at, d.title, d.correspondent,
-         d.document_type, d.tags, d.created, d.asn, d.owner_id, d.bytes_released, d.suggestions_state,
+         d.other_correspondents, d.document_type, d.tags, d.created, d.asn, d.owner_id, d.bytes_released, d.suggestions_state,
          d.suggestions_attempts, d.suggestions_next_at, d.suggestions_json, d.trashed_at,
          COALESCE(v.state, 'pending') AS f_state, COALESCE(v.attempts, 0) AS f_attempts,
          v.next_at AS f_next_at, v.task_id AS f_task_id, v.remote_id AS f_remote_id,
@@ -199,6 +199,7 @@ interface Row {
   received_at: number;
   title: string | null;
   correspondent: string | null;
+  other_correspondents: string;
   document_type: string | null;
   tags: string;
   created: string | null;
@@ -536,6 +537,14 @@ export class Storage {
       sets.push('tags = ?');
       values.push(JSON.stringify(await this.withAncestors(patch.tags)));
     }
+    const others =
+      patch.otherCorrespondents === undefined
+        ? undefined
+        : await this.#othersFor(sha256, patch.correspondent, patch.otherCorrespondents);
+    if (others !== undefined) {
+      sets.push('other_correspondents = ?');
+      values.push(JSON.stringify(others));
+    }
     if (patch.asn !== undefined && patch.asn !== null) {
       const holder = await this.#driver.all<{ sha256: string }>(
         'SELECT sha256 FROM documents WHERE asn = ? AND sha256 <> ?',
@@ -566,6 +575,7 @@ export class Storage {
           await this.#addName('document_type', patch.documentType);
         }
         for (const tag of patch.tags ?? []) await this.#addName('tag', tag);
+        for (const name of others ?? []) await this.#addName('correspondent', name);
         await this.#recordUserFields(sha256, patch, now);
         await this.reindex(sha256);
       });
@@ -675,6 +685,7 @@ export class Storage {
     const chosen: [string, unknown][] = [
       ['title', patch.title],
       ['correspondent', patch.correspondent],
+      ['otherCorrespondents', patch.otherCorrespondents],
       ['documentType', patch.documentType],
       ['tags', patch.tags],
       // The date extraction reads is the date on the document: a person setting it
@@ -1174,6 +1185,7 @@ export class Storage {
     change: {
       readonly title?: string | null;
       readonly correspondent?: string | null;
+      readonly otherCorrespondents?: readonly string[];
       readonly documentType?: string | null;
       readonly tags?: readonly string[];
       readonly created?: string | null;
@@ -1195,6 +1207,14 @@ export class Storage {
       sets.push('tags = ?');
       values.push(JSON.stringify(await this.withAncestors(change.tags)));
     }
+    const others =
+      change.otherCorrespondents === undefined
+        ? undefined
+        : await this.#othersFor(sha256, change.correspondent, change.otherCorrespondents);
+    if (others !== undefined) {
+      sets.push('other_correspondents = ?');
+      values.push(JSON.stringify(others));
+    }
     if (sets.length === 0) return;
     await this.#driver.transaction(async () => {
       await this.#driver.run(`UPDATE documents SET ${sets.join(', ')} WHERE sha256 = ?`, [
@@ -1208,6 +1228,7 @@ export class Storage {
         await this.#addName('document_type', change.documentType);
       }
       for (const tag of change.tags ?? []) await this.#addName('tag', tag);
+      for (const name of others ?? []) await this.#addName('correspondent', name);
       await this.reindex(sha256);
     });
   }
@@ -1357,6 +1378,27 @@ export class Storage {
     return Math.max((rows[0]?.n ?? 0) + 1, first);
   }
 
+  /**
+   * The other correspondents to keep: trimmed, each once, in order, without the
+   * main one, whether this patch sets it or it was set before.
+   */
+  async #othersFor(
+    sha256: string,
+    correspondent: string | null | undefined,
+    wanted: readonly string[],
+  ): Promise<string[]> {
+    const main =
+      correspondent !== undefined
+        ? correspondent
+        : ((await this.record(sha256))?.correspondent ?? null);
+    const kept: string[] = [];
+    for (const name of wanted.map((n) => n.trim())) {
+      if (name === '' || name === main?.trim() || kept.includes(name)) continue;
+      kept.push(name);
+    }
+    return kept;
+  }
+
   async #addName(kind: NameKind, name: string): Promise<void> {
     await this.#driver.run('INSERT OR IGNORE INTO names (kind, name) VALUES (?, ?)', [kind, name]);
   }
@@ -1466,7 +1508,10 @@ export class Storage {
     );
     await this.#driver.run(
       `INSERT INTO documents_fts (sha256, title, correspondent, document_type, tags, body)
-       SELECT d.sha256, COALESCE(d.title, ''), COALESCE(d.correspondent, ''),
+       SELECT d.sha256, COALESCE(d.title, ''),
+              ltrim(COALESCE(d.correspondent, '') || ' ' ||
+                    COALESCE((SELECT group_concat(value, ' ')
+                                FROM json_each(d.other_correspondents)), '')),
               COALESCE(d.document_type, ''), d.tags,
               ltrim(
                 COALESCE((SELECT group_concat(t.text, char(10)) FROM document_text t
@@ -1544,7 +1589,13 @@ export class Storage {
       where.push('documents_fts MATCH ?');
       params.push(match);
     }
-    anyOf('d.correspondent', filter.correspondents);
+    if (filter.correspondents !== undefined && filter.correspondents.length > 0) {
+      const marks = filter.correspondents.map(() => '?').join(', ');
+      where.push(
+        `(d.correspondent IN (${marks}) OR EXISTS (SELECT 1 FROM json_each(d.other_correspondents) WHERE value IN (${marks})))`,
+      );
+      params.push(...filter.correspondents, ...filter.correspondents);
+    }
     anyOf('d.document_type', filter.documentTypes);
     for (const tag of filter.tags ?? []) {
       where.push(tagIn([tag]));
@@ -1922,6 +1973,7 @@ function toRecord(row: Row): DocumentRecord {
     receivedAt: row.received_at,
     title: row.title,
     correspondent: row.correspondent,
+    otherCorrespondents: JSON.parse(row.other_correspondents) as string[],
     documentType: row.document_type,
     tags: JSON.parse(row.tags) as string[],
     created: row.created,

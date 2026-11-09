@@ -511,6 +511,15 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    // Documents from more than one sender: a joint letter, a contract between
+    // several parties. The main correspondent stays in its own column.
+    id: 30,
+    name: 'other_correspondents',
+    statements: [
+      "ALTER TABLE documents ADD COLUMN other_correspondents TEXT NOT NULL DEFAULT '[]'",
+    ],
+  },
 ];
 
 /** Applies every migration not yet recorded, in id order. Returns the ids it applied. */
