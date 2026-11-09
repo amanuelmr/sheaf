@@ -13,6 +13,8 @@ coverage/
 .expo/
 .expo-shared/
 android/
+# The store listing F-Droid reads is kept; only the generated native project is not.
+!apps/mobile/fastlane/metadata/android/
 ios/
 *.jks
 *.p8

@@ -1,0 +1,17 @@
+<p>Sheaf scans paper and delivers it to a server you run yourself: Sheaf's own, or another document manager it forwards to. It is free and open source under the MIT licence, with no account, no subscription and no paid tier for sending to your own server.</p>
+
+<p><b>Nothing is lost.</b> Each scan is saved on the phone the moment the shutter fires, then sent in the background. With no signal, on a train or with the server switched off, scans wait in the queue and go when the server can be reached.</p>
+
+<p><b>Delivered once.</b> Every document is named by the hash of its contents, so a retry after a dropped connection never makes a second copy, and the app shows when the server has the document, not only that an upload started.</p>
+
+<ul>
+<li>Batch scanning with edge detection and cropping</li>
+<li>Pages reordered, turned or dropped before sending</li>
+<li>Pairing by QR code: no password typed on the phone</li>
+<li>Search the queue offline by the words on each page</li>
+<li>Suggested title, sender, date and tags to accept or change</li>
+<li>Several servers, such as home and work</li>
+<li>Optional upload on Wi-Fi only, and a lock with your fingerprint or face</li>
+</ul>
+
+<p>You need a Sheaf server: see https://github.com/amanuelmr/sheaf for setting one up.</p>

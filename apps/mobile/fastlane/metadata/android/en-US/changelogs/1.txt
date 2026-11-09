@@ -1,0 +1,1 @@
+First release: offline scanning queue, exactly-once delivery, QR pairing, page editing and offline search.
