@@ -7,6 +7,7 @@ import { paperlessArchiveSource } from './paperless-browse.ts';
 import { Forwarder, type Connector } from './forwarder.ts';
 import { folderTarget } from './folder-target.ts';
 import { webdavTarget } from './webdav-target.ts';
+import { papraTarget } from './papra-target.ts';
 import { searchableBytes } from './searchable.ts';
 import { JobRunner, type Step } from './jobs.ts';
 import { extractStep } from './steps/extract.ts';
@@ -622,6 +623,17 @@ if (copyDir !== undefined && copyDir !== '') {
       prepare: async (sha256, stored) => (await searchableBytes(storage, sha256)) ?? stored,
     }),
     copyDir,
+  );
+}
+const papraUrl = process.env['SHEAF_PAPRA_URL'];
+if (papraUrl !== undefined && papraUrl !== '') {
+  copyEverything(
+    papraTarget({
+      url: papraUrl,
+      apiKey: process.env['SHEAF_PAPRA_API_KEY'] ?? '',
+      organizationId: process.env['SHEAF_PAPRA_ORGANIZATION'] ?? '',
+    }),
+    new URL(papraUrl).host,
   );
 }
 
