@@ -145,10 +145,15 @@ export function wrap(text: string, font: PDFFont, size: number, width: number): 
       continue;
     }
     if (line !== '') lines.push(line);
+    // Cut the word into the longest pieces that fit, measuring only a line's worth at a
+    // time: a book with a word thousands of letters long must not stall the server.
     let rest = word;
-    while (font.widthOfTextAtSize(rest, size) > width && rest.length > 1) {
-      let cut = rest.length - 1;
-      while (cut > 1 && font.widthOfTextAtSize(rest.slice(0, cut), size) > width) cut--;
+    for (;;) {
+      let cut = 1;
+      while (cut < rest.length && font.widthOfTextAtSize(rest.slice(0, cut + 1), size) <= width) {
+        cut++;
+      }
+      if (cut === rest.length) break;
       lines.push(rest.slice(0, cut));
       rest = rest.slice(cut);
     }
