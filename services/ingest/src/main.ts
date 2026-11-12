@@ -61,7 +61,7 @@ if (token === undefined || token.length < 16) {
   // Refuse to start rather than come up with a guessable token: this server holds
   // documents, and a weak default would be the worst possible one.
   log.error('SHEAF_TOKEN must be set to at least 16 characters.', {
-    hint: "node -e \"log.info(require('crypto').randomBytes(32).toString('hex'))\"",
+    hint: "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
   });
   process.exit(1);
 }

@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { MAX_DOCUMENT_BYTES, ERROR_STATUS } from '@sheaf/protocol';
+import { log, type Logger } from './log.ts';
 import { handle, type RouterDeps } from './router.ts';
 
 /**
@@ -15,6 +17,7 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, PUT, PATCH, POST, DELETE, HEAD, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type, x-sheaf-page-count',
+  'access-control-expose-headers': 'x-request-id',
   // A day is generous but bounded; nothing here is secret enough to need the
   // browser asking again every single request.
   'access-control-max-age': '86400',
@@ -33,10 +36,14 @@ export function createIngestServer(
   deps: RouterDeps,
   /** PEM certificate and key: HTTPS when given, HTTP otherwise. */
   tls?: { readonly cert: string; readonly key: string },
+  logger: Logger = log,
 ): Server {
   const listener = (req: IncomingMessage, res: ServerResponse): void => {
     const started = process.hrtime.bigint();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
+    // Sent with every answer, and logged with any failure, so the two can be matched.
+    const requestId = randomUUID();
+    res.setHeader('x-request-id', requestId);
     // Every answer is counted once it is sent, whichever branch sent it.
     res.on('finish', () => {
       const seconds = Number(process.hrtime.bigint() - started) / 1e9;
@@ -70,13 +77,36 @@ export function createIngestServer(
           deps,
         );
         send(res, response, req.method);
-      } catch {
-        // Never leak an internal message to a client.
-        send(res, { status: 500, json: { error: 'server_error' } }, req.method);
+      } catch (error) {
+        // Never leak an internal message to a client; the log has it, under the same id.
+        logger.error('request failed', {
+          requestId,
+          method: req.method ?? 'GET',
+          route: routeOf(path),
+          error: error instanceof Error ? error.message : String(error),
+        });
+        send(res, { status: 500, json: { error: 'server_error', requestId } }, req.method);
       }
     })();
   };
   return tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
+}
+
+/**
+ * A path fit to log: ids, hashes and share-link secrets become `:id`, so a log line
+ * names the route without holding anything that opens a document.
+ */
+export function routeOf(path: string): string {
+  const segments = path.split('/');
+  return segments
+    .map((segment, i) =>
+      segment === '' ||
+      (i === 1 && /^v[0-9]+$/.test(segment)) ||
+      (/^[a-z][a-z-]*$/.test(segment) && segment.length <= 24 && segments[i - 1] !== 'share')
+        ? segment
+        : ':id',
+    )
+    .join('/');
 }
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | 'too-large'> {

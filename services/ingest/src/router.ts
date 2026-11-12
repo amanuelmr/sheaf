@@ -1295,7 +1295,12 @@ async function asnSeriesRoutes(
   }
   if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
   if (!isAdmin(principal)) return fail('forbidden', 'only an admin removes a series');
-  const prefix = decodeURIComponent(path.slice(paths.asnSeries().length + 1));
+  let prefix: string;
+  try {
+    prefix = decodeURIComponent(path.slice(paths.asnSeries().length + 1));
+  } catch {
+    return fail('malformed_id', 'the series prefix is not valid percent-encoding');
+  }
   const removed = await store.remove(prefix);
   if (removed === 'in_use') {
     return fail('conflict', 'documents have numbers in this series: renumber them first');

@@ -2177,6 +2177,8 @@ export function isDocumentPermissions(value: unknown): value is DocumentPermissi
 export interface ErrorBody {
   readonly error: ErrorCode;
   readonly detail?: string;
+  /** On a `server_error`: the id the server logged it under, also in `x-request-id`. */
+  readonly requestId?: string;
 }
 
 export type ErrorCode =

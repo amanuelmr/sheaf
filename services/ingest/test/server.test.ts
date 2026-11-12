@@ -11,7 +11,8 @@ import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe as suite, expect, it } from 'vitest';
 import { MAX_DOCUMENT_BYTES, authorization, paths } from '@sheaf/protocol';
 import { nodeSqliteDriver } from '@sheaf/store/node';
-import { createIngestServer } from '../src/server';
+import type { Logger } from '../src/log';
+import { createIngestServer, routeOf } from '../src/server';
 import { Storage, sha256Hex } from '../src/storage';
 
 const TOKEN = 'a-token-of-at-least-16-chars';
@@ -110,11 +111,66 @@ suite('CORS', () => {
     expect(res.headers.get('access-control-allow-headers')).toContain('authorization');
   });
 
+  it('gives every answer its own request id', async () => {
+    const one = await fetch(base + paths.health(), { headers: auth });
+    const two = await fetch(base + paths.health());
+    expect(one.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(two.headers.get('x-request-id')).not.toBe(one.headers.get('x-request-id'));
+  });
+
   it('carries the same headers on a real response, success or failure', async () => {
     const ok = await fetch(base + paths.health(), { headers: auth });
     expect(ok.headers.get('access-control-allow-origin')).toBe('*');
 
     const unauthenticated = await fetch(base + paths.health());
     expect(unauthenticated.headers.get('access-control-allow-origin')).toBe('*');
+  });
+});
+
+suite('when something goes wrong inside', () => {
+  it('logs the failure under the id the client is given, and tells the client nothing more', async () => {
+    const logged: { message: string; fields: Record<string, unknown> | undefined }[] = [];
+    const logger: Logger = {
+      info: () => undefined,
+      error: (message, fields) => logged.push({ message, fields }),
+    };
+    const broken = new Proxy(
+      {},
+      {
+        get: () => () => {
+          throw new Error('disk on fire');
+        },
+      },
+    );
+    const failing = createIngestServer(
+      { storage: broken as Storage, token: TOKEN, now: () => 1_700_000_000_000 },
+      undefined,
+      logger,
+    );
+    await new Promise<void>((resolve) => failing.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${String((failing.address() as AddressInfo).port)}${paths.document(hashA)}`,
+        { headers: auth },
+      );
+      expect(res.status).toBe(500);
+      const requestId = res.headers.get('x-request-id');
+      expect(await res.json()).toEqual({ error: 'server_error', requestId });
+      expect(logged).toEqual([
+        {
+          message: 'request failed',
+          fields: { requestId, method: 'GET', route: '/v1/documents/:id', error: 'disk on fire' },
+        },
+      ]);
+    } finally {
+      await new Promise<void>((resolve) => failing.close(() => resolve()));
+    }
+  });
+
+  it('logs routes without ids, hashes or share-link secrets', () => {
+    expect(routeOf(paths.document(hashA))).toBe('/v1/documents/:id');
+    expect(routeOf('/share/abcdefghijk')).toBe('/share/:id');
+    expect(routeOf('/v1/workflows/12')).toBe('/v1/workflows/:id');
+    expect(routeOf('/v1/search')).toBe('/v1/search');
   });
 });
