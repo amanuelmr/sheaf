@@ -92,6 +92,9 @@ async function render(
   const document = await PDFDocument.create();
   if (title !== null) document.setTitle(title);
   if (author !== null) document.setAuthor(author);
+  // Fixed dates, so the same book always becomes the same bytes and the same document.
+  document.setCreationDate(new Date(0));
+  document.setModificationDate(new Date(0));
   const font = await document.embedFont(StandardFonts.TimesRoman);
   const bold = await document.embedFont(StandardFonts.TimesRomanBold);
   const known = new Set(font.getCharacterSet());
