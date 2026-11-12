@@ -49,6 +49,16 @@ const WHOLE_MARK = /[¥₩]|\b(?:JPY|KRW)\b/;
 const LINE_CHARS = 200;
 const EDGE_LINES = 1000;
 
+/**
+ * A line cut at a space before `LINE_CHARS`, so no amount or date is cut in half
+ * and misread; a line with no space that early is one long run, and dropped.
+ */
+function shorten(line: string): string {
+  if (line.length <= LINE_CHARS) return line;
+  const space = line.lastIndexOf(' ', LINE_CHARS);
+  return space === -1 ? '' : line.slice(0, space);
+}
+
 const TYPES: readonly (readonly [RegExp, string])[] = [
   [/\b(invoice|rechnung|facture|tax\s+invoice)\b/i, 'Invoice'],
   [/\b(receipt|kassenbon|quittung|reçu|cash\s+sale)\b/i, 'Receipt'],
@@ -71,7 +81,7 @@ export function heuristicExtractor(): Extractor {
 function extract(input: ExtractionInput): ExtractedFields {
   const all = input.text
     .split(/\r?\n/)
-    .map((line) => line.trim().slice(0, LINE_CHARS))
+    .map((line) => shorten(line.trim()))
     .filter((line) => line !== '');
   const lines =
     all.length > EDGE_LINES * 2 ? [...all.slice(0, EDGE_LINES), ...all.slice(-EDGE_LINES)] : all;

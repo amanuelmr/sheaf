@@ -260,6 +260,14 @@ suite('the heuristic extractor', () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
+  it('never reads half an amount from a line cut short', async () => {
+    const line = `${'a'.repeat(189)} Total 1,234.56`;
+    expect(line.indexOf('1,234.56')).toBeLessThan(200);
+    expect(line.length).toBeGreaterThan(200);
+    const fields = await extract(`Shop\n${line}`);
+    expect(fields.total?.value.minor).not.toBe(123);
+  });
+
   it('still finds the total at the end of a very long document', async () => {
     const pages = Array.from({ length: 5000 }, (_, i) => `Line ${String(i)} of the terms`);
     const fields = await extract(['Shop', ...pages, 'Total 18.00'].join('\n'));
