@@ -50,6 +50,44 @@ suite('transactions on the node driver', () => {
     expect(await values()).toEqual([]);
   });
 
+  it('undo only a nested transaction that failed, when the outer one carries on', async () => {
+    const { driver, values } = await table();
+    await driver.transaction(async () => {
+      await driver.run("INSERT INTO t VALUES ('outer')");
+      await driver
+        .transaction(async () => {
+          await driver.run("INSERT INTO t VALUES ('inner')");
+          throw new Error('inner gave up');
+        })
+        .catch(() => undefined);
+    });
+    expect(await values()).toEqual(['outer']);
+  });
+
+  it('keep a task a transaction left running out of the next transaction', async () => {
+    const { driver, values } = await table();
+    await driver.transaction(async () => {
+      setTimeout(() => void driver.run("INSERT INTO t VALUES ('late')"), 10);
+      await driver.run("INSERT INTO t VALUES ('first')");
+    });
+    await expect(
+      driver.transaction(async () => {
+        await later(30);
+        throw new Error('undo the second');
+      }),
+    ).rejects.toThrow();
+    expect(await values()).toEqual(['first', 'late']);
+  });
+
+  it('leave nothing waiting when BEGIN itself fails', async () => {
+    const { driver, values } = await table();
+    await driver.exec('BEGIN');
+    await expect(driver.transaction(() => Promise.resolve())).rejects.toThrow();
+    await driver.exec('ROLLBACK');
+    await driver.run("INSERT INTO t VALUES ('after')");
+    expect(await values()).toEqual(['after']);
+  });
+
   it('carry on after a failed transaction', async () => {
     const { driver, values } = await table();
     await expect(driver.transaction(() => Promise.reject(new Error('no')))).rejects.toThrow();
