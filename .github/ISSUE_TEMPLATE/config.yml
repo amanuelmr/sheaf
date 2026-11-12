@@ -5,4 +5,4 @@ contact_links:
     about: Please report token handling or data leakage issues privately, not here.
   - name: Paperless-ngx itself
     url: https://github.com/paperless-ngx/paperless-ngx/issues
-    about: Sheaf is an independent companion app. Server bugs belong upstream.
+    about: Bugs in Paperless-ngx (not in Sheaf's optional connector to it) belong upstream.

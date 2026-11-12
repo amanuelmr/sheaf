@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { BulkAction, Label, LabelKind, SearchHit } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 
 type Choice =
   | 'setCorrespondent'
@@ -12,13 +13,13 @@ type Choice =
   | 'trash';
 
 const CHOICES: readonly { value: Choice; text: string }[] = [
-  { value: 'addTag', text: 'Add a tag' },
-  { value: 'removeTag', text: 'Remove a tag' },
-  { value: 'setCorrespondent', text: 'Set the correspondent' },
-  { value: 'setDocumentType', text: 'Set the document type' },
-  { value: 'applyRules', text: 'File by the label rules' },
-  { value: 'merge', text: 'Merge into one document' },
-  { value: 'trash', text: 'Move to the trash' },
+  { value: 'addTag', text: mark('Add a tag') },
+  { value: 'removeTag', text: mark('Remove a tag') },
+  { value: 'setCorrespondent', text: mark('Set the correspondent') },
+  { value: 'setDocumentType', text: mark('Set the document type') },
+  { value: 'applyRules', text: mark('File by the label rules') },
+  { value: 'merge', text: mark('Merge into one document') },
+  { value: 'trash', text: mark('Move to the trash') },
 ];
 
 /** The action a choice and its value stand for, or null while a value is still missing. */
@@ -99,7 +100,10 @@ export function BulkBar({
     const { changed } = result.value;
     setMessage({
       ok: true,
-      text: `Changed ${String(changed)} document${changed === 1 ? '' : 's'}.`,
+      text:
+        changed === 1
+          ? t('Changed 1 document.')
+          : t('Changed {count} documents.', { count: changed }),
     });
     setValue('');
     setSelected(new Set());
@@ -116,12 +120,14 @@ export function BulkBar({
             setSelected(event.target.checked ? new Set(hits.map((hit) => hit.sha256)) : new Set())
           }
         />{' '}
-        {selected.size === 0 ? 'Select all shown' : `${String(selected.size)} selected`}
+        {selected.size === 0
+          ? t('Select all shown')
+          : t('{count} selected', { count: selected.size })}
       </label>
       {selected.size === 0 ? null : (
         <form className="bulk-form" onSubmit={(event) => void run(event)}>
           <select
-            aria-label="What to do with the selected documents"
+            aria-label={t('What to do with the selected documents')}
             value={choice}
             onChange={(event) => {
               setChoice(event.target.value as Choice);
@@ -130,19 +136,19 @@ export function BulkBar({
           >
             {CHOICES.map((c) => (
               <option key={c.value} value={c.value}>
-                {c.text}
+                {t(c.text)}
               </option>
             ))}
           </select>
           {needsValue ? (
             <>
               <input
-                aria-label="Name"
+                aria-label={t('Name')}
                 list="bulk-names"
                 placeholder={
                   choice === 'setCorrespondent' || choice === 'setDocumentType'
-                    ? 'Name (empty clears it)'
-                    : 'Tag'
+                    ? t('Name (empty clears it)')
+                    : t('Tag')
                 }
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -159,7 +165,7 @@ export function BulkBar({
             className={choice === 'trash' ? 'danger' : undefined}
             disabled={choice === 'merge' ? selected.size < 2 : action === null}
           >
-            Apply to {String(selected.size)}
+            {t('Apply to {count}', { count: selected.size })}
           </button>
         </form>
       )}

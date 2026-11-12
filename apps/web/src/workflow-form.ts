@@ -7,6 +7,7 @@ import {
   type WorkflowTrigger,
 } from '@sheaf/protocol';
 import { fromInput, toInput } from './custom-field-input';
+import { t } from './i18n';
 
 /** What to do with a correspondent or type: leave it, set it, or clear it. */
 export type LabelMode = 'leave' | 'set' | 'clear';
@@ -96,7 +97,7 @@ export function toBody(
   if (form.documentType.trim() !== '') conditions['documentType'] = form.documentType.trim();
   if (form.textAlgorithm !== 'none') {
     if (form.textPattern.trim() === '')
-      return { ok: false, problem: 'Say which words to look for.' };
+      return { ok: false, problem: t('Say which words to look for.') };
     conditions['text'] = {
       algorithm: form.textAlgorithm,
       pattern: form.textPattern,
@@ -116,19 +117,28 @@ export function toBody(
       if (value.trim() === '')
         return {
           ok: false,
-          problem: `Say which ${key === 'correspondent' ? 'correspondent' : 'type'} to set.`,
+          problem:
+            key === 'correspondent'
+              ? t('Say which correspondent to set.')
+              : t('Say which type to set.'),
         };
       actions[key] = value.trim();
     }
   }
   if (form.field !== '') {
     const field = fields.find((f) => String(f.id) === form.field);
-    if (field === undefined) return { ok: false, problem: 'That custom field is gone.' };
+    if (field === undefined) return { ok: false, problem: t('That custom field is gone.') };
     const value = form.fieldValue.trim() === '' ? null : fromInput(field.type, form.fieldValue);
     const problem =
-      value === undefined ? 'that is not a valid value' : customFieldValueProblem(field, value);
+      value === undefined ? t('that is not a valid value') : customFieldValueProblem(field, value);
     if (problem !== null || value === undefined) {
-      return { ok: false, problem: `${field.name}: ${problem ?? 'that is not a valid value'}.` };
+      return {
+        ok: false,
+        problem: t('{field}: {problem}.', {
+          field: field.name,
+          problem: problem ?? t('that is not a valid value'),
+        }),
+      };
     }
     actions['customField'] = { field: field.id, value };
   }
@@ -144,15 +154,15 @@ export function toBody(
   }
   if (form.trigger === 'scheduled') {
     if (!/^\d{1,5}$/.test(form.olderThanDays.trim())) {
-      return { ok: false, problem: 'Say after how many days it runs.' };
+      return { ok: false, problem: t('Say after how many days it runs.') };
     }
     conditions['olderThanDays'] = Number(form.olderThanDays.trim());
     if (form.dateField === 'created') conditions['dateField'] = 'created';
   }
 
-  if (form.name.trim() === '') return { ok: false, problem: 'Give it a name.' };
+  if (form.name.trim() === '') return { ok: false, problem: t('Give it a name.') };
   if (Object.keys(actions).length === 0)
-    return { ok: false, problem: 'Choose at least one thing to do.' };
+    return { ok: false, problem: t('Choose at least one thing to do.') };
   return {
     ok: true,
     body: {
@@ -208,39 +218,49 @@ export function toForm(workflow: Workflow, fields: readonly CustomField[]): Work
 
 /** A workflow in one line, for the list. */
 export function describeWorkflow(workflow: Workflow): string {
+  const c = workflow.conditions;
+  const days = c.olderThanDays ?? 0;
   const when =
     workflow.trigger === 'added'
-      ? 'When a document is added'
+      ? t('When a document is added')
       : workflow.trigger === 'updated'
-        ? 'When a person edits a document'
-        : `Once a document is ${String(workflow.conditions.olderThanDays ?? 0)} days past its ${workflow.conditions.dateField === 'created' ? 'date' : 'arrival'}`;
-  const c = workflow.conditions;
+        ? t('When a person edits a document')
+        : c.dateField === 'created'
+          ? t('Once a document is {days} days past its date', { days })
+          : t('Once a document is {days} days past its arrival', { days });
   const ifs = [
-    ...(c.tags ?? []).map((t) => `tagged ${t}`),
-    c.anyTags === undefined ? null : `tagged any of ${c.anyTags.join(', ')}`,
-    ...(c.notTags ?? []).map((t) => `not tagged ${t}`),
-    c.correspondent === undefined ? null : `from ${c.correspondent}`,
-    c.documentType === undefined ? null : `a ${c.documentType}`,
-    c.text === undefined ? null : `mentioning “${c.text.pattern}”`,
+    ...(c.tags ?? []).map((tag) => t('tagged {tag}', { tag })),
+    c.anyTags === undefined ? null : t('tagged any of {tags}', { tags: c.anyTags.join(', ') }),
+    ...(c.notTags ?? []).map((tag) => t('not tagged {tag}', { tag })),
+    c.correspondent === undefined ? null : t('from {name}', { name: c.correspondent }),
+    c.documentType === undefined ? null : t('a {type}', { type: c.documentType }),
+    c.text === undefined ? null : t('mentioning “{text}”', { text: c.text.pattern }),
   ].filter((part): part is string => part !== null);
   const a = workflow.actions;
   const dos = [
-    a.title === undefined ? null : `title it “${a.title}”`,
-    a.addTags === undefined ? null : `add ${a.addTags.join(', ')}`,
-    a.removeTags === undefined ? null : `remove ${a.removeTags.join(', ')}`,
+    a.title === undefined ? null : t('title it “{title}”', { title: a.title }),
+    a.addTags === undefined ? null : t('add {tags}', { tags: a.addTags.join(', ') }),
+    a.removeTags === undefined ? null : t('remove {tags}', { tags: a.removeTags.join(', ') }),
     a.correspondent === undefined
       ? null
       : a.correspondent === null
-        ? 'clear the correspondent'
-        : `set from ${a.correspondent}`,
+        ? t('clear the correspondent')
+        : t('set from {name}', { name: a.correspondent }),
     a.documentType === undefined
       ? null
       : a.documentType === null
-        ? 'clear the type'
-        : `set type ${a.documentType}`,
-    a.customField === undefined ? null : 'set a custom field',
-    a.webhook === undefined ? null : 'call a webhook',
-    a.email === undefined ? null : `email ${a.email.to.join(', ')}`,
+        ? t('clear the type')
+        : t('set type {type}', { type: a.documentType }),
+    a.customField === undefined ? null : t('set a custom field'),
+    a.webhook === undefined ? null : t('call a webhook'),
+    a.email === undefined ? null : t('email {to}', { to: a.email.to.join(', ') }),
   ].filter((part): part is string => part !== null);
-  return `${when}${ifs.length === 0 ? '' : `, if ${ifs.join(' and ')}`}: ${dos.join(', ')}.`;
+  const actions = dos.join(', ');
+  return ifs.length === 0
+    ? t('{when}: {actions}.', { when, actions })
+    : t('{when}, if {conditions}: {actions}.', {
+        when,
+        conditions: ifs.join(t(' and ')),
+        actions,
+      });
 }

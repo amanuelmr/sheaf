@@ -5,10 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Sheaf is deliberately narrow: capture and reliable delivery. It will not grow
-        a document browser, search, or a dashboard — Paperless-ngx already does those
-        better. Requests that reduce friction between paper and Paperless are the
-        ones most likely to land.
+        Capture and reliable delivery are Sheaf's centre of gravity; search, filing
+        and the web app exist to make what was delivered worth keeping. Requests
+        that reduce friction between a piece of paper and a findable document are
+        the ones most likely to land.
   - type: textarea
     id: problem
     attributes:
@@ -24,6 +24,6 @@ body:
   - type: textarea
     id: friction
     attributes:
-      label: How does this reduce friction between a physical document and Paperless
+      label: How does this reduce friction between a physical document and finding it later
     validations:
       required: true

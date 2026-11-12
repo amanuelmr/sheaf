@@ -27,6 +27,8 @@ web-build/
 # secrets & local config
 .env
 .env.*
+# The server's own settings for docker compose: secrets live here.
+server.env
 !.env.example
 *.pem
 

@@ -1,4 +1,5 @@
 import { assemble, sha256Hex } from '@sheaf/pdf';
+import { t } from './i18n';
 
 /** What a person picked, as the browser hands it over. */
 export interface PickedFile {
@@ -42,7 +43,8 @@ export function plan(files: readonly PickedFile[]): {
     else skipped.push(file.name);
   }
   if (photos.length > 0) {
-    const name = photos.length === 1 ? photos[0]!.name : `${String(photos.length)} photos`;
+    const name =
+      photos.length === 1 ? photos[0]!.name : t('{count} photos', { count: photos.length });
     parts.push({ kind: 'photos', name, files: photos });
   }
   return { parts, skipped };
@@ -67,7 +69,7 @@ export async function prepare(
   if (part.kind === 'pdf') {
     const bytes = await part.file.bytes();
     if (new TextDecoder('latin1').decode(bytes.subarray(0, 5)) !== '%PDF-') {
-      return { problem: `${part.name} is not a PDF inside` };
+      return { problem: t('{name} is not a PDF inside', { name: part.name }) };
     }
     return { bytes, sha256: sha256Hex(bytes), pageCount: null };
   }
@@ -75,11 +77,14 @@ export async function prepare(
   for (const file of part.files) pages.push(await toJpeg(file));
   const assembled = assemble(pages);
   if (!assembled.ok) {
+    if (assembled.error.kind === 'no_pages')
+      return { problem: t('no photos to make a document of') };
+    const name = part.files[assembled.error.index]?.name;
     return {
       problem:
-        assembled.error.kind === 'no_pages'
-          ? 'no photos to make a document of'
-          : `${part.files[assembled.error.index]?.name ?? 'a photo'} could not be read`,
+        name === undefined
+          ? t('a photo could not be read')
+          : t('{name} could not be read', { name }),
     };
   }
   return { bytes: assembled.bytes, sha256: assembled.sha256, pageCount: assembled.pageCount };
@@ -102,7 +107,7 @@ export async function browserJpeg(file: PickedFile & { readonly blob: Blob }): P
   canvas.width = size.width;
   canvas.height = size.height;
   const context = canvas.getContext('2d');
-  if (context === null) throw new Error('this browser cannot draw images');
+  if (context === null) throw new Error(t('this browser cannot draw images'));
   context.fillStyle = '#fff';
   context.fillRect(0, 0, size.width, size.height);
   context.drawImage(bitmap, 0, 0, size.width, size.height);
@@ -110,7 +115,8 @@ export async function browserJpeg(file: PickedFile & { readonly blob: Blob }): P
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, 'image/jpeg', 0.85),
   );
-  if (blob === null) throw new Error(`${file.name} could not be turned into a page`);
+  if (blob === null)
+    throw new Error(t('{name} could not be turned into a page', { name: file.name }));
   return new Uint8Array(await blob.arrayBuffer());
 }
 

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { pairingUri, type DeviceSummary, type PairingCodeResponse } from '@sheaf/protocol';
 import type { Api } from '../api';
+
 import { when } from '../format';
+import { t } from '../i18n';
 
 /**
  * Phones that may use this server (ADR 0008). "Pair a phone" shows a QR code the
@@ -67,55 +69,59 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
 
   return (
     <>
-      <h1>Phones</h1>
+      <h1>{t('Phones')}</h1>
       {error === null ? null : <p className="error">{error}</p>}
 
       <div className="card">
         {justPaired !== undefined ? (
           <>
             <p>
-              <span className="badge ok">✓</span> {justPaired.name} is paired and can scan into this
-              server.
+              <span className="badge ok">✓</span>{' '}
+              {t('{name} is paired and can scan into this server.', { name: justPaired.name })}
             </p>
             <button className="secondary" onClick={() => setPairing(null)}>
-              Done
+              {t('Done')}
             </button>
           </>
         ) : pairing === null || secondsLeft === 0 ? (
           <>
             <p>
-              Pair a phone to let it scan into this server. Each phone gets its own key, which you
-              can take back here at any time.
+              {t(
+                'Pair a phone to let it scan into this server. Each phone gets its own key, which you can take back here at any time.',
+              )}
             </p>
-            <button onClick={() => void startPairing()}>Pair a phone</button>
+            <button onClick={() => void startPairing()}>{t('Pair a phone')}</button>
           </>
         ) : (
           <div className="pairing">
             <img
               src={pairing.qr}
-              alt="Pairing code: scan it with the phone's camera"
+              alt={t('Pairing code: scan it with the phone’s camera')}
               width={240}
               height={240}
             />
             <div>
-              <p>Scan this with the phone’s camera, or open Sheaf and tap “Scan pairing code”.</p>
-              <p className="muted">Or type the code:</p>
+              <p>
+                {t('Scan this with the phone’s camera, or open Sheaf and tap “Scan pairing code”.')}
+              </p>
+              <p className="muted">{t('Or type the code:')}</p>
               <p className="code">{pairing.code}</p>
               <p className="muted">
-                Works once, for {Math.floor(secondsLeft / 60)}:
-                {String(secondsLeft % 60).padStart(2, '0')} more.
+                {t('Works once, for {time} more.', {
+                  time: `${String(Math.floor(secondsLeft / 60))}:${String(secondsLeft % 60).padStart(2, '0')}`,
+                })}
               </p>
               <button className="secondary" onClick={() => setPairing(null)}>
-                Done
+                {t('Done')}
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {devices === null ? <p className="muted">Loading…</p> : null}
+      {devices === null ? <p className="muted">{t('Loading…')}</p> : null}
       {devices !== null && devices.length === 0 ? (
-        <p className="muted">No phones paired yet.</p>
+        <p className="muted">{t('No phones paired yet.')}</p>
       ) : null}
       <ul className="list">
         {(devices ?? []).map((device) => (
@@ -124,24 +130,24 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
               <strong>{device.name}</strong>
               <span className="muted">
                 {device.revoked
-                  ? 'Removed'
+                  ? t('Removed')
                   : device.lastSeen === null
-                    ? `Paired ${when(device.createdAt)}, not seen since`
-                    : `Last seen ${when(device.lastSeen)}`}
+                    ? t('Paired {date}, not seen since', { date: when(device.createdAt) })
+                    : t('Last seen {date}', { date: when(device.lastSeen) })}
               </span>
             </div>
             {device.revoked ? null : confirming === device.id ? (
               <div className="actions">
                 <button className="danger" onClick={() => void revoke(device.id)}>
-                  Remove this phone
+                  {t('Remove this phone')}
                 </button>
                 <button className="secondary" onClick={() => setConfirming(null)}>
-                  Keep it
+                  {t('Keep it')}
                 </button>
               </div>
             ) : (
               <button className="secondary" onClick={() => setConfirming(device.id)}>
-                Remove…
+                {t('Remove…')}
               </button>
             )}
           </li>

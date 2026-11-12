@@ -1,7 +1,8 @@
 # Sheaf
 
 **Offline-first document capture with a server that keeps, reads and searches your
-documents — and forwards copies to Paperless-ngx only if you ask.**
+documents — and sends copies elsewhere (a folder, WebDAV, S3, Paperless-ngx…) only
+if you ask.**
 
 Scan a document; it is already safe. Everything after that is optional.
 
@@ -18,7 +19,7 @@ copies on to WebDAV, a folder, an S3 bucket or Papra, is never a paid feature.
 |                                    |                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **0** documents lost or duplicated | Across 3,644 simulated process kills, and a real 500-document load through 3 `SIGKILL`s           |
-| **735** tests                      | Every one run in CI; coverage floors enforced on the pure packages                                |
+| **1,063** tests                    | Every one run in CI; coverage floors enforced on the pure packages                                |
 | **84%** on the hardest field       | Total extracted at **$0.00 per document** by the default regex extractor — Claude/Ollama optional |
 
 **Looking for a specific kind of engineering?** [`docs/FOR-REVIEWERS.md`](docs/FOR-REVIEWERS.md)
@@ -137,30 +138,39 @@ trail below it:
 
 What works today, and how each part is checked:
 
-| Part                                              | State                                              | Checked by                                                                                                          |
-| ------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Capture and exactly-once delivery                 | Done                                               | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated                                        |
-| Server as system of record                        | Done                                               | Job runner and connectors under fault simulation; migrations tested on a real old database                          |
-| Search                                            | Done                                               | FTS5; p95 16.7 ms over 10,000 documents (`pnpm bench:search`)                                                       |
-| On-device text sent to the server                 | Done                                               | Engine tests and the simulator                                                                                      |
-| Reading details (title, date, total…)             | Done: rules by default; Claude or Ollama by choice | [Eval](packages/extract/eval/report.md) on 50 held-out SROIE receipts: date 98%, total 84%, sender 96%; gated in CI |
-| Phone app (iOS)                                   | Builds and boots in the Simulator                  | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                                                     |
-| Phone app (Android)                               | Configured                                         | **Not yet built**                                                                                                   |
-| Web app (search, document, inbox, phones, system) | Done                                               | Typecheck, 10 tests, bundled in CI. Used in a browser, against a seeded server                                      |
-| Pairing, metrics, observability                   | Done                                               | Router and registry tests; a real Prometheus + Grafana stack with a provisioned dashboard                           |
-| Server-side OCR (optional)                        | Done                                               | Sidecar tests against a stand-in; the real container read an image-only receipt word for word                       |
-| Paperless-ngx (optional connector)                | Done                                               | Contract tests against a real 3.2.1, weekly in CI                                                                   |
-| Chaos under load                                  | Done                                               | `pnpm chaos`: 20 phones × 25 documents, 3 `SIGKILL`s, 0 lost / 0 duplicated — green on four seeds                   |
-| Inbox on the phone                                | Done (buttons; swipe pending)                      | Projection tests; typecheck and bundle. **Not yet tapped**                                                          |
+| Part                                             | State                                              | Checked by                                                                                                          |
+| ------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Capture and exactly-once delivery                | Done                                               | Unit tests, and a simulator: 3,644 process kills, nothing lost or duplicated                                        |
+| Server as system of record                       | Done                                               | Job runner and connectors under fault simulation; migrations tested on a real old database                          |
+| Search                                           | Done                                               | FTS5; p95 16.7 ms over 10,000 documents (`pnpm bench:search`)                                                       |
+| On-device text sent to the server                | Done                                               | Engine tests and the simulator                                                                                      |
+| Reading details (title, date, total…)            | Done: rules by default; Claude or Ollama by choice | [Eval](packages/extract/eval/report.md) on 50 held-out SROIE receipts: date 98%, total 84%, sender 96%; gated in CI |
+| Phone app (iOS)                                  | Builds and boots in the Simulator                  | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                                                     |
+| Phone app (Android)                              | Configured                                         | **Not yet built**                                                                                                   |
+| Web app                                          | Done                                               | Typecheck, 54 tests, bundled in CI. Used in a browser, against a seeded server                                      |
+| Accounts, roles, sharing, single sign-on         | Done                                               | Router, users and permissions tests; OpenID Connect flow against a stand-in provider                                |
+| Filing: labels, rules, custom fields, workflows  | Done                                               | Rules, workflows and custom field tests; suggestions learned from alike documents                                   |
+| Intake: web upload, consume folder, email, EPUB  | Done                                               | Consume, mail (IMAP) and EPUB tests; EPUBs rendered and read back by Ghostscript                                    |
+| Copies: WebDAV, folder, S3, Papra                | Done                                               | Each against a fake server through the real forwarder; S3 signing matches AWS's own worked example                  |
+| Page editing, stamps, barcodes, searchable PDFs  | Done                                               | pdf-lib round trips; text checked with Ghostscript; barcodes read from rendered pages                               |
+| Encryption at rest, HTTPS with a certificate pin | Done on the server                                 | Encryption and TLS tests over a real socket. **The phone does not check the pin yet**                               |
+| Web app in German, French and Spanish            | Done                                               | A test fails on any text left untranslated                                                                          |
+| Pairing, metrics, observability                  | Done                                               | Router and registry tests; a real Prometheus + Grafana stack with a provisioned dashboard                           |
+| Server-side OCR (optional)                       | Done                                               | Sidecar tests against a stand-in; the real container read an image-only receipt word for word                       |
+| Paperless-ngx (optional connector)               | Done                                               | Contract tests against a real 3.2.1, weekly in CI                                                                   |
+| Chaos under load                                 | Done                                               | `pnpm chaos`: 20 phones × 25 documents, 3 `SIGKILL`s, 0 lost / 0 duplicated — green on four seeds                   |
+| Inbox on the phone                               | Done (buttons; swipe pending)                      | Projection tests; typecheck and bundle. **Not yet tapped**                                                          |
 
 **Not done, stated plainly:** no physical-device run yet (the camera and permission
-prompts are untested), Android unbuilt, the inbox swipe gesture unimplemented, and
+prompts are untested), Android unbuilt, the inbox swipe gesture unimplemented, the
+phone app does not yet check the certificate pin a pairing code carries (so it
+cannot pair with a self-signed HTTPS server), the phone app is in English only, and
 search is BM25 rather than semantic. See [`docs/FOR-REVIEWERS.md`](docs/FOR-REVIEWERS.md).
 
 ## Architecture
 
 ```
-Phone (Expo)                          Server (Node, no runtime dependencies)
+Phone (Expo)                          Server (Node; pdf-lib, a JPEG decoder, ZXing)
 ┌──────────────────────────┐          ┌────────────────────────────────────────────┐
 │ camera → intent log      │  PUT     │ HTTP /v1 → objects/ by sha256               │
 │ core (pure) → engine     │ ───────► │             ingest.db: catalog, jobs,        │
@@ -169,7 +179,7 @@ Phone (Expo)                          Server (Node, no runtime dependencies)
 └──────────────────────────┘ ───────► │             connector per destination       │
                                      └────────────────────────────────────────────┘
                                                     │ optional
-                                Paperless-ngx (a folder and S3 are planned)
+                      copies: WebDAV · folder · S3 · Papra · Paperless-ngx
 ```
 
 `packages/core` has no clock, no randomness and no I/O — ESLint enforces this by
@@ -203,6 +213,10 @@ docker compose up -d
 The token has no default — a server holding your documents should not come up
 guessable, so it would rather not come up at all.
 
+Every other setting (copies, email, single sign-on, encryption, HTTPS — see
+[the server's README](services/ingest/README.md#configuration)) goes in a
+`server.env` file beside `compose.yml`, one `NAME=value` per line.
+
 Optional add-ons combine:
 
 ```bash
@@ -230,7 +244,7 @@ The other entry points: `pnpm test:contract` (a real Paperless-ngx),
 
 ## Verification
 
-735 tests, with coverage floors on the pure packages. What each layer is worth:
+1,063 tests, with coverage floors on the pure packages. What each layer is worth:
 
 | Layer         | What it proves                                                                                                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -241,7 +255,7 @@ The other entry points: `pnpm test:contract` (a real Paperless-ngx),
 | `paperless`   | Every branch against an injected transport — **and** contract tests against a real Paperless-ngx, weekly in CI.                                      |
 | `extract`     | One suite over all three extractors, plus an eval on held-out data that fails CI if accuracy regresses.                                              |
 | `apps/mobile` | Typechecked and linted. **Never run on a device** — see above.                                                                                       |
-| `apps/web`    | 10 tests over routing and formatting; typechecked, linted and bundled in CI; driven in a real browser against a seeded server.                       |
+| `apps/web`    | 54 tests over routing, forms, uploads and translations; typechecked, linted and bundled in CI; driven in a real browser against a seeded server.     |
 
 **Defects were found by tests and probes written to be hard rather than to pass.**
 A few of the best:
@@ -289,11 +303,14 @@ document hashes don't become a million time series.
 ## Privacy
 
 Documents go directly from the device to your own server. There is no Sheaf
-account, no Sheaf backend, and no third party in the path — the only time anything
-leaves is when you configure a connector or `SHEAF_EXTRACTOR=claude`. The API token
-is held in the platform keystore (Keychain / Android Keystore), never in plain
-storage, and never written to a log. Pairing codes and device tokens are stored
-only as SHA-256 hashes.
+account, no Sheaf backend, and no third party in the path. Something leaves your
+server only when you set it up to: a copy target (WebDAV, a folder, S3, Papra,
+Paperless-ngx), `SHEAF_EXTRACTOR=claude`, a workflow that emails or calls a
+webhook, single sign-on, or a share link you hand out. The phone's token is held in
+the platform keystore (Keychain / Android Keystore), never in plain storage, and
+never written to a log. Pairing codes, device tokens and sessions are stored only
+as SHA-256 hashes, and passwords as scrypt hashes. With `SHEAF_ENCRYPTION_KEY` set,
+document files are encrypted on disk. More in [SECURITY.md](SECURITY.md).
 
 Optionally, Sheaf can require the device's own unlock — Face ID, Touch ID or a
 fingerprint — before showing anything captured. Off by default.

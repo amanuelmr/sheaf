@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { AccuracyResponse, FieldAccuracy } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 
 const NAMES: Record<FieldAccuracy['field'], string> = {
-  title: 'title',
-  date: 'date',
-  correspondent: 'correspondent',
-  documentType: 'type',
-  tags: 'tags',
+  title: mark('title'),
+  date: mark('date'),
+  correspondent: mark('correspondent'),
+  documentType: mark('type'),
+  tags: mark('tags'),
 };
 
 /** Fewer judgements than this, and a share would say more about luck than the machine. */
@@ -30,14 +31,21 @@ export function Accuracy({ api }: { api: Api }) {
   if (shown.length === 0) return null;
   return (
     <p className="muted small accuracy">
-      How often suggestions were right:{' '}
+      {t('How often suggestions were right:')}{' '}
       {shown.map((f, i) => (
         <span
           key={f.field}
-          title={`${String(f.right)} of the last ${String(f.judged)} kept as suggested`}
+          title={t('{right} of the last {judged} kept as suggested', {
+            right: f.right,
+            judged: f.judged,
+          })}
         >
           {i === 0 ? '' : ' · '}
-          {NAMES[f.field]} {String(Math.round((f.right / f.judged) * 100))}% of {String(f.judged)}
+          {t('{field} {percent}% of {judged}', {
+            field: t(NAMES[f.field]),
+            percent: Math.round((f.right / f.judged) * 100),
+            judged: f.judged,
+          })}
         </span>
       ))}
     </p>

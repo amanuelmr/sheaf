@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AccessLevel, DocumentPermissions, Me } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { t } from '../i18n';
 
 /** Who a document belongs to and whom it is shared with. Hidden while there are no users. */
 export function Access({ api, sha256 }: { api: Api; sha256: string }) {
@@ -30,7 +31,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
   }, [api, sha256]);
 
   if (permissions === null || draft === null || people.length === 0) return null;
-  const name = (id: number) => people.find((p) => p.id === id)?.username ?? `user ${String(id)}`;
+  const name = (id: number) => people.find((p) => p.id === id)?.username ?? t('user {id}', { id });
   const canDecide = me?.role === 'admin' || (me?.id !== null && me?.id === permissions.owner);
   const changed = JSON.stringify(draft) !== JSON.stringify(permissions);
 
@@ -42,17 +43,22 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
     }
     setPermissions(result.value);
     setDraft(result.value);
-    setMessage({ ok: true, text: 'Saved' });
+    setMessage({ ok: true, text: t('Saved') });
   };
 
   if (!canDecide) {
     return (
       <section>
-        <h2>Who can see this</h2>
+        <h2>{t('Who can see this')}</h2>
         <p className="muted small">
           {permissions.owner === null
-            ? 'Everyone.'
-            : `${name(permissions.owner)}'s, shared with ${String(permissions.grants.length)} other${permissions.grants.length === 1 ? '' : 's'}.`}
+            ? t('Everyone.')
+            : permissions.grants.length === 1
+              ? t('Belongs to {owner}, shared with 1 other.', { owner: name(permissions.owner) })
+              : t('Belongs to {owner}, shared with {count} others.', {
+                  owner: name(permissions.owner),
+                  count: permissions.grants.length,
+                })}
         </p>
       </section>
     );
@@ -63,8 +69,8 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
   );
   return (
     <section>
-      <h2>Who can see this</h2>
-      <label htmlFor="access-owner">Belongs to</label>
+      <h2>{t('Who can see this')}</h2>
+      <label htmlFor="access-owner">{t('Belongs to')}</label>
       <select
         id="access-owner"
         value={draft.owner === null ? '' : String(draft.owner)}
@@ -73,7 +79,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
           setDraft({ owner, grants: draft.grants.filter((grant) => grant.user !== owner) });
         }}
       >
-        <option value="">Everyone: shared with all</option>
+        <option value="">{t('Everyone: shared with all')}</option>
         {people.map((person) => (
           <option key={person.id} value={person.id}>
             {person.username}
@@ -87,7 +93,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
               <li key={grant.user}>
                 <span>{name(grant.user)}</span>
                 <select
-                  aria-label={`What ${name(grant.user)} may do`}
+                  aria-label={t('What {name} may do', { name: name(grant.user) })}
                   value={grant.level}
                   onChange={(event) =>
                     setDraft({
@@ -100,8 +106,8 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
                     })
                   }
                 >
-                  <option value="view">Read</option>
-                  <option value="change">Read and change</option>
+                  <option value="view">{t('Read')}</option>
+                  <option value="change">{t('Read and change')}</option>
                 </select>
                 <button
                   type="button"
@@ -113,7 +119,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
                     })
                   }
                 >
-                  Stop sharing
+                  {t('Stop sharing')}
                 </button>
               </li>
             ))}
@@ -121,11 +127,11 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
           {others.length === 0 ? null : (
             <span className="asn-input">
               <select
-                aria-label="Share with"
+                aria-label={t('Share with')}
                 value={adding}
                 onChange={(event) => setAdding(event.target.value)}
               >
-                <option value="">Share with…</option>
+                <option value="">{t('Share with…')}</option>
                 {others.map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.username}
@@ -144,7 +150,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
                   setAdding('');
                 }}
               >
-                Add
+                {t('Add')}
               </button>
             </span>
           )}
@@ -152,7 +158,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
       )}
       <p className="actions">
         <button type="button" disabled={!changed} onClick={() => void save()}>
-          Save
+          {t('Save')}
         </button>
         {message === null ? null : (
           <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>

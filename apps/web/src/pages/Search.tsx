@@ -304,7 +304,9 @@ function HitList({
           {selected === undefined || onSelect === undefined ? null : (
             <input
               type="checkbox"
-              aria-label={`Select ${hit.title ?? hit.suggestedTitle ?? shortSha(hit.sha256)}`}
+              aria-label={t('Select {name}', {
+                name: hit.title ?? hit.suggestedTitle ?? shortSha(hit.sha256),
+              })}
               checked={selected.has(hit.sha256)}
               onChange={(event) => onSelect(hit.sha256, event.target.checked)}
             />
@@ -481,7 +483,15 @@ function FilterPanel({
                   key={tag.id}
                   type="button"
                   className={`chip tag-toggle ${state}`}
-                  aria-label={`${tag.name}: ${state === 'any' ? 'either way' : state === 'with' ? 'must have' : 'must not have'}`}
+                  aria-label={t('{tag}: {state}', {
+                    tag: tag.name,
+                    state:
+                      state === 'any'
+                        ? t('either way')
+                        : state === 'with'
+                          ? t('must have')
+                          : t('must not have'),
+                  })}
                   onClick={() => onChange(cycleTag(filter, tag.name))}
                 >
                   {state === 'with' ? '+ ' : state === 'without' ? '− ' : ''}
@@ -531,7 +541,7 @@ function ViewControls({
     return (
       <div className="view-controls">
         <span>
-          View <strong>{active.name}</strong>
+          {t('Saved view')} <strong>{active.name}</strong>
         </span>
         {changed ? (
           <button
@@ -543,7 +553,7 @@ function ViewControls({
               })
             }
           >
-            Save changes to this view
+            {t('Save changes to this view')}
           </button>
         ) : null}
         <button
@@ -555,7 +565,7 @@ function ViewControls({
             })
           }
         >
-          {active.onDashboard ? 'Take off the home page' : 'Show on the home page'}
+          {active.onDashboard ? t('Take off the home page') : t('Show on the home page')}
         </button>
         <button
           type="button"
@@ -671,7 +681,7 @@ function DashboardView({
       {result === null ? <p className="muted">{t('Loading…')}</p> : null}
       {result !== null && result.hits.length === 0 ? (
         <p className="muted">
-          {onOpen === undefined ? 'Nothing stored yet. Scan something.' : 'Nothing here.'}
+          {onOpen === undefined ? t('Nothing stored yet. Scan something.') : t('Nothing here.')}
         </p>
       ) : null}
       {result === null ? null : <HitList hits={result.hits} labels={labels} series={series} />}

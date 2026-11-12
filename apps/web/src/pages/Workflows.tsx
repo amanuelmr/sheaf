@@ -8,6 +8,7 @@ import {
   type WorkflowTrigger,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { t } from '../i18n';
 import { ALGORITHM_NAMES } from '../label-rule';
 import {
   EMPTY_FORM,
@@ -75,15 +76,16 @@ export function Workflows({ api }: { api: Api }) {
 
   return (
     <div>
-      <h1>Workflows</h1>
+      <h1>{t('Workflows')}</h1>
       <p className="subtitle">
-        When a document is added, or you edit one, and it is like this, do that. They run in order,
-        after the label rules.
+        {t(
+          'When a document is added, or you edit one, and it is like this, do that. They run in order, after the label rules.',
+        )}
       </p>
       {error === null ? null : <p className="error">{error}</p>}
-      {workflows === null ? <p className="muted">Loading…</p> : null}
+      {workflows === null ? <p className="muted">{t('Loading…')}</p> : null}
       {workflows !== null && workflows.length === 0 ? (
-        <p className="muted">No workflows yet.</p>
+        <p className="muted">{t('No workflows yet.')}</p>
       ) : null}
       <ul className="list">
         {(workflows ?? []).map((workflow) => (
@@ -91,23 +93,23 @@ export function Workflows({ api }: { api: Api }) {
             <div>
               <strong>
                 {workflow.name}
-                {workflow.enabled ? null : <span className="badge neutral">off</span>}
+                {workflow.enabled ? null : <span className="badge neutral">{t('off')}</span>}
               </strong>
               <span className="muted">{describeWorkflow(workflow)}</span>
             </div>
             <div className="actions">
               <button type="button" className="secondary" onClick={() => void toggle(workflow)}>
-                {workflow.enabled ? 'Turn off' : 'Turn on'}
+                {workflow.enabled ? t('Turn off') : t('Turn on')}
               </button>
               <button
                 type="button"
                 className="secondary"
                 onClick={() => setEditing({ id: workflow.id, form: toForm(workflow, fields) })}
               >
-                Edit
+                {t('Edit')}
               </button>
               <button type="button" className="link" onClick={() => void remove(workflow.id)}>
-                Delete
+                {t('Delete')}
               </button>
             </div>
           </li>
@@ -117,7 +119,7 @@ export function Workflows({ api }: { api: Api }) {
       {editing === null ? (
         <p>
           <button type="button" onClick={() => setEditing({ id: null, form: EMPTY_FORM })}>
-            New workflow
+            {t('New workflow')}
           </button>
         </p>
       ) : (
@@ -174,13 +176,13 @@ function Editor({
           value={form[key]}
           onChange={(event) => set({ [key]: event.target.value as LabelMode })}
         >
-          <option value="leave">Leave it</option>
-          <option value="set">Set to…</option>
-          <option value="clear">Clear it</option>
+          <option value="leave">{t('Leave it')}</option>
+          <option value="set">{t('Set to…')}</option>
+          <option value="clear">{t('Clear it')}</option>
         </select>
         {form[key] === 'set' ? (
           <input
-            aria-label={`${label}: name`}
+            aria-label={t('{label}: name', { label })}
             value={form[valueKey]}
             onChange={(event) => set({ [valueKey]: event.target.value })}
           />
@@ -191,34 +193,34 @@ function Editor({
 
   return (
     <form className="card workflow-editor" onSubmit={onSubmit}>
-      <h2>{isNew ? 'New workflow' : 'Edit workflow'}</h2>
+      <h2>{isNew ? t('New workflow') : t('Edit workflow')}</h2>
       <div className="filter-row">
-        {text('name', 'Name')}
+        {text('name', t('Name'))}
         <div>
-          <label htmlFor="wf-trigger">When</label>
+          <label htmlFor="wf-trigger">{t('When')}</label>
           <select
             id="wf-trigger"
             value={form.trigger}
             onChange={(event) => set({ trigger: event.target.value as WorkflowTrigger })}
           >
-            <option value="added">A document is added</option>
-            <option value="updated">A person edits a document</option>
-            <option value="scheduled">A document reaches an age</option>
+            <option value="added">{t('A document is added')}</option>
+            <option value="updated">{t('A person edits a document')}</option>
+            <option value="scheduled">{t('A document reaches an age')}</option>
           </select>
         </div>
       </div>
       {form.trigger === 'scheduled' ? (
         <div className="filter-row">
-          {text('olderThanDays', 'Days old')}
+          {text('olderThanDays', t('Days old'))}
           <div>
-            <label htmlFor="wf-dateField">Counted from</label>
+            <label htmlFor="wf-dateField">{t('Counted from')}</label>
             <select
               id="wf-dateField"
               value={form.dateField}
               onChange={(event) => set({ dateField: event.target.value as 'added' | 'created' })}
             >
-              <option value="added">When it arrived</option>
-              <option value="created">The date on the document</option>
+              <option value="added">{t('When it arrived')}</option>
+              <option value="created">{t('The date on the document')}</option>
             </select>
           </div>
         </div>
@@ -229,22 +231,22 @@ function Editor({
           checked={form.enabled}
           onChange={(event) => set({ enabled: event.target.checked })}
         />{' '}
-        On
+        {t('On')}
       </label>
 
-      <h3>If the document…</h3>
+      <h3>{t('If the document…')}</h3>
       <div className="filter-row">
-        {text('tags', 'Has every tag', 'bills, home')}
-        {text('anyTags', 'Has any tag')}
-        {text('notTags', 'Has none of these tags')}
+        {text('tags', t('Has every tag'), t('bills, home'))}
+        {text('anyTags', t('Has any tag'))}
+        {text('notTags', t('Has none of these tags'))}
       </div>
       <div className="filter-row">
-        {text('correspondent', 'Is from')}
-        {text('documentType', 'Is of type')}
+        {text('correspondent', t('Is from'))}
+        {text('documentType', t('Is of type'))}
       </div>
       <div className="filter-row">
         <div>
-          <label htmlFor="wf-textAlgorithm">Its text has</label>
+          <label htmlFor="wf-textAlgorithm">{t('Its text has')}</label>
           <select
             id="wf-textAlgorithm"
             value={form.textAlgorithm}
@@ -252,39 +254,39 @@ function Editor({
           >
             {MATCHING_ALGORITHMS.map((algorithm) => (
               <option key={algorithm} value={algorithm}>
-                {algorithm === 'none' ? 'Anything' : ALGORITHM_NAMES[algorithm]}
+                {algorithm === 'none' ? t('Anything') : t(ALGORITHM_NAMES[algorithm])}
               </option>
             ))}
           </select>
         </div>
-        {form.textAlgorithm === 'none' ? null : text('textPattern', 'Words or pattern')}
+        {form.textAlgorithm === 'none' ? null : text('textPattern', t('Words or pattern'))}
       </div>
 
-      <h3>Then</h3>
+      <h3>{t('Then')}</h3>
       {text(
         'title',
-        'Set the title to',
+        t('Set the title to'),
         TEMPLATE_PLACEHOLDERS.slice(0, 3)
           .map((p) => `{{${p}}}`)
           .join(' '),
       )}
       <div className="filter-row">
-        {text('addTags', 'Add tags')}
-        {text('removeTags', 'Remove tags')}
+        {text('addTags', t('Add tags'))}
+        {text('removeTags', t('Remove tags'))}
       </div>
       <div className="filter-row">
-        {mode('setCorrespondent', 'correspondentValue', 'Correspondent')}
-        {mode('setDocumentType', 'documentTypeValue', 'Type')}
+        {mode('setCorrespondent', 'correspondentValue', t('Correspondent'))}
+        {mode('setDocumentType', 'documentTypeValue', t('Type'))}
       </div>
       <div className="filter-row">
         <div>
-          <label htmlFor="wf-field">Set a custom field</label>
+          <label htmlFor="wf-field">{t('Set a custom field')}</label>
           <select
             id="wf-field"
             value={form.field}
             onChange={(event) => set({ field: event.target.value })}
           >
-            <option value="">No</option>
+            <option value="">{t('No')}</option>
             {fields.map((field) => (
               <option key={field.id} value={field.id}>
                 {field.name}
@@ -292,28 +294,28 @@ function Editor({
             ))}
           </select>
         </div>
-        {form.field === '' ? null : text('fieldValue', 'To (empty: no value)')}
+        {form.field === '' ? null : text('fieldValue', t('To (empty: no value)'))}
       </div>
-      {text('webhook', 'Call a webhook', 'https://…')}
-      {text('emailTo', 'Send an email to', 'me@example.com, partner@example.com')}
+      {text('webhook', t('Call a webhook'), 'https://…')}
+      {text('emailTo', t('Send an email to'), 'me@example.com, partner@example.com')}
       {form.emailTo.trim() === '' ? null : (
         <>
-          {text('emailSubject', 'Subject')}
-          {text('emailBody', 'Message')}
+          {text('emailSubject', t('Subject'))}
+          {text('emailBody', t('Message'))}
           <label className="check">
             <input
               type="checkbox"
               checked={form.emailAttach}
               onChange={(event) => set({ emailAttach: event.target.checked })}
             />{' '}
-            Attach the PDF
+            {t('Attach the PDF')}
           </label>
         </>
       )}
       <p className="actions">
-        <button type="submit">{isNew ? 'Add workflow' : 'Save workflow'}</button>
+        <button type="submit">{isNew ? t('Add workflow') : t('Save workflow')}</button>
         <button type="button" className="secondary" onClick={onCancel}>
-          Cancel
+          {t('Cancel')}
         </button>
       </p>
     </form>

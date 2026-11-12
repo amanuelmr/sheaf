@@ -9,20 +9,28 @@ import {
   type StampPosition,
 } from '@sheaf/protocol';
 import type { Api } from '../api';
+import { mark, t } from '../i18n';
 import { href } from '../route';
 
 const POSITION_NAMES: Record<StampPosition, string> = {
-  'top-right': 'Top right',
-  'top-left': 'Top left',
-  'bottom-right': 'Bottom right',
-  'bottom-left': 'Bottom left',
+  'top-right': mark('Top right'),
+  'top-left': mark('Top left'),
+  'bottom-right': mark('Bottom right'),
+  'bottom-left': mark('Bottom left'),
+};
+
+const COLOUR_NAMES: Record<StampColour, string> = {
+  red: mark('Red'),
+  blue: mark('Blue'),
+  green: mark('Green'),
+  black: mark('Black'),
 };
 
 /** Marks the document PAID, RECEIVED or anything short; the unstamped file stays a version. */
 export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState<Required<StampBody>>({
-    text: 'Paid',
+    text: t('Paid'),
     withDate: true,
     position: 'top-right',
     colour: 'red',
@@ -42,11 +50,11 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
 
   return (
     <section>
-      <h2>Stamp</h2>
+      <h2>{t('Stamp')}</h2>
       <p className="muted small">
-        Mark it the way a rubber stamp would. The unstamped file is kept as a version.{' '}
+        {t('Mark it the way a rubber stamp would. The unstamped file is kept as a version.')}{' '}
         <button type="button" className="link" onClick={() => setOpen(!open)}>
-          {open ? 'Close' : 'Stamp…'}
+          {open ? t('Close') : t('Stamp…')}
         </button>
       </p>
       {open ? (
@@ -58,7 +66,7 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
         >
           <div className="filter-row">
             <div>
-              <label htmlFor="stamp-text">Words</label>
+              <label htmlFor="stamp-text">{t('Words')}</label>
               <input
                 id="stamp-text"
                 maxLength={MAX_STAMP_TEXT}
@@ -67,7 +75,7 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
               />
             </div>
             <div>
-              <label htmlFor="stamp-position">Where</label>
+              <label htmlFor="stamp-position">{t('Where')}</label>
               <select
                 id="stamp-position"
                 value={body.position}
@@ -77,13 +85,13 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
               >
                 {STAMP_POSITIONS.map((p) => (
                   <option key={p} value={p}>
-                    {POSITION_NAMES[p]}
+                    {t(POSITION_NAMES[p])}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label htmlFor="stamp-colour">Ink</label>
+              <label htmlFor="stamp-colour">{t('Ink')}</label>
               <select
                 id="stamp-colour"
                 value={body.colour}
@@ -93,7 +101,7 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
               >
                 {STAMP_COLOURS.map((c) => (
                   <option key={c} value={c}>
-                    {c[0]!.toUpperCase() + c.slice(1)}
+                    {t(COLOUR_NAMES[c])}
                   </option>
                 ))}
               </select>
@@ -105,7 +113,7 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
               checked={body.withDate}
               onChange={(event) => setBody({ ...body, withDate: event.target.checked })}
             />{' '}
-            Add today’s date
+            {t('Add today’s date')}
           </label>
           <label className="check">
             <input
@@ -115,13 +123,13 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
                 setBody({ ...body, pages: event.target.checked ? 'all' : 'first' })
               }
             />{' '}
-            Every page, not just the first
+            {t('Every page, not just the first')}
           </label>
           {problem === null ? null : <p className="error">{problem}</p>}
           {error === null ? null : <p className="error">{error}</p>}
           <p className="actions">
             <button type="submit" disabled={problem !== null}>
-              Stamp it
+              {t('Stamp it')}
             </button>
           </p>
         </form>

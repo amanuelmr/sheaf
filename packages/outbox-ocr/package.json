@@ -2,7 +2,7 @@
   "name": "@sheaf/outbox-ocr",
   "version": "0.0.0",
   "private": true,
-  "description": "On-device OCR text for documents this phone has captured but not yet synced -- searchable offline before Paperless ever sees them.",
+  "description": "On-device OCR text for documents this phone has captured but not yet synced -- searchable offline before the server ever sees them.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -15,8 +15,9 @@ export type Route =
 
 /**
  * Hash routes: `#/search`, `#/doc/<sha256>`, `#/inbox`, `#/devices`, `#/trash`,
- * `#/fields`, `#/labels`, `#/system`. A handful of pages do not need a router library, and a hash works when the app is served
- * from any path or opened as a file.
+ * `#/fields`, `#/labels`, `#/workflows`, `#/users`, `#/system`. Ten pages do not
+ * need a router library, and a hash works when the app is served from any path or
+ * opened as a file.
  */
 export function parse(hash: string): Route {
   const [path = '', query] = hash.replace(/^#/, '').split('?', 2);

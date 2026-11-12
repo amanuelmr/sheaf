@@ -42,31 +42,25 @@ every synced document, indefinitely. Those faults deliberately do **not** heal: 
 server without a suggestions endpoint never grows one, and the engine has to notice
 and stop.
 
-`FakePaperless` models the server semantics the engine depends on: a POST returns a
-task id immediately, consumption completes later **on the server's own timeline**
-whether or not a client is watching, and content is hashed server-side so a
-re-upload is refused as a duplicate.
+`FakeSheaf` models the server semantics the engine depends on: a `PUT` to a
+document's own address answers at once, re-sending the same bytes reports
+`already-stored` rather than making a second document, and `HEAD` answers "do you
+hold this?" with a status code.
 
-That last detail is load-bearing. An earlier version of the fake resolved
-consumption lazily when a client polled, which quietly made the duplicate path
-unreachable — the suite passed while testing nothing. The "actually exercises the
-interesting paths" test exists to catch exactly that.
+It replaced a `FakePaperless`, which modelled a server that consumes later, on its
+own timeline, and reports duplicates through a task. An earlier version of that
+fake resolved consumption lazily when a client polled, which quietly made the
+duplicate path unreachable — the suite passed while testing nothing. The "actually
+exercises the interesting paths" test exists to catch exactly that, and still runs.
 
-## What 200 hostile schedules do
+## What the hostile schedules do
 
-1,000 documents through the real engine:
-
-```
-events appended                9,986
-POSTs issued                   1,327     retries and lost responses
-documents stored               1,000     exactly one per content hash
-duplicate rejections           324       each read as SYNCED, not as failure
-crash recoveries               161       resolved by one hash lookup, never a re-upload
-process kills survived         2,459
-metadata patches applied       733
-documents lost                 0
-documents duplicated           0
-```
+The last full count, recorded in the [project README](../../README.md#architecture):
+300 hostile schedules covering 1,500 documents through the real engine, with 3,644
+process kills, including kills _between_ logging an upload attempt and logging its
+outcome. The engine sent 2,003 uploads, stored exactly 1,500 documents, read 490
+duplicate answers as success, and recovered 255 interrupted uploads with a hash
+lookup rather than a re-upload. Nothing lost, nothing duplicated.
 
 Every number is reproducible: a failing seed replays exactly, so a
 distributed-systems bug becomes a laptop bug.
@@ -74,5 +68,5 @@ distributed-systems bug becomes a laptop bug.
 ## Still to come
 
 Clock jumps (device sleep, NTP resync), disk-full on the local write path, and
-contract tests against a real Paperless-ngx behind a fault-injecting proxy, to
-validate the assumptions `FakePaperless` encodes.
+the real server behind a fault-injecting proxy, to check the assumptions
+`FakeSheaf` encodes.
