@@ -17,15 +17,19 @@ export interface SmtpOptions {
   readonly hostname: string;
   /** Opens the connection: TLS already, or plain to be upgraded with STARTTLS. */
   connect(): Promise<Duplex>;
-  /** Upgrade a plain connection after STARTTLS; absent means never upgrade. */
+  /**
+   * Upgrade a plain connection after STARTTLS, which the server must then offer;
+   * absent when `connect` is TLS already.
+   */
   upgrade?(socket: Duplex): Promise<Duplex>;
 }
 
 export { EMAIL_PATTERN } from '@sheaf/protocol';
 
 /**
- * Sends one message over SMTP: EHLO, STARTTLS when offered and an upgrade is
- * given, AUTH PLAIN when there is a user, then the message. Every wait has a
+ * Sends one message over SMTP: EHLO, STARTTLS when an upgrade is given (refusing a
+ * server that does not offer it, so the password and documents never go out in
+ * the clear), AUTH PLAIN when there is a user, then the message. Every wait has a
  * deadline. Addresses and the subject are checked for line breaks, so nothing in a
  * document's title can add a header or a recipient.
  */
@@ -38,7 +42,10 @@ export async function sendMail(options: SmtpOptions, mail: OutgoingMail): Promis
   try {
     await reader.expect(220);
     let features = await command(socket, reader, `EHLO ${options.hostname}`, 250);
-    if (options.upgrade !== undefined && /^STARTTLS$/im.test(features)) {
+    if (options.upgrade !== undefined) {
+      if (!/^STARTTLS$/im.test(features)) {
+        throw new Error('the mail server did not offer STARTTLS; not sending anything unencrypted');
+      }
       await command(socket, reader, 'STARTTLS', 220);
       reader.detach();
       socket = await options.upgrade(socket);
