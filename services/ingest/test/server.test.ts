@@ -14,6 +14,7 @@ import { nodeSqliteDriver } from '@sheaf/store/node';
 import type { Logger } from '../src/log';
 import { ANONYMOUS_BODY_BYTES, createIngestServer, routeOf } from '../src/server';
 import { Storage, sha256Hex } from '../src/storage';
+import type { Users } from '../src/users';
 
 const TOKEN = 'a-token-of-at-least-16-chars';
 const A = new Uint8Array(Buffer.from('%PDF-1.4\nover-the-wire\n%%EOF\n'));
@@ -238,5 +239,38 @@ suite('when something goes wrong inside', () => {
     expect(routeOf('/share/abcdefghijk')).toBe('/share/:id');
     expect(routeOf('/v1/workflows/12')).toBe('/v1/workflows/:id');
     expect(routeOf('/v1/search')).toBe('/v1/search');
+  });
+});
+
+suite('checking the token', () => {
+  it('checks it once for a request without a body', async () => {
+    let checks = 0;
+    const users = {
+      authenticate: () => {
+        checks += 1;
+        return Promise.resolve({ id: 1, username: 'ann', role: 'editor' as const });
+      },
+    };
+    const storage = await Storage.open({
+      driver: nodeSqliteDriver(),
+      objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-ingest-once-')),
+    });
+    const once = createIngestServer({
+      storage,
+      token: TOKEN,
+      now: () => 1_700_000_000_000,
+      users: users as unknown as Users,
+    });
+    await new Promise<void>((resolve) => once.listen(0, '127.0.0.1', resolve));
+    try {
+      const url = `http://127.0.0.1:${String((once.address() as AddressInfo).port)}`;
+      const res = await fetch(url + paths.health(), {
+        headers: { authorization: authorization('a-session-token-for-ann') },
+      });
+      expect(res.status).toBe(200);
+      expect(checks).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => once.close(() => resolve()));
+    }
   });
 });

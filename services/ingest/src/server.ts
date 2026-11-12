@@ -12,8 +12,6 @@ import { handle, knownCaller, type IngestRequest, type RouterDeps } from './rout
 export const ANONYMOUS_BODY_BYTES = 64 * 1024;
 /** How long the rest of a refused upload is thrown away before the connection is cut. */
 const DISCARD_MS = 10_000;
-/** Open connections at once; a phone and a few browser tabs need far fewer. */
-const MAX_CONNECTIONS = 64;
 
 /**
  * Wide open on purpose. The token is what stands between a request and this
@@ -93,8 +91,12 @@ export function createIngestServer(
             ? {}
             : { remoteAddress: req.socket.remoteAddress }),
         });
-        // Decide how much to accept before reading any of it.
-        const known = await knownCaller(req.headers as IngestRequest['headers'], deps);
+        // Decide how much to accept before reading any of it. A request that says it
+        // carries no body cannot send one, so its token is checked only once, by `handle`.
+        const hasBody =
+          req.headers['transfer-encoding'] !== undefined ||
+          Number(req.headers['content-length'] ?? 0) > 0;
+        const known = hasBody && (await knownCaller(req.headers as IngestRequest['headers'], deps));
         const limit = known ? MAX_DOCUMENT_BYTES : ANONYMOUS_BODY_BYTES;
         const declared = Number(req.headers['content-length'] ?? 0);
         const body = declared > limit ? 'too-large' : await readBody(req, limit);
@@ -130,9 +132,7 @@ export function createIngestServer(
       }
     })();
   };
-  const server = tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
-  server.maxConnections = MAX_CONNECTIONS;
-  return server;
+  return tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
 }
 
 /**
