@@ -268,6 +268,14 @@ suite('the heuristic extractor', () => {
     expect(fields.total?.value.minor).not.toBe(123);
   });
 
+  it('cuts a long line at a tab or no-break space too, rather than dropping it', async () => {
+    for (const gap of ['\t', '\u00a0']) {
+      const line = `Total${gap}18.00${gap}${'x'.repeat(250)}`;
+      const fields = await extract(`Shop\n${line}`);
+      expect(fields.total?.value.minor, JSON.stringify(gap)).toBe(1800);
+    }
+  });
+
   it('still finds the total at the end of a very long document', async () => {
     const pages = Array.from({ length: 5000 }, (_, i) => `Line ${String(i)} of the terms`);
     const fields = await extract(['Shop', ...pages, 'Total 18.00'].join('\n'));

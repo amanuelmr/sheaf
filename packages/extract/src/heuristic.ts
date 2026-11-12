@@ -50,13 +50,14 @@ const LINE_CHARS = 200;
 const EDGE_LINES = 1000;
 
 /**
- * A line cut at a space before `LINE_CHARS`, so no amount or date is cut in half
+ * A line cut at white space before `LINE_CHARS`, so no amount or date is cut in half
  * and misread; a line with no space that early is one long run, and dropped.
  */
 function shorten(line: string): string {
   if (line.length <= LINE_CHARS) return line;
-  const space = line.lastIndexOf(' ', LINE_CHARS);
-  return space === -1 ? '' : line.slice(0, space);
+  // Any white space: text from PDFs often parts columns with tabs or no-break spaces.
+  for (let i = LINE_CHARS; i > 0; i--) if (/\s/.test(line[i]!)) return line.slice(0, i);
+  return '';
 }
 
 const TYPES: readonly (readonly [RegExp, string])[] = [
