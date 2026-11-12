@@ -5,6 +5,7 @@
  */
 
 import { isEpub } from './epub.ts';
+import { isPdf } from './storage.ts';
 
 export interface Attachment {
   readonly filename: string | null;
@@ -94,7 +95,7 @@ function collect(headers: Headers, body: Buffer, out: Attachment[], depth: numbe
   }
   const disposition = headers.get('content-disposition') ?? '';
   const filename = parameter(disposition, 'filename') ?? parameter(type, 'name');
-  const isPdf =
+  const isPdfPart =
     mediaType === 'application/pdf' ||
     (filename !== null &&
       filename.toLowerCase().endsWith('.pdf') &&
@@ -104,10 +105,10 @@ function collect(headers: Headers, body: Buffer, out: Attachment[], depth: numbe
     (filename !== null &&
       filename.toLowerCase().endsWith('.epub') &&
       (mediaType === 'application/octet-stream' || mediaType === 'application/zip'));
-  if (!isPdf && !isBook) return;
+  if (!isPdfPart && !isBook) return;
   const bytes = decode(body, headers.get('content-transfer-encoding'));
   // Trust the bytes, not the label: a PDF starts with %PDF-, an EPUB says so first.
-  if (isPdf && bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return;
+  if (isPdfPart && !isPdf(bytes)) return;
   if (isBook && !isEpub(new Uint8Array(bytes))) return;
   out.push({ filename, bytes: new Uint8Array(bytes) });
 }

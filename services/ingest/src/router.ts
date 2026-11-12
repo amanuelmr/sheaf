@@ -114,7 +114,7 @@ import { exportCsv } from './csv-export.ts';
 import { searchableBytes } from './searchable.ts';
 import type { NearDuplicates } from './near-duplicates.ts';
 import type { Storage } from './storage.ts';
-import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
+import { AsnTaken, PRIMARY_CONNECTOR, isPdf, sha256Hex } from './storage.ts';
 import { DEFAULT_TRASH_DAYS } from './trash.ts';
 
 /**
@@ -932,6 +932,7 @@ async function put(
 ): Promise<IngestResponse> {
   if (request.body.length === 0) return fail('bad_request', 'empty body');
   if (request.body.length > MAX_DOCUMENT_BYTES) return fail('too_large');
+  if (!isPdf(request.body)) return fail('bad_request', 'only PDFs are kept; this body is not one');
 
   // The address is a claim about the content. Verify it rather than trust it: this
   // is where a truncated or corrupted upload is caught, before it is stored under

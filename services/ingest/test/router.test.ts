@@ -112,6 +112,13 @@ suite('the address is verified, not trusted', () => {
   it('refuses an empty body rather than storing nothing under a hash', async () => {
     expect((await handle(req('PUT', paths.document(hashA)), deps)).status).toBe(400);
   });
+
+  it('refuses a file that is not a PDF, even under its own hash', async () => {
+    const page = new Uint8Array(Buffer.from('<html><script>alert(1)</script></html>'));
+    const response = await handle(req('PUT', paths.document(sha256Hex(page)), page), deps);
+    expect(response.status).toBe(400);
+    expect(await deps.storage.count()).toBe(0);
+  });
 });
 
 suite('asking whether the server already has it', () => {

@@ -249,6 +249,14 @@ export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+/** Whether bytes are a PDF: every PDF starts with `%PDF-`, whatever it is labelled. */
+export function isPdf(bytes: Uint8Array): boolean {
+  return (
+    Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.length, 5)).toString('latin1') ===
+    '%PDF-'
+  );
+}
+
 export class Storage {
   // Written out rather than declared as constructor parameter properties: Node
   // runs this file by stripping types, which cannot handle TypeScript syntax that
