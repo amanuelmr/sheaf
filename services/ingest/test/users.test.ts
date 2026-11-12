@@ -70,6 +70,14 @@ suite('passwords', () => {
   });
 });
 
+suite('creating users', () => {
+  it('says a name is taken when two people ask for it at once', async () => {
+    const body = { username: 'twin', password: 'a long enough password', role: 'editor' as const };
+    const made = await Promise.all([users.create(body, NOW), users.create(body, NOW)]);
+    expect(made.filter((m) => m === 'taken')).toHaveLength(1);
+  });
+});
+
 suite('signing in', () => {
   it('gives a token that works until it expires, and signing out ends it', async () => {
     const signed = await handle(

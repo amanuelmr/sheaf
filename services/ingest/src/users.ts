@@ -59,27 +59,29 @@ export class Users {
   }
 
   async create(body: UserBody, now: number): Promise<User | 'taken'> {
-    const existing = await this.#driver.all<{ id: number }>(
-      'SELECT id FROM users WHERE username = ?',
-      [body.username],
-    );
-    if (existing.length > 0) return 'taken';
-    await this.#driver.run(
-      'INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-      [body.username, await hashPassword(body.password), body.role, now],
-    );
+    if ((await this.#byName(body.username)) !== null) return 'taken';
+    const hash = await hashPassword(body.password);
+    // The name may have been taken while hashing; the UNIQUE index is the real check.
+    try {
+      await this.#driver.run(
+        'INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
+        [body.username, hash, body.role, now],
+      );
+    } catch (error) {
+      if (isUniqueViolation(error)) return 'taken';
+      throw error;
+    }
     return (await this.#byName(body.username))!;
   }
 
   async update(id: number, patch: UserPatch, now: number): Promise<User | null> {
     const current = await this.#byId(id);
     if (current === null) return null;
+    // Hash first: a transaction waits on nothing but the database.
+    const hash = patch.password === undefined ? null : await hashPassword(patch.password);
     await this.#driver.transaction(async () => {
-      if (patch.password !== undefined) {
-        await this.#driver.run('UPDATE users SET password_hash = ? WHERE id = ?', [
-          await hashPassword(patch.password),
-          id,
-        ]);
+      if (hash !== null) {
+        await this.#driver.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, id]);
       }
       if (patch.role !== undefined) {
         await this.#driver.run('UPDATE users SET role = ? WHERE id = ?', [patch.role, id]);
@@ -263,3 +265,8 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 /** A hash no password matches, to spend the same time on a username that does not exist. */
 const DUMMY_HASH = `scrypt$${String(SCRYPT.N)}$${String(SCRYPT.r)}$${String(SCRYPT.p)}$${Buffer.alloc(16).toString('base64')}$${Buffer.alloc(32).toString('base64')}`;
+
+/** SQLite refusing a write because a UNIQUE constraint would be broken. */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && /UNIQUE constraint failed/.test(error.message);
+}
