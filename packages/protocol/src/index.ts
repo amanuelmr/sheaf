@@ -108,9 +108,9 @@ export const paths = {
   audit: () => `/${PROTOCOL_VERSION}/audit`,
   /** Admin: `GET` the server's settings; `PATCH` a `SettingsPatch` to change some. */
   settings: () => `/${PROTOCOL_VERSION}/settings`,
-  /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
+  /** Admin: `GET` lists workflows, `POST` a `WorkflowBody` to add one. */
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
-  /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
+  /** Admin: `GET` one, `PUT` a `WorkflowBody` to replace it, or `DELETE` it. */
   workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
   /**
    * `GET ?series=` the lowest archive serial number above every one in use, in the

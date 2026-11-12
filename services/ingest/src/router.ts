@@ -1225,7 +1225,7 @@ async function documentPermissions(
   return { status: 200, json: await deps.storage.permissions(sha256) };
 }
 
-/** Workflows: anyone may read them; only the admin token changes them. */
+/** Workflows: only an admin reads or changes them, since they name tags, people and mail. */
 async function workflowRoutes(
   request: IngestRequest,
   deps: RouterDeps,
@@ -1240,6 +1240,7 @@ async function workflowRoutes(
   };
   const isBody = (value: WorkflowBody | IngestResponse): value is WorkflowBody =>
     'trigger' in value;
+  if (!isAdmin(principal)) return fail('forbidden', 'only an admin reads or changes workflows');
 
   if (path === paths.workflows()) {
     if (method === 'GET') {
@@ -1247,7 +1248,6 @@ async function workflowRoutes(
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
     const parsed = body();
     if (!isBody(parsed)) return parsed;
     return { status: 201, json: await workflows.create(parsed, deps.now()) };
@@ -1262,7 +1262,6 @@ async function workflowRoutes(
   }
   if (method !== 'PUT' && method !== 'DELETE')
     return fail('bad_request', `${method} not allowed here`);
-  if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
   if (method === 'DELETE')
     return (await workflows.remove(id)) ? { status: 204 } : fail('not_found');
   const parsed = body();
