@@ -2,7 +2,7 @@
   "name": "sheaf",
   "version": "0.0.0",
   "private": true,
-  "description": "An offline-first capture companion for Paperless-ngx. A content-addressed durable outbox with a camera bolted to the front.",
+  "description": "Offline-first document capture with a self-hosted server that keeps, reads and searches your documents.",
   "license": "MIT",
   "author": "amanuelmr",
   "repository": {

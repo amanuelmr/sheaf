@@ -1,5 +1,5 @@
-name: Paperless compatibility
-description: Sheaf misreads a response from your Paperless-ngx server
+name: Paperless-ngx connector
+description: The optional Paperless-ngx connector misreads a response from your Paperless-ngx server
 labels: [compatibility]
 body:
   - type: markdown

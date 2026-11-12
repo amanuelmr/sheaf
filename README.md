@@ -1,7 +1,8 @@
 # Sheaf
 
 **Offline-first document capture with a server that keeps, reads and searches your
-documents — and forwards copies to Paperless-ngx only if you ask.**
+documents — and sends copies elsewhere (a folder, WebDAV, S3, Paperless-ngx…) only
+if you ask.**
 
 Scan a document; it is already safe. Everything after that is optional.
 

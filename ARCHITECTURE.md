@@ -221,7 +221,7 @@ support has a documented history of regressing silently between SDK releases,
 including an Android-only failure, and a cache measured in hundreds of rows has
 no need of a ranked index to answer well under a frame.
 
-## Searching the outbox: OCR before Paperless ever sees it
+## Searching the outbox: OCR before the server ever sees it
 
 `archive-cache`'s search only covers what the server has already stored -- a
 document still in the outbox has no text anywhere yet, because it has not reached
