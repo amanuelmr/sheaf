@@ -674,7 +674,12 @@ async function authenticated(
     }
     const refused = await changeRefused(deps, principal, body.documents);
     if (refused !== null) return refused;
-    const merged = await deps.edits.merge(body.documents, body.keepOriginals === true, deps.now());
+    const merged = await deps.edits.merge(
+      body.documents,
+      body.keepOriginals === true,
+      deps.now(),
+      principal.kind === 'user' ? principal.id : null,
+    );
     if (!merged.ok) return editRefusal(merged);
     return { status: 201, json: await deps.storage.record(merged.sha256) };
   }
