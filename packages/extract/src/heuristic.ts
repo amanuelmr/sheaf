@@ -41,6 +41,14 @@ const WHOLE_AMOUNT =
   /(?:(?:[¥₩]|\b(?:JPY|KRW)\b)\s*)?(?<![\d.,'])\d{1,3}(?:[,' ]\d{3})*(?![\d.,:/])/g;
 const WHOLE_MARK = /[¥₩]|\b(?:JPY|KRW)\b/;
 
+/**
+ * How much of a document's text the rules read. A long run of digits takes the amount
+ * patterns time that grows with its square, so lines are cut short, and of a very
+ * long document only its start and its end, where dates and totals are, are read.
+ */
+const LINE_CHARS = 200;
+const EDGE_LINES = 1000;
+
 const TYPES: readonly (readonly [RegExp, string])[] = [
   [/\b(invoice|rechnung|facture|tax\s+invoice)\b/i, 'Invoice'],
   [/\b(receipt|kassenbon|quittung|reçu|cash\s+sale)\b/i, 'Receipt'],
@@ -61,10 +69,12 @@ export function heuristicExtractor(): Extractor {
 }
 
 function extract(input: ExtractionInput): ExtractedFields {
-  const lines = input.text
+  const all = input.text
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.trim().slice(0, LINE_CHARS))
     .filter((line) => line !== '');
+  const lines =
+    all.length > EDGE_LINES * 2 ? [...all.slice(0, EDGE_LINES), ...all.slice(-EDGE_LINES)] : all;
 
   const date = findDate(lines, input);
   const total = findTotal(lines, input.defaultCurrency);

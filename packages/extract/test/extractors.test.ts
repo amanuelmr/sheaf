@@ -254,6 +254,18 @@ suite('the heuristic extractor', () => {
     expect(await extract('12 34')).toEqual({});
   });
 
+  it('reads text with a huge run of digits quickly', async () => {
+    const started = performance.now();
+    await extract(`Shop\nTotal ${'1'.repeat(100_000)}\n${'2 '.repeat(50_000)}`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('still finds the total at the end of a very long document', async () => {
+    const pages = Array.from({ length: 5000 }, (_, i) => `Line ${String(i)} of the terms`);
+    const fields = await extract(['Shop', ...pages, 'Total 18.00'].join('\n'));
+    expect(fields.total?.value.minor).toBe(1800);
+  });
+
   it('costs nothing and names its rule set', async () => {
     const result = await heuristicExtractor().extract(input());
     expect(result).toEqual(
