@@ -169,6 +169,21 @@ suite('CORS', () => {
     expect(two.headers.get('x-request-id')).not.toBe(one.headers.get('x-request-id'));
   });
 
+  it('sends security headers on every answer, preflight included', async () => {
+    for (const res of [
+      await fetch(base + paths.health(), { headers: auth }),
+      await fetch(base + paths.health()),
+      await fetch(base + paths.health(), { method: 'OPTIONS' }),
+    ]) {
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(res.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+      // Plain HTTP here; only HTTPS asks browsers to insist on it.
+      expect(res.headers.get('strict-transport-security')).toBeNull();
+    }
+  });
+
   it('carries the same headers on a real response, success or failure', async () => {
     const ok = await fetch(base + paths.health(), { headers: auth });
     expect(ok.headers.get('access-control-allow-origin')).toBe('*');

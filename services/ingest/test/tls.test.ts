@@ -103,7 +103,7 @@ suite('serving HTTPS', () => {
     close = () => server.close();
     const port = (server.address() as AddressInfo).port;
 
-    const answer = await new Promise<{ status: number; body: string; pin: string }>(
+    const answer = await new Promise<{ status: number; body: string; pin: string; hsts: unknown }>(
       (done, fail) => {
         const req = request(
           {
@@ -127,6 +127,7 @@ suite('serving HTTPS', () => {
                 status: res.statusCode ?? 0,
                 body: Buffer.concat(chunks).toString('utf8'),
                 pin,
+                hsts: res.headers['strict-transport-security'],
               });
             });
           },
@@ -138,5 +139,7 @@ suite('serving HTTPS', () => {
     expect(answer.status).toBe(201);
     expect((JSON.parse(answer.body) as { pin?: string }).pin).toBe(OPENSSL_PIN);
     expect(answer.pin).toBe(OPENSSL_PIN);
+    // Over HTTPS, browsers are told never to come back over plain HTTP.
+    expect(answer.hsts).toBe('max-age=31536000');
   });
 });

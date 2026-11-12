@@ -34,6 +34,18 @@ const CORS_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * On every answer. Nothing here is a page: no other site may frame it, no browser
+ * may guess a different type for it, and no link out of a share link says where
+ * the reader came from, since the share link's address is its secret.
+ */
+const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'content-security-policy': "frame-ancestors 'none'",
+  'referrer-policy': 'no-referrer',
+};
+
+/**
  * The socket edge, and nothing else. All behaviour lives in `handle`.
  *
  * The one thing that cannot live there is the body limit: refusing an oversized
@@ -54,6 +66,9 @@ export function createIngestServer(
     // Sent with every answer, and logged with any failure, so the two can be matched.
     const requestId = randomUUID();
     res.setHeader('x-request-id', requestId);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+    // Over HTTPS, tell browsers never to come back over plain HTTP.
+    if (tls !== undefined) res.setHeader('strict-transport-security', 'max-age=31536000');
     // Every answer is counted once it is sent, whichever branch sent it.
     res.on('finish', () => {
       const seconds = Number(process.hrtime.bigint() - started) / 1e9;
