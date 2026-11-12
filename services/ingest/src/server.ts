@@ -3,7 +3,17 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as createTlsServer } from 'node:https';
 import { MAX_DOCUMENT_BYTES, ERROR_STATUS } from '@sheaf/protocol';
 import { log, type Logger } from './log.ts';
-import { handle, type RouterDeps } from './router.ts';
+import { handle, knownCaller, type IngestRequest, type RouterDeps } from './router.ts';
+
+/**
+ * The most a caller without a valid token may send: enough to pair a phone or sign
+ * in, nowhere near a document. Only a known caller may send up to a document's size.
+ */
+export const ANONYMOUS_BODY_BYTES = 64 * 1024;
+/** How long the rest of a refused upload is thrown away before the connection is cut. */
+const DISCARD_MS = 10_000;
+/** Open connections at once; a phone and a few browser tabs need far fewer. */
+const MAX_CONNECTIONS = 64;
 
 /**
  * Wide open on purpose. The token is what stands between a request and this
@@ -58,25 +68,41 @@ export function createIngestServer(
 
     void (async () => {
       try {
-        const body = await readBody(req);
+        const request = (body: Uint8Array): IngestRequest => ({
+          method: req.method ?? 'GET',
+          path,
+          query: (req.url ?? '').split('?')[1] ?? '',
+          headers: req.headers as Record<string, string | undefined>,
+          body,
+          ...(req.socket.remoteAddress === undefined
+            ? {}
+            : { remoteAddress: req.socket.remoteAddress }),
+        });
+        // Decide how much to accept before reading any of it.
+        const known = await knownCaller(req.headers as IngestRequest['headers'], deps);
+        const limit = known ? MAX_DOCUMENT_BYTES : ANONYMOUS_BODY_BYTES;
+        const declared = Number(req.headers['content-length'] ?? 0);
+        const body = declared > limit ? 'too-large' : await readBody(req, limit);
         if (body === 'too-large') {
-          send(res, { status: ERROR_STATUS.too_large, json: { error: 'too_large' } }, req.method);
+          // A stranger gets the answer their token earns, from an empty body; a known
+          // caller learns the file is too big. The rest of the upload is thrown away
+          // unread, for a few seconds at most, so the client is still listening for
+          // the answer; then the connection closes.
+          res.on('finish', () => {
+            const cut = setTimeout(() => req.destroy(), DISCARD_MS);
+            req.once('end', () => clearTimeout(cut));
+            req.resume();
+          });
+          send(
+            res,
+            known
+              ? { status: ERROR_STATUS.too_large, json: { error: 'too_large' } }
+              : await handle(request(new Uint8Array()), deps),
+            req.method,
+          );
           return;
         }
-        const response = await handle(
-          {
-            method: req.method ?? 'GET',
-            path: (req.url ?? '/').split('?')[0] ?? '/',
-            query: (req.url ?? '').split('?')[1] ?? '',
-            headers: req.headers as Record<string, string | undefined>,
-            body,
-            ...(req.socket.remoteAddress === undefined
-              ? {}
-              : { remoteAddress: req.socket.remoteAddress }),
-          },
-          deps,
-        );
-        send(res, response, req.method);
+        send(res, await handle(request(body), deps), req.method);
       } catch (error) {
         // Never leak an internal message to a client; the log has it, under the same id.
         logger.error('request failed', {
@@ -89,7 +115,9 @@ export function createIngestServer(
       }
     })();
   };
-  return tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
+  const server = tls === undefined ? createServer(listener) : createTlsServer(tls, listener);
+  server.maxConnections = MAX_CONNECTIONS;
+  return server;
 }
 
 /**
@@ -109,21 +137,24 @@ export function routeOf(path: string): string {
     .join('/');
 }
 
-function readBody(req: IncomingMessage): Promise<Uint8Array | 'too-large'> {
+function readBody(req: IncomingMessage, limit: number): Promise<Uint8Array | 'too-large'> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    req.on('data', (chunk: Buffer) => {
+    const onData = (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_DOCUMENT_BYTES) {
-        // Stop reading rather than buffer something we have already decided to
-        // refuse.
-        req.destroy();
+      if (size > limit) {
+        // Stop collecting rather than buffer something already refused; the socket
+        // stays open just long enough to carry the answer.
+        req.off('data', onData);
+        req.pause();
+        chunks.length = 0;
         resolve('too-large');
         return;
       }
       chunks.push(chunk);
-    });
+    };
+    req.on('data', onData);
     req.on('end', () => resolve(new Uint8Array(Buffer.concat(chunks))));
     req.on('error', reject);
   });

@@ -240,6 +240,18 @@ const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
   json: detail === undefined ? { error } : { error, detail },
 });
 
+/**
+ * Whether the headers carry a token this server accepts. The socket edge asks before
+ * reading a body, so a stranger cannot make it hold a large one in memory.
+ */
+export async function knownCaller(
+  headers: IngestRequest['headers'],
+  deps: RouterDeps,
+): Promise<boolean> {
+  const principal = await authenticate({ headers } as IngestRequest, deps);
+  return principal !== null && principal !== 'revoked';
+}
+
 async function authenticate(
   request: IngestRequest,
   deps: RouterDeps,

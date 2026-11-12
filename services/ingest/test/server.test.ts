@@ -7,12 +7,12 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
+import { request, type Server } from 'node:http';
 import { afterAll, beforeAll, describe as suite, expect, it } from 'vitest';
 import { MAX_DOCUMENT_BYTES, authorization, paths } from '@sheaf/protocol';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import type { Logger } from '../src/log';
-import { createIngestServer, routeOf } from '../src/server';
+import { ANONYMOUS_BODY_BYTES, createIngestServer, routeOf } from '../src/server';
 import { Storage, sha256Hex } from '../src/storage';
 
 const TOKEN = 'a-token-of-at-least-16-chars';
@@ -67,17 +67,68 @@ suite('over a real connection', () => {
     expect((await res.text()).length).toBe(0);
   });
 
-  it('refuses an oversized upload instead of buffering it', async () => {
+  it('answers an oversized upload with 413, not a cut connection', async () => {
     const tooBig = new Uint8Array(MAX_DOCUMENT_BYTES + 1_024);
     const res = await fetch(base + paths.document(hashA), {
       method: 'PUT',
       headers: { ...auth, 'content-type': 'application/pdf' },
       body: tooBig,
-    }).catch(() => null);
-    // The server destroys the request once the limit is passed, so either it
-    // answered 413 or the connection was cut. Both are a refusal; neither stores.
-    if (res !== null) expect(res.status).toBe(413);
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'too_large' });
   });
+
+  it('answers 413 to an oversized upload that does not say its size, too', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        base + paths.document(hashA),
+        { method: 'PUT', headers: { ...auth, 'transfer-encoding': 'chunked' } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      req.on('error', reject);
+      const chunk = Buffer.alloc(1024 * 1024);
+      let sent = 0;
+      const more = () => {
+        while (sent <= MAX_DOCUMENT_BYTES) {
+          sent += chunk.length;
+          if (!req.write(chunk)) return void req.once('drain', more);
+        }
+        req.end();
+      };
+      more();
+    });
+    expect(status).toBe(413);
+  });
+
+  it('reads no large body from a caller without a valid token', async () => {
+    const big = new Uint8Array(ANONYMOUS_BODY_BYTES + 1);
+    for (const headers of [{}, { authorization: authorization('not-the-right-token-at-all') }]) {
+      const res = await fetch(base + paths.document(hashA), { method: 'PUT', headers, body: big });
+      expect(res.status).toBe(401);
+    }
+    const sha = sha256Hex(big);
+    expect((await fetch(base + paths.document(sha), { headers: auth })).status).toBe(404);
+  });
+
+  it('answers a stranger who announces a large body without waiting for it', async () => {
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        base + paths.document(hashA),
+        { method: 'PUT', headers: { 'content-length': String(MAX_DOCUMENT_BYTES) } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+          req.destroy();
+        },
+      );
+      req.on('error', reject);
+      req.flushHeaders();
+    });
+    expect(status).toBe(401);
+  }, 2_000);
 
   it('refuses an unauthenticated request', async () => {
     const res = await fetch(base + paths.health());
