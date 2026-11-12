@@ -35,9 +35,14 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
   db.exec('PRAGMA foreign_keys = ON');
   /**
    * Set while running a transaction's own work. Cleared when it ends, so a task the
-   * work started without waiting for cannot slip into a later transaction.
+   * work started without waiting for cannot slip into a later transaction. `queue`
+   * makes the transactions started within it take turns.
    */
-  const inside = new AsyncLocalStorage<{ active: boolean }>();
+  interface Scope {
+    active: boolean;
+    queue: Promise<unknown>;
+  }
+  const inside = new AsyncLocalStorage<Scope>();
   /** Settles when the open transaction ends; null when none is open. */
   let open: Promise<void> | null = null;
   /** Transactions waiting their turn, in order. */
@@ -49,27 +54,38 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
       ? settle(work)
       : open.then(() => query(work));
 
-  /** A transaction within one: a savepoint, so its failure undoes only its own writes. */
-  const nested = async <T>(work: () => Promise<T>): Promise<T> => {
-    const name = `sheaf_${String(++savepoints)}`;
-    db.exec(`SAVEPOINT ${name}`);
-    try {
-      const result = await work();
-      db.exec(`RELEASE ${name}`);
-      return result;
-    } catch (error) {
-      db.exec(`ROLLBACK TO ${name}`);
-      db.exec(`RELEASE ${name}`);
-      throw error;
-    }
+  /**
+   * A transaction within one: a savepoint, so its failure undoes only its own writes.
+   * Two started at once take turns, since rolling one back would undo the other too.
+   */
+  const nested = <T>(parent: Scope, work: () => Promise<T>): Promise<T> => {
+    const turn = parent.queue.then(async () => {
+      const name = `sheaf_${String(++savepoints)}`;
+      const scope: Scope = { active: true, queue: Promise.resolve() };
+      db.exec(`SAVEPOINT ${name}`);
+      try {
+        const result = await inside.run(scope, work);
+        db.exec(`RELEASE ${name}`);
+        return result;
+      } catch (error) {
+        db.exec(`ROLLBACK TO ${name}`);
+        db.exec(`RELEASE ${name}`);
+        throw error;
+      } finally {
+        scope.active = false;
+      }
+    });
+    parent.queue = turn.catch(() => undefined);
+    return turn;
   };
 
   const transaction = <T>(work: () => Promise<T>): Promise<T> => {
-    if (inside.getStore()?.active === true) return nested(work);
+    const current = inside.getStore();
+    if (current?.active === true) return nested(current, work);
     const turn = queue.then(async () => {
       let end!: () => void;
       open = new Promise((resolve) => (end = resolve));
-      const state = { active: true };
+      const state: Scope = { active: true, queue: Promise.resolve() };
       try {
         db.exec('BEGIN');
         try {

@@ -64,6 +64,36 @@ suite('transactions on the node driver', () => {
     expect(await values()).toEqual(['outer']);
   });
 
+  it('take turns when two nested transactions start at once, so one failing spares the other', async () => {
+    const { driver, values } = await table();
+    const results = await driver.transaction(() =>
+      Promise.allSettled([
+        driver.transaction(async () => {
+          await driver.run("INSERT INTO t VALUES ('fails')");
+          await later(10);
+          throw new Error('first gave up');
+        }),
+        driver.transaction(async () => {
+          await driver.run("INSERT INTO t VALUES ('kept')");
+          return 'second done';
+        }),
+      ]),
+    );
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+    expect(results[1]).toEqual({ status: 'fulfilled', value: 'second done' });
+    expect(await values()).toEqual(['kept']);
+  });
+
+  it('let a nested transaction start one of its own', async () => {
+    const { driver, values } = await table();
+    await driver.transaction(() =>
+      driver.transaction(() =>
+        driver.transaction(() => driver.run("INSERT INTO t VALUES ('deep')")),
+      ),
+    );
+    expect(await values()).toEqual(['deep']);
+  });
+
   it('keep a task a transaction left running out of the next transaction', async () => {
     const { driver, values } = await table();
     await driver.transaction(async () => {
