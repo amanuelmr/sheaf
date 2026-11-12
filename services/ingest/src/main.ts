@@ -158,6 +158,10 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
   const redirectUri = process.env['SHEAF_OIDC_REDIRECT_URI'] ?? '';
   const webUrl = process.env['SHEAF_WEB_URL'] ?? '';
   const role = process.env['SHEAF_OIDC_DEFAULT_ROLE'] ?? 'viewer';
+  const allowedEmails = (process.env['SHEAF_OIDC_ALLOWED_EMAILS'] ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== '');
   if (
     clientId === '' ||
     clientSecret === '' ||
@@ -178,6 +182,7 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
       redirectUri,
       webUrl,
       defaultRole: role === 'none' ? null : (role as 'admin' | 'editor' | 'viewer'),
+      allowedEmails,
       usernameClaim: process.env['SHEAF_OIDC_USERNAME_CLAIM'] ?? 'preferred_username',
       name: process.env['SHEAF_OIDC_NAME'] ?? 'single sign-on',
       fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
@@ -185,6 +190,9 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
     users,
   );
   log.info(`sso: signing in through ${oidcIssuer}`);
+  if (allowedEmails.length === 0 && role !== 'none') {
+    log.info('sso: SHEAF_OIDC_ALLOWED_EMAILS is not set, so only users linked already can sign in');
+  }
 }
 
 const workflows = new Workflows(driver, storage, customFields, {

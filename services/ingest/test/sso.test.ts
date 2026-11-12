@@ -20,6 +20,10 @@ let claims: Record<string, unknown>;
 let signer: KeyObject;
 let users: Users;
 let deps: Parameters<typeof handle>[1];
+let options: SsoOptions;
+/** What the fake provider says about itself and its key; a test may change them. */
+let discoveredIssuer: string;
+let keyUse: string;
 
 function jwt(payload: Record<string, unknown>, key: KeyObject): string {
   const head = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'k1' })).toString('base64url');
@@ -33,7 +37,7 @@ const fakeFetch: SsoOptions['fetch'] = (url, init) => {
     Promise.resolve(new Response(JSON.stringify(value), { status: 200 }));
   if (url === `${ISSUER}/.well-known/openid-configuration`) {
     return json({
-      issuer: ISSUER,
+      issuer: discoveredIssuer,
       authorization_endpoint: `${ISSUER}/auth`,
       token_endpoint: `${ISSUER}/token`,
       jwks_uri: `${ISSUER}/keys`,
@@ -41,7 +45,9 @@ const fakeFetch: SsoOptions['fetch'] = (url, init) => {
   }
   if (url === `${ISSUER}/keys`) {
     return json({
-      keys: [{ ...provider.publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256' }],
+      keys: [
+        { ...provider.publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: keyUse },
+      ],
     });
   }
   if (url === `${ISSUER}/token`) {
@@ -62,12 +68,12 @@ const req = (method: string, path: string, query = ''): IngestRequest => ({
   body: new Uint8Array(),
 });
 
-async function signInFlow(): Promise<{
+async function signInFlow(start = ''): Promise<{
   status: number;
   location: string | undefined;
   detail: string | undefined;
 }> {
-  const started = await handle(req('GET', paths.ssoStart()), deps);
+  const started = await handle(req('GET', paths.ssoStart(), start), deps);
   const location = new URL(started.headers!['location']!);
   const params = location.searchParams;
   expect(params.get('code_challenge_method')).toBe('S256');
@@ -91,6 +97,8 @@ beforeEach(async () => {
   provider = generateKeyPairSync('rsa', { modulusLength: 2048 });
   forger = generateKeyPairSync('rsa', { modulusLength: 2048 });
   signer = provider.privateKey;
+  discoveredIssuer = ISSUER;
+  keyUse = 'sig';
   claims = {
     iss: ISSUER,
     aud: 'sheaf',
@@ -98,6 +106,8 @@ beforeEach(async () => {
     exp: NOW / 1000 + 300,
     iat: NOW / 1000,
     preferred_username: 'Ann.Smith',
+    email: 'Ann.Smith@Example.com',
+    email_verified: true,
   };
   const driver = nodeSqliteDriver();
   const storage = await Storage.open({
@@ -105,13 +115,14 @@ beforeEach(async () => {
     objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-sso-')),
   });
   users = new Users(driver);
-  const options: SsoOptions = {
+  options = {
     issuer: ISSUER,
     clientId: 'sheaf',
     clientSecret: 'shh',
     redirectUri: 'https://sheaf.example.com/v1/sso/callback',
     webUrl: 'https://sheaf.example.com/app/',
     defaultRole: 'viewer',
+    allowedEmails: ['@example.com'],
     usernameClaim: 'preferred_username',
     name: 'Example ID',
     fetch: fakeFetch,
@@ -168,6 +179,48 @@ suite('single sign-on', () => {
       deps,
     );
     expect(back.status).toBe(401);
+  });
+
+  it('makes a new user only for a verified email on the allowed list', async () => {
+    const refused = async (change: Record<string, unknown>, allowed = ['@example.com']) => {
+      deps = { ...deps, sso: new Sso({ ...options, allowedEmails: allowed }, users) };
+      claims = { ...claims, ...change };
+      const result = await signInFlow();
+      return result.status === 401 && /no Sheaf user for you yet/.test(result.detail ?? '');
+    };
+    expect(await refused({ email_verified: false })).toBe(true);
+    expect(await refused({ email_verified: true, email: 'ann@example.com.evil.net' })).toBe(true);
+    expect(await refused({ email: undefined })).toBe(true);
+    expect(await refused({ email: 'ann@example.com' }, [])).toBe(true);
+    expect(await users.list()).toEqual([]);
+    expect(await refused({}, ['ann@example.com'])).toBe(false);
+  });
+
+  it('still lets in a user linked already, with no list at all', async () => {
+    expect((await signInFlow()).status).toBe(302);
+    deps = { ...deps, sso: new Sso({ ...options, allowedEmails: [] }, users) };
+    claims = { ...claims, email_verified: false };
+    expect((await signInFlow()).status).toBe(302);
+  });
+
+  it('refuses a provider whose discovery names another issuer', async () => {
+    discoveredIssuer = 'https://evil.example.net';
+    const started = await handle(req('GET', paths.ssoStart()), deps);
+    expect(started.status).toBe(500);
+  });
+
+  it('checks a token only with a key meant for signing', async () => {
+    keyUse = 'enc';
+    expect((await signInFlow()).status).toBe(401);
+    expect(await users.list()).toEqual([]);
+  });
+
+  it('hands the web app back the value it started the sign-in with', async () => {
+    const client = 'the-web-apps-own-value-123';
+    const result = await signInFlow(`client=${client}`);
+    const fragment = new URLSearchParams(new URL(result.location!).hash.slice(1));
+    expect(fragment.get('client')).toBe(client);
+    expect((await handle(req('GET', paths.ssoStart(), 'client=short'), deps)).status).toBe(400);
   });
 
   it('makes provider names into usernames', () => {

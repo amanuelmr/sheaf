@@ -94,6 +94,7 @@ import {
   type TrashResponse,
 } from '@sheaf/protocol';
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
+import { log } from './log.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
 import type { BulkEditor } from './bulk.ts';
@@ -366,9 +367,15 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return { status: 200, json: response };
   }
   if (path === paths.ssoStart() && deps.sso !== undefined) {
+    // The web app's own random value for this sign-in, handed back on landing.
+    const client = new URLSearchParams(request.query).get('client');
+    if (client !== null && !/^[A-Za-z0-9_-]{16,128}$/.test(client)) {
+      return fail('bad_request', 'client must be 16 to 128 letters, digits, - or _');
+    }
     try {
-      return { status: 302, headers: { location: await deps.sso.start(deps.now()) } };
-    } catch {
+      return { status: 302, headers: { location: await deps.sso.start(deps.now(), client) } };
+    } catch (error) {
+      log.error('sso: could not start a sign-in', { error: String(error) });
       return fail('server_error', 'the identity provider could not be reached');
     }
   }
@@ -384,9 +391,13 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     }
     try {
       const signed = await deps.sso.finish(code, state, deps.now());
-      if (!signed.ok) return fail('unauthenticated', signed.message);
+      if (!signed.ok) {
+        log.info('sso: refused a sign-in', { reason: signed.message });
+        return fail('unauthenticated', signed.message);
+      }
       return { status: 302, headers: { location: signed.redirect, 'cache-control': 'no-store' } };
-    } catch {
+    } catch (error) {
+      log.error('sso: could not finish a sign-in', { error: String(error) });
       return fail('server_error', 'the identity provider could not be reached');
     }
   }
