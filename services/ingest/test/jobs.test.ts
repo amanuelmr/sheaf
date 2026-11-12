@@ -151,6 +151,36 @@ suite('JobRunner', () => {
     expect(await stateOf('extract')).toBe('given_up');
   });
 
+  it('says when a step gives up, once per reason rather than once per document', async () => {
+    const warned: Record<string, string>[] = [];
+    const B = new Uint8Array(Buffer.from('%PDF-1.4\nanother\n%%EOF\n'));
+    await storage.put(sha256Hex(B), B, clock, 1);
+    const step = fakeStep('extract', { result: err({ kind: 'auth', status: 401 }) });
+    const jobs = new JobRunner(driver, storage, [step], {
+      now: () => clock,
+      jitter: () => 0.5,
+      warn: (_message, fields) => warned.push({ ...fields }),
+    });
+    await jobs.tick();
+    expect(step.runs).toHaveLength(2);
+    expect(warned).toEqual([{ step: 'extract', reason: 'auth (401)' }]);
+  });
+
+  it('tries a step again on every document it gave up on, when asked', async () => {
+    const step = fakeStep('extract', { result: err({ kind: 'auth', status: 401 }) });
+    const jobs = runner([step]);
+    await jobs.tick();
+    expect(await stateOf('extract')).toBe('given_up');
+
+    step.result = ok(null);
+    expect(await jobs.retryGivenUp('extract')).toBe(1);
+    await jobs.tick();
+    expect(await stateOf('extract')).toBe('done');
+    expect(step.runs).toHaveLength(2);
+    expect(await jobs.retryGivenUp('extract')).toBe(0);
+    expect(await jobs.retryGivenUp('no-such-step')).toBeNull();
+  });
+
   it('lets a step leave a final answer when it is given up on, once', async () => {
     const givenUp: string[] = [];
     const step = fakeStep('extract', {

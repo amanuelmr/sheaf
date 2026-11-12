@@ -393,10 +393,14 @@ const certificatePin =
       ? undefined
       : spkiPin(tls.cert);
 
+/** The background steps, once they start; the server is made before them. */
+let jobRunner: JobRunner | null = null;
+
 const server = createIngestServer(
   {
     storage,
     token,
+    jobs: { retryGivenUp: (step) => jobRunner?.retryGivenUp(step) ?? Promise.resolve(null) },
     // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
     devices: new Devices(driver, { now: () => Date.now() }),
     metrics: new ServerMetrics(driver),
@@ -757,7 +761,9 @@ if (steps.length > 0) {
   const jobs = new JobRunner(driver, storage, steps, {
     now: () => Date.now(),
     jitter: () => Math.random(),
+    warn: (message, fields) => log.error(message, fields),
   });
+  jobRunner = jobs;
   let runningJobs = false;
   setInterval(() => {
     if (runningJobs) return;

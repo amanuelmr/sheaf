@@ -62,6 +62,8 @@ import {
   type SettingsPatch,
   type SettingsResponse,
   type NewDocumentsResponse,
+  type RetryJobsBody,
+  type RetryJobsResponse,
   type PageCountResponse,
   type VersionsResponse,
   type AuditResponse,
@@ -193,6 +195,8 @@ export interface RouterDeps {
   readonly audit?: AuditLog;
   /** Page edits, splits, merges and versions. Absent, those routes answer 404. */
   readonly edits?: DocumentEdits;
+  /** The background steps, to try one again; absent when none run. */
+  readonly jobs?: { retryGivenUp(step: string): Promise<number | null> };
   /** Settings an admin can change while the server runs. */
   readonly settings?: Settings;
   /** Single sign-on through an OpenID Connect provider. Absent, it is off. */
@@ -706,6 +710,19 @@ async function authenticated(
     );
     if (!merged.ok) return editRefusal(merged);
     return { status: 201, json: await deps.storage.record(merged.sha256) };
+  }
+
+  if (path === paths.retryJobs()) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin retries background steps');
+    const body = parseJson<unknown>(request.body) as Partial<RetryJobsBody> | null;
+    if (typeof body?.step !== 'string') return fail('bad_request', 'body must be {"step": "..."}');
+    const retried = await deps.jobs?.retryGivenUp(body.step);
+    if (retried === undefined || retried === null) {
+      return fail('not_found', `no background step "${body.step}" runs here`);
+    }
+    const response: RetryJobsResponse = { retried };
+    return { status: 200, json: response };
   }
 
   if (path === paths.bulkEdit()) {

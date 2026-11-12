@@ -49,6 +49,8 @@ export interface JobRunnerPorts {
   now(): number;
   /** In [0, 1). Keeps a backlog from retrying in lockstep. */
   jitter(): number;
+  /** Told when a step gives up, at most once per step and reason every ten minutes. */
+  warn?(message: string, fields: Readonly<Record<string, string>>): void;
 }
 
 export interface JobRunnerResult {
@@ -71,6 +73,8 @@ interface JobRow {
 /** States that let the steps after this one go ahead. */
 const FINISHED: readonly JobState[] = ['done', 'skipped', 'given_up'];
 
+/** How long the same give-up goes unrepeated in the log. */
+const WARN_EVERY_MS = 10 * 60_000;
 /** How often a waiting job is looked at again before its start time. */
 const RECHECK_MS = 5_000;
 const ENQUEUE_BATCH = 100;
@@ -89,6 +93,8 @@ export class JobRunner {
   readonly #storage: Storage;
   readonly #steps: readonly Step[];
   readonly #ports: JobRunnerPorts;
+  /** When each step's give-up for each reason was last logged. */
+  readonly #warned = new Map<string, number>();
 
   constructor(driver: SqlDriver, storage: Storage, steps: readonly Step[], ports: JobRunnerPorts) {
     const names = new Set<string>();
@@ -242,6 +248,7 @@ export class JobRunner {
       // with no final answer left behind.
       await step.onGiveUp?.(document, { now: this.#ports.now() });
       await this.#finish(job, 'given_up', describe(reason), attempts);
+      this.#warnGaveUp(step.name, describe(reason));
       return 'given_up';
     }
     await this.#driver.run(
@@ -257,6 +264,37 @@ export class JobRunner {
       ],
     );
     return 'waiting';
+  }
+
+  /**
+   * Puts every document a step gave up on back in its queue, as new: for after the
+   * cause, such as a wrong key, is fixed. Null for a step not registered here.
+   */
+  async retryGivenUp(stepName: string): Promise<number | null> {
+    const step = this.#steps.find((s) => s.name === stepName);
+    if (step === undefined) return null;
+    return this.#driver.transaction(async () => {
+      const rows = await this.#driver.all<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM jobs WHERE step = ? AND version = ? AND state = 'given_up'`,
+        [step.name, step.version],
+      );
+      await this.#driver.run(
+        `UPDATE jobs SET state = 'pending', attempts = 0, next_at = ?, last_error = NULL,
+                finished_at = NULL
+          WHERE step = ? AND version = ? AND state = 'given_up'`,
+        [this.#ports.now(), step.name, step.version],
+      );
+      return rows[0]?.n ?? 0;
+    });
+  }
+
+  #warnGaveUp(step: string, reason: string): void {
+    const key = `${step} ${reason}`;
+    const now = this.#ports.now();
+    const last = this.#warned.get(key);
+    if (last !== undefined && now - last < WARN_EVERY_MS) return;
+    this.#warned.set(key, now);
+    this.#ports.warn?.(`jobs: ${step} gave up on a document`, { step, reason });
   }
 
   async #finish(

@@ -135,3 +135,25 @@ suite('per-document permissions', () => {
     expect(JSON.stringify(directory)).not.toContain('role');
   });
 });
+
+suite('trying a background step again', () => {
+  it('is for admins, and names the step', async () => {
+    const asked: string[] = [];
+    const withJobs = {
+      ...deps,
+      jobs: {
+        retryGivenUp: (step: string) => {
+          asked.push(step);
+          return Promise.resolve(step === 'extract' ? 3 : null);
+        },
+      },
+    };
+    const retry = (token: string, step: string) =>
+      handle(req('POST', paths.retryJobs(), token, { step }), withJobs);
+    expect((await retry(tokens['ann']!, 'extract')).status).toBe(403);
+    expect(asked).toEqual([]);
+    const done = await retry(TOKEN, 'extract');
+    expect(done).toMatchObject({ status: 200, json: { retried: 3 } });
+    expect((await retry(TOKEN, 'nothing')).status).toBe(404);
+  });
+});

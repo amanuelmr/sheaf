@@ -151,6 +151,8 @@ export const paths = {
     `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}/restore`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
   bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
+  /** Admin: `POST` a `RetryJobsBody` to try a step again on every document it gave up on. */
+  retryJobs: () => `/${PROTOCOL_VERSION}/jobs/retry`,
   /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
   views: () => `/${PROTOCOL_VERSION}/views`,
   /** `PATCH` a `SavedViewPatch`, or `DELETE` it. */
@@ -1928,6 +1930,16 @@ export interface MergeBody {
 
 export interface NewDocumentsResponse {
   readonly documents: readonly string[];
+}
+
+/** Which step to try again, such as `extract` once its key is fixed. */
+export interface RetryJobsBody {
+  readonly step: string;
+}
+
+export interface RetryJobsResponse {
+  /** How many documents will go through the step again. */
+  readonly retried: number;
 }
 
 export interface DocumentVersion {
