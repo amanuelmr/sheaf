@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FailureReason } from '@sheaf/core';
 import type { ArchivePatch, DocumentQuery } from '@sheaf/paperless';
 import {
+  archivePatchProblem,
   CUSTOM_FIELD_TYPES,
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
@@ -1644,16 +1645,22 @@ async function archive(
   if (path === paths.archive()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const params = new URLSearchParams(request.query);
+    // Pages and filters are positive whole numbers; anything else is the caller's mistake.
+    const numbers: Record<string, number> = {};
+    for (const key of ['page', 'correspondent', 'documentType', 'tag']) {
+      const raw = params.get(key);
+      if (raw === null) continue;
+      if (!isPaperlessId(raw)) return fail('bad_request', `${key} must be a positive whole number`);
+      numbers[key] = Number(raw);
+    }
     const query: DocumentQuery = {
       ...(params.get('query') === null ? {} : { text: params.get('query')! }),
-      ...(params.get('page') === null ? {} : { page: Number(params.get('page')) }),
-      ...(params.get('correspondent') === null
+      ...(numbers['page'] === undefined ? {} : { page: numbers['page'] }),
+      ...(numbers['correspondent'] === undefined
         ? {}
-        : { correspondentId: Number(params.get('correspondent')) }),
-      ...(params.get('documentType') === null
-        ? {}
-        : { documentTypeId: Number(params.get('documentType')) }),
-      ...(params.get('tag') === null ? {} : { tagId: Number(params.get('tag')) }),
+        : { correspondentId: numbers['correspondent'] }),
+      ...(numbers['documentType'] === undefined ? {} : { documentTypeId: numbers['documentType'] }),
+      ...(numbers['tag'] === undefined ? {} : { tagId: numbers['tag'] }),
     };
     const result = await source.search(query);
     if (!result.ok) return mapArchiveFailure(result.reason);
@@ -1692,9 +1699,10 @@ async function archive(
       return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
     }
     case 'PATCH': {
-      const patch = parseJson<ArchivePatch>(request.body);
-      if (patch === null) return fail('bad_request', 'body must be a JSON object');
-      const result = await source.patch(id, patch);
+      const patch = parseJson<unknown>(request.body);
+      const problem = archivePatchProblem(patch);
+      if (problem !== null) return fail('bad_request', problem);
+      const result = await source.patch(id, patch as ArchivePatch);
       return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
     }
     default:

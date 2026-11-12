@@ -547,6 +547,30 @@ export interface ArchivePatch {
   readonly tagIds?: readonly number[];
 }
 
+/** Why a body is not an `ArchivePatch`, or null when it is one. */
+export function archivePatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const patch = value as Record<string, unknown>;
+  const allowed = ['title', 'correspondentId', 'documentTypeId', 'tagIds'];
+  const unknown = Object.keys(patch).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) return `${unknown} cannot be changed here`;
+  if (patch['title'] !== undefined && typeof patch['title'] !== 'string') {
+    return 'title must be text';
+  }
+  const isId = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 1;
+  for (const key of ['correspondentId', 'documentTypeId']) {
+    const v = patch[key];
+    if (v !== undefined && v !== null && !isId(v)) return `${key} must be an id or null`;
+  }
+  const tagIds = patch['tagIds'];
+  if (tagIds !== undefined && (!Array.isArray(tagIds) || !tagIds.every(isId))) {
+    return 'tagIds must be a list of ids';
+  }
+  return null;
+}
+
 /**
  * Whether the downstream system actually filters
  * `original_filename__istartswith`, which crash-recovery depends on to find a
