@@ -254,6 +254,34 @@ suite('the heuristic extractor', () => {
     expect(await extract('12 34')).toEqual({});
   });
 
+  it('reads text with a huge run of digits quickly', async () => {
+    const started = performance.now();
+    await extract(`Shop\nTotal ${'1'.repeat(100_000)}\n${'2 '.repeat(50_000)}`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('never reads half an amount from a line cut short', async () => {
+    const line = `${'a'.repeat(189)} Total 1,234.56`;
+    expect(line.indexOf('1,234.56')).toBeLessThan(200);
+    expect(line.length).toBeGreaterThan(200);
+    const fields = await extract(`Shop\n${line}`);
+    expect(fields.total?.value.minor).not.toBe(123);
+  });
+
+  it('cuts a long line at a tab or no-break space too, rather than dropping it', async () => {
+    for (const gap of ['\t', '\u00a0']) {
+      const line = `Total${gap}18.00${gap}${'x'.repeat(250)}`;
+      const fields = await extract(`Shop\n${line}`);
+      expect(fields.total?.value.minor, JSON.stringify(gap)).toBe(1800);
+    }
+  });
+
+  it('still finds the total at the end of a very long document', async () => {
+    const pages = Array.from({ length: 5000 }, (_, i) => `Line ${String(i)} of the terms`);
+    const fields = await extract(['Shop', ...pages, 'Total 18.00'].join('\n'));
+    expect(fields.total?.value.minor).toBe(1800);
+  });
+
   it('costs nothing and names its rule set', async () => {
     const result = await heuristicExtractor().extract(input());
     expect(result).toEqual(

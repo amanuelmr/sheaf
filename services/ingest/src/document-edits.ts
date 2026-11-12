@@ -1,4 +1,4 @@
-import type { PageSpec, StampBody, StampColour } from '@sheaf/protocol';
+import type { DocumentPermissions, PageSpec, StampBody, StampColour } from '@sheaf/protocol';
 import type { SqlDriver } from '@sheaf/store';
 import { editPages, mergePdfs, pageCount, splitPdf, stampPdf } from './pdf-edit.ts';
 
@@ -22,7 +22,8 @@ export type EditRefusal =
  * Editing keeps the document: it moves to the new file and the old one stays as an
  * earlier version. Splitting and merging make new documents that start out filed
  * the way their source was, and, unless asked otherwise, put the sources in the
- * trash, where they can be restored from.
+ * trash, where they can be restored from. New documents keep their source's owner
+ * and sharing, so splitting or merging never shows a private document to anyone new.
  */
 export class DocumentEdits {
   readonly #storage: Storage;
@@ -86,7 +87,10 @@ export class DocumentEdits {
   ): Promise<{ ok: true; documents: string[] } | EditRefusal> {
     const bytes = await this.#live(sha256);
     const record = await this.#storage.record(sha256);
-    if (bytes === null || record === null) return { ok: false, kind: 'not_found' };
+    const permissions = await this.#storage.permissions(sha256);
+    if (bytes === null || record === null || permissions === null) {
+      return { ok: false, kind: 'not_found' };
+    }
     let pieces: Uint8Array[];
     try {
       pieces = await splitPdf(bytes, parts);
@@ -97,7 +101,7 @@ export class DocumentEdits {
     for (const [i, piece] of pieces.entries()) {
       const title = record.title ?? record.suggestions?.title ?? null;
       made.push(
-        await this.#store(piece, parts[i]!.length, now, {
+        await this.#store(piece, parts[i]!.length, now, permissions, {
           title: title === null ? null : `${title} (${String(i + 1)} of ${String(pieces.length)})`,
           correspondent: record.correspondent,
           otherCorrespondents: record.otherCorrespondents ?? [],
@@ -111,13 +115,20 @@ export class DocumentEdits {
     return { ok: true, documents: made };
   }
 
+  /**
+   * `merger` is the person merging, or null for the admin token or a phone. The
+   * merged document keeps its sources' owner when they share one; otherwise it
+   * belongs to the merger alone, and without a person to own it the merge is refused.
+   */
   async merge(
     documents: readonly string[],
     keepOriginals: boolean,
     now: number,
+    merger: number | null = null,
   ): Promise<{ ok: true; sha256: string } | EditRefusal> {
     const files: Uint8Array[] = [];
     const tags: string[] = [];
+    const sources: DocumentPermissions[] = [];
     for (const sha256 of documents) {
       const bytes = await this.#live(sha256);
       if (bytes === null) {
@@ -129,6 +140,15 @@ export class DocumentEdits {
       }
       files.push(bytes);
       tags.push(...((await this.#storage.record(sha256))?.tags ?? []));
+      sources.push((await this.#storage.permissions(sha256))!);
+    }
+    const permissions = mergedPermissions(sources, merger);
+    if (permissions === null) {
+      return {
+        ok: false,
+        kind: 'conflict',
+        message: 'these documents belong to different people; sign in as a person to merge them',
+      };
     }
     let merged: Uint8Array;
     try {
@@ -137,7 +157,7 @@ export class DocumentEdits {
       return { ok: false, kind: 'invalid', message: reason(error) };
     }
     const first = (await this.#storage.record(documents[0]!))!;
-    const sha256 = await this.#store(merged, await pageCount(merged), now, {
+    const sha256 = await this.#store(merged, await pageCount(merged), now, permissions, {
       title: first.title ?? first.suggestions?.title ?? null,
       correspondent: first.correspondent,
       otherCorrespondents: first.otherCorrespondents ?? [],
@@ -163,11 +183,12 @@ export class DocumentEdits {
     now: number,
   ): Promise<string[]> {
     const bytes = await this.#live(sha256);
-    if (bytes === null) return [];
+    const permissions = await this.#storage.permissions(sha256);
+    if (bytes === null || permissions === null) return [];
     const made: string[] = [];
     for (const [i, piece] of (await splitPdf(bytes, parts)).entries()) {
       const part = sha256Hex(piece);
-      await this.#storage.put(part, piece, now, parts[i]!.length);
+      await this.#keep(part, piece, now, parts[i]!.length, permissions);
       made.push(part);
     }
     if (!made.includes(sha256)) await this.#storage.trash(sha256, now);
@@ -186,11 +207,11 @@ export class DocumentEdits {
     bytes: Uint8Array,
     pages: number,
     now: number,
+    permissions: DocumentPermissions,
     filing: Parameters<Storage['fileByMachine']>[1],
   ): Promise<string> {
     const sha256 = sha256Hex(bytes);
-    const outcome = await this.#storage.put(sha256, bytes, now, pages);
-    if (outcome === 'stored') {
+    if (await this.#keep(sha256, bytes, now, pages, permissions)) {
       await this.#storage.fileByMachine(sha256, filing);
       await this.#driver.run(
         `INSERT OR IGNORE INTO jobs (sha256, step, version, state, attempts, created_at)
@@ -200,6 +221,44 @@ export class DocumentEdits {
     }
     return sha256;
   }
+
+  /**
+   * Store bytes owned and shared as given; true when they are new. A document that
+   * was already here keeps the owner and sharing it has.
+   */
+  async #keep(
+    sha256: string,
+    bytes: Uint8Array,
+    now: number,
+    pages: number,
+    permissions: DocumentPermissions,
+  ): Promise<boolean> {
+    const outcome = await this.#storage.put(sha256, bytes, now, pages, null, permissions.owner);
+    if (outcome !== 'stored') return false;
+    if (permissions.grants.length > 0) await this.#storage.setPermissions(sha256, permissions);
+    return true;
+  }
+}
+
+/**
+ * Who a merged document belongs to. Sources with one owner keep that owner, shared
+ * with those all of them were shared with, at the lowest level any gave. Sources
+ * with different owners make it the merger's alone; null when no person merged.
+ */
+export function mergedPermissions(
+  sources: readonly DocumentPermissions[],
+  merger: number | null,
+): DocumentPermissions | null {
+  const owner = sources[0]?.owner ?? null;
+  if (sources.some((source) => source.owner !== owner)) {
+    return merger === null ? null : { owner: merger, grants: [] };
+  }
+  const grants = (sources[0]?.grants ?? []).flatMap((grant) => {
+    const levels = sources.map((s) => s.grants.find((g) => g.user === grant.user)?.level);
+    if (levels.some((level) => level === undefined)) return [];
+    return [{ user: grant.user, level: levels.includes('view') ? ('view' as const) : grant.level }];
+  });
+  return { owner, grants };
 }
 
 function answer(outcome: ReplaceOutcome): { ok: true; sha256: string } | EditRefusal {

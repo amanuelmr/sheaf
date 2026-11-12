@@ -108,9 +108,9 @@ export const paths = {
   audit: () => `/${PROTOCOL_VERSION}/audit`,
   /** Admin: `GET` the server's settings; `PATCH` a `SettingsPatch` to change some. */
   settings: () => `/${PROTOCOL_VERSION}/settings`,
-  /** `GET` lists workflows; admin `POST`s a `WorkflowBody` to add one. */
+  /** Admin: `GET` lists workflows, `POST` a `WorkflowBody` to add one. */
   workflows: () => `/${PROTOCOL_VERSION}/workflows`,
-  /** Admin: `PUT` a `WorkflowBody` to replace one, or `DELETE` it. */
+  /** Admin: `GET` one, `PUT` a `WorkflowBody` to replace it, or `DELETE` it. */
   workflow: (id: number) => `/${PROTOCOL_VERSION}/workflows/${String(id)}`,
   /**
    * `GET ?series=` the lowest archive serial number above every one in use, in the
@@ -151,6 +151,8 @@ export const paths = {
     `/${PROTOCOL_VERSION}/documents/${sha256}/versions/${version}/restore`,
   /** `POST` a `BulkEditBody`: one change to many documents. */
   bulkEdit: () => `/${PROTOCOL_VERSION}/documents/bulk`,
+  /** Admin: `POST` a `RetryJobsBody` to try a step again on every document it gave up on. */
+  retryJobs: () => `/${PROTOCOL_VERSION}/jobs/retry`,
   /** `GET` lists saved views; `POST` a `SavedViewBody` to save one. */
   views: () => `/${PROTOCOL_VERSION}/views`,
   /** `PATCH` a `SavedViewPatch`, or `DELETE` it. */
@@ -545,6 +547,30 @@ export interface ArchivePatch {
   readonly correspondentId?: number | null;
   readonly documentTypeId?: number | null;
   readonly tagIds?: readonly number[];
+}
+
+/** Why a body is not an `ArchivePatch`, or null when it is one. */
+export function archivePatchProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'body must be a JSON object';
+  }
+  const patch = value as Record<string, unknown>;
+  const allowed = ['title', 'correspondentId', 'documentTypeId', 'tagIds'];
+  const unknown = Object.keys(patch).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) return `${unknown} cannot be changed here`;
+  if (patch['title'] !== undefined && typeof patch['title'] !== 'string') {
+    return 'title must be text';
+  }
+  const isId = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 1;
+  for (const key of ['correspondentId', 'documentTypeId']) {
+    const v = patch[key];
+    if (v !== undefined && v !== null && !isId(v)) return `${key} must be an id or null`;
+  }
+  const tagIds = patch['tagIds'];
+  if (tagIds !== undefined && (!Array.isArray(tagIds) || !tagIds.every(isId))) {
+    return 'tagIds must be a list of ids';
+  }
+  return null;
 }
 
 /**
@@ -1906,6 +1932,16 @@ export interface NewDocumentsResponse {
   readonly documents: readonly string[];
 }
 
+/** Which step to try again, such as `extract` once its key is fixed. */
+export interface RetryJobsBody {
+  readonly step: string;
+}
+
+export interface RetryJobsResponse {
+  /** How many documents will go through the step again. */
+  readonly retried: number;
+}
+
 export interface DocumentVersion {
   readonly sha256: string;
   readonly bytes: number;
@@ -2177,6 +2213,8 @@ export function isDocumentPermissions(value: unknown): value is DocumentPermissi
 export interface ErrorBody {
   readonly error: ErrorCode;
   readonly detail?: string;
+  /** On a `server_error`: the id the server logged it under, also in `x-request-id`. */
+  readonly requestId?: string;
 }
 
 export type ErrorCode =

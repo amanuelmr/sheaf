@@ -110,6 +110,19 @@ suite('sending email', () => {
     ).rejects.toThrow('not an email address');
   });
 
+  it('sends nothing, password included, when STARTTLS was wanted and not offered', async () => {
+    const port = await fakeSmtp();
+    const upgrade = () => Promise.reject(new Error('never asked to upgrade'));
+    await expect(
+      sendMail(
+        { ...smtpOptions(port), upgrade },
+        { to: ['a@example.com'], subject: 's', body: 'b' },
+      ),
+    ).rejects.toThrow('did not offer STARTTLS');
+    expect(received[0]?.commands.some((c) => c.startsWith('AUTH'))).toBe(false);
+    expect(received[0]?.commands.some((c) => c.startsWith('MAIL'))).toBe(false);
+  });
+
   it('keeps a subject on one line, whatever a title held', () => {
     const text = message('s@example.com', {
       to: ['a@example.com'],

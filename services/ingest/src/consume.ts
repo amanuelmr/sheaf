@@ -11,7 +11,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { MAX_DOCUMENT_BYTES } from '@sheaf/protocol';
 import { isEpub, storeBook } from './epub.ts';
 import { collate } from './pdf-edit.ts';
-import { sha256Hex, type Storage } from './storage.ts';
+import { isPdf, sha256Hex, type Storage } from './storage.ts';
 
 export interface ConsumeOptions {
   /** Each subfolder a file sits in becomes a tag on it. */
@@ -99,7 +99,7 @@ export class ConsumeFolder {
     }
     const bytes = new Uint8Array(readFileSync(path));
     if (lower.endsWith('.epub')) return this.#takeBook(path, bytes);
-    if (Buffer.from(bytes.subarray(0, 5)).toString('latin1') !== '%PDF-') {
+    if (!isPdf(bytes)) {
       this.#fail(path);
       return 'failed';
     }

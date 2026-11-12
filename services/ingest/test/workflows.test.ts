@@ -10,6 +10,7 @@ import { Rules } from '../src/rules';
 import { handle, type IngestRequest } from '../src/router';
 import { matchStep } from '../src/steps/match';
 import { Storage, sha256Hex } from '../src/storage';
+import { Users } from '../src/users';
 import { Workflows } from '../src/workflows';
 
 const pdf = (s: string): Uint8Array => new Uint8Array(Buffer.from(`%PDF-1.4\n${s}\n%%EOF\n`));
@@ -24,6 +25,7 @@ let workflows: Workflows;
 let calls: { url: string; body: string }[];
 let warnings: string[];
 let rules: Rules;
+let driver: ReturnType<typeof nodeSqliteDriver>;
 
 const body = (overrides: Partial<WorkflowBody>): WorkflowBody => ({
   name: 'w',
@@ -35,7 +37,7 @@ const body = (overrides: Partial<WorkflowBody>): WorkflowBody => ({
 });
 
 beforeEach(async () => {
-  const driver = nodeSqliteDriver();
+  driver = nodeSqliteDriver();
   storage = await Storage.open({ driver, objectsDir: mkdtempSync(join(tmpdir(), 'sheaf-wf-')) });
   fields = new CustomFields(driver, storage);
   rules = new Rules(driver, storage);
@@ -160,6 +162,34 @@ suite('workflows', () => {
     const replaced = await handle(req('PUT', paths.workflow(id), body({ name: 'renamed' })), deps);
     expect(replaced.json).toMatchObject({ id, name: 'renamed' });
     expect((await handle(req('DELETE', paths.workflow(id)), deps)).status).toBe(204);
+  });
+
+  it('are read and changed only by an admin, since they name tags, people and mail', async () => {
+    const { id } = await workflows.create(body({ name: 'private' }), NOW);
+    const users = new Users(driver);
+    const deps = { storage, token: TOKEN, now: () => NOW, workflows, users };
+    const tokens: Record<string, string> = {};
+    for (const role of ['editor', 'admin'] as const) {
+      await users.create({ username: role, password: 'a long enough password', role }, NOW);
+      const signed = await users.signIn(role, 'a long enough password', NOW);
+      if (!signed.ok) throw new Error(role);
+      tokens[role] = signed.token;
+    }
+    const get = (path: string, token: string) =>
+      handle(
+        {
+          method: 'GET',
+          path,
+          query: '',
+          headers: { authorization: `Bearer ${token}` },
+          body: new Uint8Array(),
+        },
+        deps,
+      );
+    expect((await get(paths.workflows(), tokens['editor']!)).status).toBe(403);
+    expect((await get(paths.workflow(id), tokens['editor']!)).status).toBe(403);
+    expect((await get(paths.workflows(), tokens['admin']!)).status).toBe(200);
+    expect((await get(paths.workflow(id), TOKEN)).status).toBe(200);
   });
 
   it('refuse a body they cannot run, saying why', () => {

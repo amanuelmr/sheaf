@@ -73,6 +73,7 @@ suite('serial number series', () => {
     expect((await call('DELETE', paths.asnSeriesOne('H'))).status).toBe(409);
     await call('POST', paths.asnSeries(), { prefix: 'E', name: 'Empty' });
     expect((await call('DELETE', paths.asnSeriesOne('E'))).status).toBe(204);
+    expect((await call('DELETE', `${paths.asnSeries()}/%E0%A4%A`)).status).toBe(400);
     expect((await call('GET', paths.asnSeries())).json).toEqual({
       series: [{ prefix: 'H', name: 'Home', first: 10_000_000 }],
     });

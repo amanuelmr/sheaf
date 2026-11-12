@@ -112,6 +112,13 @@ suite('the address is verified, not trusted', () => {
   it('refuses an empty body rather than storing nothing under a hash', async () => {
     expect((await handle(req('PUT', paths.document(hashA)), deps)).status).toBe(400);
   });
+
+  it('refuses a file that is not a PDF, even under its own hash', async () => {
+    const page = new Uint8Array(Buffer.from('<html><script>alert(1)</script></html>'));
+    const response = await handle(req('PUT', paths.document(sha256Hex(page)), page), deps);
+    expect(response.status).toBe(400);
+    expect(await deps.storage.count()).toBe(0);
+  });
 });
 
 suite('asking whether the server already has it', () => {
@@ -515,6 +522,39 @@ suite('the archive', () => {
     expect(response.status).toBe(200);
     expect(response.headers?.['content-type']).toBe('image/webp');
     expect(response.bytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('refuses pages and filters that are not positive whole numbers', async () => {
+    const fake = fakeArchive();
+    for (const query of ['page=abc', 'page=-3', 'page=0', 'tag=1.5', 'correspondent=x']) {
+      const response = await handle(req('GET', `${paths.archive()}?${query}`), {
+        ...deps,
+        archive: fake.source,
+      });
+      expect(response.status, query).toBe(400);
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
+  it('refuses an edit with the wrong types or fields, rather than storing or crashing on it', async () => {
+    const fake = fakeArchive();
+    for (const patch of [
+      { title: 12345 },
+      { tagIds: 'ab' },
+      { tagIds: 5 },
+      { tagIds: [0] },
+      { correspondentId: 'ACME' },
+      { owner: 1 },
+      [],
+    ]) {
+      const body = new Uint8Array(Buffer.from(JSON.stringify(patch)));
+      const response = await handle(req('PATCH', paths.archiveDocument(4821), body), {
+        ...deps,
+        archive: fake.source,
+      });
+      expect(response.status, JSON.stringify(patch)).toBe(400);
+    }
+    expect(fake.calls).toEqual([]);
   });
 
   it('patches a document by its downstream id, with ids rather than free text', async () => {

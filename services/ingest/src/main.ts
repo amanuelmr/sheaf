@@ -61,7 +61,7 @@ if (token === undefined || token.length < 16) {
   // Refuse to start rather than come up with a guessable token: this server holds
   // documents, and a weak default would be the worst possible one.
   log.error('SHEAF_TOKEN must be set to at least 16 characters.', {
-    hint: "node -e \"log.info(require('crypto').randomBytes(32).toString('hex'))\"",
+    hint: "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
   });
   process.exit(1);
 }
@@ -158,6 +158,10 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
   const redirectUri = process.env['SHEAF_OIDC_REDIRECT_URI'] ?? '';
   const webUrl = process.env['SHEAF_WEB_URL'] ?? '';
   const role = process.env['SHEAF_OIDC_DEFAULT_ROLE'] ?? 'viewer';
+  const allowedEmails = (process.env['SHEAF_OIDC_ALLOWED_EMAILS'] ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== '');
   if (
     clientId === '' ||
     clientSecret === '' ||
@@ -178,6 +182,7 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
       redirectUri,
       webUrl,
       defaultRole: role === 'none' ? null : (role as 'admin' | 'editor' | 'viewer'),
+      allowedEmails,
       usernameClaim: process.env['SHEAF_OIDC_USERNAME_CLAIM'] ?? 'preferred_username',
       name: process.env['SHEAF_OIDC_NAME'] ?? 'single sign-on',
       fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
@@ -185,6 +190,9 @@ if (oidcIssuer !== undefined && oidcIssuer !== '') {
     users,
   );
   log.info(`sso: signing in through ${oidcIssuer}`);
+  if (allowedEmails.length === 0 && role !== 'none') {
+    log.info('sso: SHEAF_OIDC_ALLOWED_EMAILS is not set, so only users linked already can sign in');
+  }
 }
 
 const workflows = new Workflows(driver, storage, customFields, {
@@ -385,10 +393,14 @@ const certificatePin =
       ? undefined
       : spkiPin(tls.cert);
 
+/** The background steps, once they start; the server is made before them. */
+let jobRunner: JobRunner | null = null;
+
 const server = createIngestServer(
   {
     storage,
     token,
+    jobs: { retryGivenUp: (step) => jobRunner?.retryGivenUp(step) ?? Promise.resolve(null) },
     // Paired phones (ADR 0008). SHEAF_TOKEN stays the admin's, and still uploads.
     devices: new Devices(driver, { now: () => Date.now() }),
     metrics: new ServerMetrics(driver),
@@ -749,7 +761,9 @@ if (steps.length > 0) {
   const jobs = new JobRunner(driver, storage, steps, {
     now: () => Date.now(),
     jitter: () => Math.random(),
+    warn: (message, fields) => log.error(message, fields),
   });
+  jobRunner = jobs;
   let runningJobs = false;
   setInterval(() => {
     if (runningJobs) return;

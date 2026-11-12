@@ -3,12 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { describe as suite, expect, it } from 'vitest';
 import { paths } from '@sheaf/protocol';
 import { nodeSqliteDriver } from '@sheaf/store/node';
 import { ConsumeFolder } from '../src/consume';
-import { epubToPdf, isEpub, xhtmlToText } from '../src/epub';
+import { epubToPdf, isEpub, wrap, xhtmlToText } from '../src/epub';
 import { parseMail } from '../src/mime';
 import { handle } from '../src/router';
 import { Storage } from '../src/storage';
@@ -100,6 +100,22 @@ suite('reading an EPUB', () => {
     expect(pdf.getPageCount()).toBeGreaterThan(3);
     // The same book always becomes the same PDF, and so the same document.
     expect(Buffer.from((await epubToPdf(bytes)).pdf)).toEqual(Buffer.from(converted.pdf));
+  });
+
+  it('cuts a word too long for a line into the longest pieces that fit, quickly', async () => {
+    const font = await (await PDFDocument.create()).embedFont(StandardFonts.TimesRoman);
+    const fits = (s: string) => font.widthOfTextAtSize(s, 11) <= 300;
+    const word = 'abcdefghij'.repeat(10_000);
+    const started = performance.now();
+    const lines = wrap(`short ${word} end`, font, 11, 300);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(lines[0]).toBe('short');
+    // The word's last piece shares its line with the word after it.
+    expect(lines.slice(1).join('')).toBe(`${word} end`);
+    for (const line of lines.slice(1, -1)) {
+      expect(fits(line)).toBe(true);
+      expect(fits(line + 'x')).toBe(false);
+    }
   });
 
   it('reads paragraphs as lines and drops styles and scripts', () => {

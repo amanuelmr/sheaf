@@ -13,6 +13,11 @@ export interface SsoOptions {
   readonly webUrl: string;
   /** The role a person new to Sheaf gets, or null to let only existing linked users in. */
   readonly defaultRole: Role | null;
+  /**
+   * Who may be made a new user: verified emails, whole (`ann@example.com`) or by
+   * domain (`@example.com`), in lower case. Empty lets in only users linked already.
+   */
+  readonly allowedEmails: readonly string[];
   /** Which claim names the user: `preferred_username` unless said otherwise. */
   readonly usernameClaim: string;
   readonly name: string;
@@ -30,6 +35,8 @@ interface Pending {
   readonly nonce: string;
   readonly verifier: string;
   readonly at: number;
+  /** The web app's own value for this sign-in, handed back so it knows the landing is its. */
+  readonly client: string | null;
 }
 
 const PENDING_MS = 10 * 60_000;
@@ -46,8 +53,8 @@ export type SsoResult =
  *
  * A person is matched by the provider's issuer and subject, never by name or
  * email: a provider account called "ann" does not become the Sheaf user "ann"
- * someone made with a password. A person the provider vouches for who has no Sheaf
- * user yet gets one with the default role, unless that is turned off.
+ * someone made with a password. A person with no Sheaf user yet gets one with the
+ * default role only when the provider has verified an email on the allowed list.
  */
 export class Sso {
   readonly #options: SsoOptions;
@@ -65,8 +72,8 @@ export class Sso {
     return this.#options.name;
   }
 
-  /** Where to send the person to sign in. */
-  async start(now: number): Promise<string> {
+  /** Where to send the person to sign in; `client` comes back with them. */
+  async start(now: number, client: string | null = null): Promise<string> {
     const discovery = await this.#discover();
     for (const [state, pending] of this.#pending) {
       if (now - pending.at > PENDING_MS) this.#pending.delete(state);
@@ -74,7 +81,7 @@ export class Sso {
     const state = randomBytes(24).toString('base64url');
     const nonce = randomBytes(24).toString('base64url');
     const verifier = randomBytes(32).toString('base64url');
-    this.#pending.set(state, { nonce, verifier, at: now });
+    this.#pending.set(state, { nonce, verifier, at: now, client });
     const url = new URL(discovery.authorization_endpoint);
     url.search = new URLSearchParams({
       response_type: 'code',
@@ -141,7 +148,7 @@ export class Sso {
     const subject = `${discovery.issuer}|${claims['sub']}`;
     let user = await this.#users.bySubject(subject);
     if (user === null) {
-      if (this.#options.defaultRole === null) {
+      if (this.#options.defaultRole === null || !this.#allowed(claims)) {
         return { ok: false, message: 'there is no Sheaf user for you yet; ask an admin' };
       }
       const wanted = usernameOf(
@@ -163,6 +170,7 @@ export class Sso {
     back.hash = new URLSearchParams({
       sso: session.token,
       server: new URL(this.#options.redirectUri).origin,
+      ...(pending.client === null ? {} : { client: pending.client }),
     }).toString();
     return { ...session, redirect: back.toString() };
   }
@@ -172,8 +180,24 @@ export class Sso {
     const url = `${this.#options.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`;
     const response = await this.#options.fetch(url);
     if (!response.ok) throw new Error(`could not read ${url}: ${String(response.status)}`);
-    this.#discovery = (await response.json()) as Discovery;
-    return this.#discovery;
+    const discovery = (await response.json()) as Discovery;
+    // OpenID Connect Discovery: the issuer it names must be the one asked.
+    if (trimSlash(discovery.issuer) !== trimSlash(this.#options.issuer)) {
+      throw new Error(`${url} names a different issuer: ${String(discovery.issuer)}`);
+    }
+    this.#discovery = discovery;
+    return discovery;
+  }
+
+  /** Whether the provider vouches for an email on the allowed list. */
+  #allowed(claims: Record<string, unknown>): boolean {
+    const email = claims['email'];
+    const verified = claims['email_verified'] === true || claims['email_verified'] === 'true';
+    if (typeof email !== 'string' || !verified) return false;
+    const address = email.toLowerCase();
+    return this.#options.allowedEmails.some((entry) =>
+      entry.startsWith('@') ? address.endsWith(entry) : address === entry,
+    );
   }
 
   /** The token's claims if its signature checks out against one of the provider's keys. */
@@ -194,9 +218,15 @@ export class Sso {
     };
     const algorithm = algorithms[header.alg ?? ''];
     if (algorithm === undefined) return null; // never "none", never a shared secret
+    // Only a signing key of the token's own kind may check it.
+    const fits = (k: JsonWebKey) =>
+      (header.kid === undefined || k.kid === header.kid) &&
+      (k.use === undefined || k.use === 'sig') &&
+      (k.alg === undefined || k.alg === header.alg) &&
+      (algorithm.ec ? k.kty === 'EC' && k.crv === 'P-256' : k.kty === 'RSA');
     for (const refresh of [false, true]) {
       if (refresh || this.#keys.length === 0) await this.#loadKeys();
-      const key = this.#keys.find((k) => header.kid === undefined || k.kid === header.kid);
+      const key = this.#keys.find(fits);
       if (key === undefined) continue;
       const ok = verify(
         algorithm.hash,
@@ -219,6 +249,10 @@ export class Sso {
       throw new Error(`could not read the provider's keys: ${String(response.status)}`);
     this.#keys = ((await response.json()) as { keys: JsonWebKey[] }).keys;
   }
+}
+
+function trimSlash(url: unknown): string {
+  return String(url).replace(/\/+$/, '');
 }
 
 /** A provider's name for someone, made into a Sheaf username. */

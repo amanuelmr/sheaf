@@ -145,12 +145,31 @@ export function wrap(text: string, font: PDFFont, size: number, width: number): 
       continue;
     }
     if (line !== '') lines.push(line);
+    // Cut the word into the longest pieces that fit, measuring only a few lines' worth
+    // each time: a book with a word thousands of letters long must not stall the server.
     let rest = word;
-    while (font.widthOfTextAtSize(rest, size) > width && rest.length > 1) {
-      let cut = rest.length - 1;
-      while (cut > 1 && font.widthOfTextAtSize(rest.slice(0, cut), size) > width) cut--;
-      lines.push(rest.slice(0, cut));
-      rest = rest.slice(cut);
+    const fits = (n: number) => font.widthOfTextAtSize(rest.slice(0, n), size) <= width;
+    for (;;) {
+      // Widths only grow with length: double until too long, then halve the gap.
+      // Only prefixes about a line long are measured, never the whole rest.
+      let low = 1;
+      let high = 2;
+      while (high <= rest.length && fits(high)) {
+        low = high;
+        high *= 2;
+      }
+      if (high > rest.length) {
+        if (fits(rest.length)) break;
+        high = rest.length;
+      }
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (fits(middle)) low = middle;
+        else high = middle;
+      }
+      if (low >= rest.length) break;
+      lines.push(rest.slice(0, low));
+      rest = rest.slice(low);
     }
     line = rest;
   }

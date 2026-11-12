@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FailureReason } from '@sheaf/core';
 import type { ArchivePatch, DocumentQuery } from '@sheaf/paperless';
 import {
+  archivePatchProblem,
   CUSTOM_FIELD_TYPES,
   DOCUMENT_CONTENT_TYPE,
   ERROR_STATUS,
@@ -61,6 +62,8 @@ import {
   type SettingsPatch,
   type SettingsResponse,
   type NewDocumentsResponse,
+  type RetryJobsBody,
+  type RetryJobsResponse,
   type PageCountResponse,
   type VersionsResponse,
   type AuditResponse,
@@ -93,6 +96,7 @@ import {
   type TrashResponse,
 } from '@sheaf/protocol';
 import type { CustomFieldRefusal, CustomFields } from './custom-fields.ts';
+import { log } from './log.ts';
 import type { LabelRefusal, Labels } from './labels.ts';
 import type { Rules } from './rules.ts';
 import type { BulkEditor } from './bulk.ts';
@@ -114,7 +118,7 @@ import { exportCsv } from './csv-export.ts';
 import { searchableBytes } from './searchable.ts';
 import type { NearDuplicates } from './near-duplicates.ts';
 import type { Storage } from './storage.ts';
-import { AsnTaken, PRIMARY_CONNECTOR, sha256Hex } from './storage.ts';
+import { AsnTaken, PRIMARY_CONNECTOR, isPdf, sha256Hex } from './storage.ts';
 import { DEFAULT_TRASH_DAYS } from './trash.ts';
 
 /**
@@ -191,6 +195,8 @@ export interface RouterDeps {
   readonly audit?: AuditLog;
   /** Page edits, splits, merges and versions. Absent, those routes answer 404. */
   readonly edits?: DocumentEdits;
+  /** The background steps, to try one again; absent when none run. */
+  readonly jobs?: { retryGivenUp(step: string): Promise<number | null> };
   /** Settings an admin can change while the server runs. */
   readonly settings?: Settings;
   /** Single sign-on through an OpenID Connect provider. Absent, it is off. */
@@ -239,6 +245,18 @@ const fail = (error: ErrorCode, detail?: string): IngestResponse => ({
   status: ERROR_STATUS[error],
   json: detail === undefined ? { error } : { error, detail },
 });
+
+/**
+ * Whether the headers carry a token this server accepts. The socket edge asks before
+ * reading a body, so a stranger cannot make it hold a large one in memory.
+ */
+export async function knownCaller(
+  headers: IngestRequest['headers'],
+  deps: RouterDeps,
+): Promise<boolean> {
+  const principal = await authenticate({ headers } as IngestRequest, deps);
+  return principal !== null && principal !== 'revoked';
+}
 
 async function authenticate(
   request: IngestRequest,
@@ -353,9 +371,15 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     return { status: 200, json: response };
   }
   if (path === paths.ssoStart() && deps.sso !== undefined) {
+    // The web app's own random value for this sign-in, handed back on landing.
+    const client = new URLSearchParams(request.query).get('client');
+    if (client !== null && !/^[A-Za-z0-9_-]{16,128}$/.test(client)) {
+      return fail('bad_request', 'client must be 16 to 128 letters, digits, - or _');
+    }
     try {
-      return { status: 302, headers: { location: await deps.sso.start(deps.now()) } };
-    } catch {
+      return { status: 302, headers: { location: await deps.sso.start(deps.now(), client) } };
+    } catch (error) {
+      log.error('sso: could not start a sign-in', { error: String(error) });
       return fail('server_error', 'the identity provider could not be reached');
     }
   }
@@ -371,9 +395,13 @@ export async function handle(request: IngestRequest, deps: RouterDeps): Promise<
     }
     try {
       const signed = await deps.sso.finish(code, state, deps.now());
-      if (!signed.ok) return fail('unauthenticated', signed.message);
+      if (!signed.ok) {
+        log.info('sso: refused a sign-in', { reason: signed.message });
+        return fail('unauthenticated', signed.message);
+      }
       return { status: 302, headers: { location: signed.redirect, 'cache-control': 'no-store' } };
-    } catch {
+    } catch (error) {
+      log.error('sso: could not finish a sign-in', { error: String(error) });
       return fail('server_error', 'the identity provider could not be reached');
     }
   }
@@ -674,9 +702,27 @@ async function authenticated(
     }
     const refused = await changeRefused(deps, principal, body.documents);
     if (refused !== null) return refused;
-    const merged = await deps.edits.merge(body.documents, body.keepOriginals === true, deps.now());
+    const merged = await deps.edits.merge(
+      body.documents,
+      body.keepOriginals === true,
+      deps.now(),
+      principal.kind === 'user' ? principal.id : null,
+    );
     if (!merged.ok) return editRefusal(merged);
     return { status: 201, json: await deps.storage.record(merged.sha256) };
+  }
+
+  if (path === paths.retryJobs()) {
+    if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
+    if (!isAdmin(principal)) return fail('forbidden', 'only an admin retries background steps');
+    const body = parseJson<unknown>(request.body) as Partial<RetryJobsBody> | null;
+    if (typeof body?.step !== 'string') return fail('bad_request', 'body must be {"step": "..."}');
+    const retried = await deps.jobs?.retryGivenUp(body.step);
+    if (retried === undefined || retried === null) {
+      return fail('not_found', `no background step "${body.step}" runs here`);
+    }
+    const response: RetryJobsResponse = { retried };
+    return { status: 200, json: response };
   }
 
   if (path === paths.bulkEdit()) {
@@ -927,6 +973,7 @@ async function put(
 ): Promise<IngestResponse> {
   if (request.body.length === 0) return fail('bad_request', 'empty body');
   if (request.body.length > MAX_DOCUMENT_BYTES) return fail('too_large');
+  if (!isPdf(request.body)) return fail('bad_request', 'only PDFs are kept; this body is not one');
 
   // The address is a claim about the content. Verify it rather than trust it: this
   // is where a truncated or corrupted upload is caught, before it is stored under
@@ -1220,7 +1267,7 @@ async function documentPermissions(
   return { status: 200, json: await deps.storage.permissions(sha256) };
 }
 
-/** Workflows: anyone may read them; only the admin token changes them. */
+/** Workflows: only an admin reads or changes them, since they name tags, people and mail. */
 async function workflowRoutes(
   request: IngestRequest,
   deps: RouterDeps,
@@ -1235,6 +1282,7 @@ async function workflowRoutes(
   };
   const isBody = (value: WorkflowBody | IngestResponse): value is WorkflowBody =>
     'trigger' in value;
+  if (!isAdmin(principal)) return fail('forbidden', 'only an admin reads or changes workflows');
 
   if (path === paths.workflows()) {
     if (method === 'GET') {
@@ -1242,7 +1290,6 @@ async function workflowRoutes(
       return { status: 200, json: response };
     }
     if (method !== 'POST') return fail('bad_request', `${method} not allowed here`);
-    if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
     const parsed = body();
     if (!isBody(parsed)) return parsed;
     return { status: 201, json: await workflows.create(parsed, deps.now()) };
@@ -1257,7 +1304,6 @@ async function workflowRoutes(
   }
   if (method !== 'PUT' && method !== 'DELETE')
     return fail('bad_request', `${method} not allowed here`);
-  if (!isAdmin(principal)) return fail('forbidden', 'only the admin token changes workflows');
   if (method === 'DELETE')
     return (await workflows.remove(id)) ? { status: 204 } : fail('not_found');
   const parsed = body();
@@ -1290,7 +1336,12 @@ async function asnSeriesRoutes(
   }
   if (method !== 'DELETE') return fail('bad_request', `${method} not allowed here`);
   if (!isAdmin(principal)) return fail('forbidden', 'only an admin removes a series');
-  const prefix = decodeURIComponent(path.slice(paths.asnSeries().length + 1));
+  let prefix: string;
+  try {
+    prefix = decodeURIComponent(path.slice(paths.asnSeries().length + 1));
+  } catch {
+    return fail('malformed_id', 'the series prefix is not valid percent-encoding');
+  }
   const removed = await store.remove(prefix);
   if (removed === 'in_use') {
     return fail('conflict', 'documents have numbers in this series: renumber them first');
@@ -1622,16 +1673,22 @@ async function archive(
   if (path === paths.archive()) {
     if (method !== 'GET') return fail('bad_request', `${method} not allowed here`);
     const params = new URLSearchParams(request.query);
+    // Pages and filters are positive whole numbers; anything else is the caller's mistake.
+    const numbers: Record<string, number> = {};
+    for (const key of ['page', 'correspondent', 'documentType', 'tag']) {
+      const raw = params.get(key);
+      if (raw === null) continue;
+      if (!isPaperlessId(raw)) return fail('bad_request', `${key} must be a positive whole number`);
+      numbers[key] = Number(raw);
+    }
     const query: DocumentQuery = {
       ...(params.get('query') === null ? {} : { text: params.get('query')! }),
-      ...(params.get('page') === null ? {} : { page: Number(params.get('page')) }),
-      ...(params.get('correspondent') === null
+      ...(numbers['page'] === undefined ? {} : { page: numbers['page'] }),
+      ...(numbers['correspondent'] === undefined
         ? {}
-        : { correspondentId: Number(params.get('correspondent')) }),
-      ...(params.get('documentType') === null
-        ? {}
-        : { documentTypeId: Number(params.get('documentType')) }),
-      ...(params.get('tag') === null ? {} : { tagId: Number(params.get('tag')) }),
+        : { correspondentId: numbers['correspondent'] }),
+      ...(numbers['documentType'] === undefined ? {} : { documentTypeId: numbers['documentType'] }),
+      ...(numbers['tag'] === undefined ? {} : { tagId: numbers['tag'] }),
     };
     const result = await source.search(query);
     if (!result.ok) return mapArchiveFailure(result.reason);
@@ -1670,9 +1727,10 @@ async function archive(
       return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
     }
     case 'PATCH': {
-      const patch = parseJson<ArchivePatch>(request.body);
-      if (patch === null) return fail('bad_request', 'body must be a JSON object');
-      const result = await source.patch(id, patch);
+      const patch = parseJson<unknown>(request.body);
+      const problem = archivePatchProblem(patch);
+      if (problem !== null) return fail('bad_request', problem);
+      const result = await source.patch(id, patch as ArchivePatch);
       return result.ok ? { status: 200, json: result.value } : mapArchiveFailure(result.reason);
     }
     default:
