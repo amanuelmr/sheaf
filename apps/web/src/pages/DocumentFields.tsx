@@ -12,6 +12,7 @@ import { t } from '../i18n';
 import { fromInput, toInput } from '../custom-field-input';
 import { shortSha } from '../format';
 import { href } from '../route';
+import { Status, type Problem } from '../status';
 
 interface Draft {
   readonly field: CustomField;
@@ -32,7 +33,7 @@ export function DocumentFields({
 }) {
   const [definitions, setDefinitions] = useState<readonly CustomField[]>([]);
   const [drafts, setDrafts] = useState<readonly Draft[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [saved, setSaved] = useState(false);
   const [suggestions, setSuggestions] = useState<readonly CustomFieldSuggestion[]>([]);
 
@@ -46,7 +47,7 @@ export function DocumentFields({
       ]);
       if (!current) return;
       if (!defs.ok || !values.ok) {
-        setError(!defs.ok ? defs.message : !values.ok ? values.message : null);
+        setError(!defs.ok ? defs : !values.ok ? values : null);
         return;
       }
       setDefinitions(defs.value.fields);
@@ -77,7 +78,7 @@ export function DocumentFields({
     }
     const result = await api.setDocumentCustomFields(sha256, values);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setDrafts(toDrafts(definitions, result.value.values));
@@ -182,10 +183,10 @@ export function DocumentFields({
         )}
         <p>
           <button type="submit">{t('Save fields')}</button>{' '}
-          {saved ? <span className="badge ok">{t('Saved')}</span> : null}
+          <Status ok={saved ? t('Saved') : null} inline />
         </p>
       </form>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
     </section>
   );
 }

@@ -17,6 +17,7 @@ import { Snippet, shortSha, when } from '../format';
 import { href } from '../route';
 import { BulkBar } from './BulkBar';
 import { INBOX_CHANGED } from './Inbox';
+import { Status, type Problem } from '../status';
 
 const DEBOUNCE_MS = 200;
 
@@ -82,7 +83,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   /** Bumped after a bulk edit, to fetch the results again. */
   const [reload, setReload] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [labels, setLabels] = useState<Readonly<Record<LabelKind, readonly Label[]>> | null>(null);
   const [views, setViews] = useState<readonly SavedView[]>([]);
   const [activeView, setActiveView] = useState<SavedView | null>(null);
@@ -111,6 +112,8 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
           documentType: documentType.value.labels,
           tag: tag.value.labels,
         });
+      } else {
+        setError([correspondent, documentType, tag].find((r) => !r.ok) ?? null);
       }
     });
   }, [api, loadViews, reload]);
@@ -140,7 +143,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
           setSelected((current) => new Set([...current].filter((sha) => shown.has(sha))));
           setError(null);
         } else {
-          setError(result.message);
+          setError(result);
         }
       });
     }, DEBOUNCE_MS);
@@ -207,8 +210,10 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
         )}
       </div>
 
-      {showFilters ? <FilterPanel filter={filter} labels={labels} onChange={change} /> : null}
-      {error === null ? null : <p className="error">{error}</p>}
+      {showFilters && (labels !== null || error === null) ? (
+        <FilterPanel filter={filter} labels={labels} onChange={change} />
+      ) : null}
+      <Status error={error} />
 
       {hits === null ? (
         <Dashboard api={api} views={views} labels={labels} onOpen={open} />
@@ -234,7 +239,7 @@ export function Search({ api, initial }: { api: Api; initial?: DocumentFilter })
                 className="link"
                 onClick={() => {
                   void api.exportCsv(tidy(filter)).then((result) => {
-                    if (!result.ok) setError(result.message);
+                    if (!result.ok) setError(result);
                   });
                 }}
               >
@@ -522,14 +527,14 @@ function ViewControls({
 }) {
   const [name, setName] = useState('');
   const [onDashboard, setOnDashboard] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const changed = active !== null && JSON.stringify(tidy(active.filter)) !== JSON.stringify(filter);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     const result = await api.createView({ name: name.trim(), filter, onDashboard });
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setName('');
@@ -550,6 +555,7 @@ function ViewControls({
             onClick={() =>
               void api.updateView(active.id, { filter }).then((result) => {
                 if (result.ok) onSaved(result.value);
+                setError(result.ok ? null : result);
               })
             }
           >
@@ -562,6 +568,7 @@ function ViewControls({
           onClick={() =>
             void api.updateView(active.id, { onDashboard: !active.onDashboard }).then((result) => {
               if (result.ok) onSaved(result.value);
+              setError(result.ok ? null : result);
             })
           }
         >
@@ -573,11 +580,13 @@ function ViewControls({
           onClick={() =>
             void api.deleteView(active.id).then((result) => {
               if (result.ok) onDeleted();
+              setError(result.ok ? null : result);
             })
           }
         >
           {t('Delete view')}
         </button>
+        <Status error={error} inline />
       </div>
     );
   }
@@ -600,7 +609,7 @@ function ViewControls({
       <button type="submit" disabled={name.trim() === ''}>
         {t('Save view')}
       </button>
-      {error === null ? null : <span className="error">{error}</span>}
+      <Status error={error} inline />
     </form>
   );
 }
@@ -653,11 +662,14 @@ function DashboardView({
 }) {
   const series = useAsnSeries(api);
   const [result, setResult] = useState<{ hits: readonly SearchHit[]; total: number } | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const size = onOpen === undefined ? 20 : 5;
   useEffect(() => {
     let current = true;
     void api.find(view.filter, size).then((found) => {
-      if (current && found.ok) setResult(found.value);
+      if (!current) return;
+      if (found.ok) setResult(found.value);
+      setError(found.ok ? null : found);
     });
     return () => {
       current = false;
@@ -678,7 +690,8 @@ function DashboardView({
           <span className="count">{result.total}</span>
         )}
       </h2>
-      {result === null ? <p className="muted">{t('Loading…')}</p> : null}
+      <Status error={error} />
+      {result === null && error === null ? <p className="muted">{t('Loading…')}</p> : null}
       {result !== null && result.hits.length === 0 ? (
         <p className="muted">
           {onOpen === undefined ? t('Nothing stored yet. Scan something.') : t('Nothing here.')}

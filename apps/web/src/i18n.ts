@@ -46,6 +46,8 @@ function initial(): Language {
 }
 
 let current: Language = typeof window === 'undefined' ? 'en' : initial();
+// From the first paint, so a screen reader reads German text as German.
+if (typeof document !== 'undefined') document.documentElement.lang = current;
 
 export function language(): Language {
   return current;

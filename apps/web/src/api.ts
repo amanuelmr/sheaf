@@ -66,9 +66,10 @@ import {
   type TrashResponse,
 } from '@sheaf/protocol';
 import type { Connection } from './connection';
+import { refused, unreachable, type Failure } from './errors';
+import { t } from './i18n';
 
-export type Result<T> =
-  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string };
+export type Result<T> = { readonly ok: true; readonly value: T } | Failure;
 
 /**
  * Everything the web app asks the server, one function each. No retry and no
@@ -89,11 +90,11 @@ export function api(connection: Connection) {
         headers: headers(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      if (!response.ok) return { ok: false, message: await explain(response) };
+      if (!response.ok) return await refused(response);
       if (response.status === 204) return { ok: true, value: undefined as T };
       return { ok: true, value: (await response.json()) as T };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      return unreachable(error);
     }
   }
 
@@ -163,10 +164,10 @@ export function api(connection: Connection) {
         const response = await fetch(url(paths.documentVersion(sha256, version)), {
           headers: headers(),
         });
-        if (!response.ok) return { ok: false, message: await explain(response) };
-        return { ok: true, value: URL.createObjectURL(await response.blob()) };
+        if (!response.ok) return await refused(response);
+        return await pdfUrl(await response.blob());
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     nextAsn: (series?: string) =>
@@ -239,7 +240,7 @@ export function api(connection: Connection) {
         const response = await fetch(url(paths.documentSearchable(sha256)), {
           headers: headers(),
         });
-        if (!response.ok) return { ok: false, message: await explain(response) };
+        if (!response.ok) return await refused(response);
         const link = document.createElement('a');
         link.href = URL.createObjectURL(await response.blob());
         link.download = `${name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`;
@@ -247,7 +248,7 @@ export function api(connection: Connection) {
         setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
         return { ok: true, value: undefined };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     /** Downloads every document the filter lets through as a CSV file. */
@@ -257,7 +258,7 @@ export function api(connection: Connection) {
           url(`${paths.searchExport()}?${filterToParams(filter).toString()}`),
           { headers: headers() },
         );
-        if (!response.ok) return { ok: false, message: await explain(response) };
+        if (!response.ok) return await refused(response);
         const link = document.createElement('a');
         link.href = URL.createObjectURL(await response.blob());
         link.download = `documents-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -265,7 +266,7 @@ export function api(connection: Connection) {
         setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
         return { ok: true, value: undefined };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     /** Stores a PDF under its hash: `stored`, or `known` when the server had it already. */
@@ -283,10 +284,10 @@ export function api(connection: Connection) {
           }),
           body: bytes as BodyInit,
         });
-        if (!response.ok) return { ok: false, message: await explain(response) };
+        if (!response.ok) return await refused(response);
         return { ok: true, value: response.status === 201 ? 'stored' : 'known' };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     /** An EPUB, which the server keeps as a PDF made from it. Answers that document. */
@@ -299,24 +300,24 @@ export function api(connection: Connection) {
           headers: headers({ 'content-type': 'application/epub+zip' }),
           body: bytes as BodyInit,
         });
-        if (!response.ok) return { ok: false, message: await explain(response) };
+        if (!response.ok) return await refused(response);
         const record = (await response.json()) as DocumentRecord;
         return {
           ok: true,
           value: { state: response.status === 201 ? 'stored' : 'known', sha256: record.sha256 },
         };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     /** The PDF as an object URL for an iframe; revoke it when done. */
     pdf: async (sha256: string): Promise<Result<string>> => {
       try {
         const response = await fetch(url(paths.document(sha256)), { headers: headers() });
-        if (!response.ok) return { ok: false, message: await explain(response) };
-        return { ok: true, value: URL.createObjectURL(await response.blob()) };
+        if (!response.ok) return await refused(response);
+        return await pdfUrl(await response.blob());
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        return unreachable(error);
       }
     },
     createPairingCode: () => call<PairingCodeResponse>('POST', paths.pairingCodes()),
@@ -339,18 +340,21 @@ export async function signIn(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    if (!response.ok) return { ok: false, message: await explain(response) };
+    if (response.status === 401) return { ok: false, message: t('Wrong username or password.') };
+    if (!response.ok) return await refused(response);
     return { ok: true, value: (await response.json()) as SessionResponse };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    return unreachable(error);
   }
 }
 
-async function explain(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: string; detail?: string };
-    return body.detail ?? body.error ?? `${String(response.status)} ${response.statusText}`;
-  } catch {
-    return `${String(response.status)} ${response.statusText}`;
-  }
+/**
+ * A file to show in the page as a PDF, refused unless it starts like one. Whatever type
+ * the server claims, the blob is a PDF, so HTML from a wrong server never runs here.
+ */
+export async function pdfUrl(file: Blob): Promise<Result<string>> {
+  if ((await file.slice(0, 5).text()) !== '%PDF-')
+    return { ok: false, message: t('The server sent something that isn’t a PDF.') };
+  // A slice with the type set shares the bytes rather than copying them.
+  return { ok: true, value: URL.createObjectURL(file.slice(0, file.size, 'application/pdf')) };
 }

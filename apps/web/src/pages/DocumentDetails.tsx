@@ -11,6 +11,7 @@ import {
 import type { Api } from '../api';
 import { t } from '../i18n';
 import { useAsnSeries } from '../asn-series';
+import { Status, type Notice } from '../status';
 
 export interface DetailsDraft {
   readonly title: string;
@@ -86,7 +87,7 @@ export function DocumentDetails({
   const [tag, setTag] = useState('');
   const [other, setOther] = useState('');
   const [labels, setLabels] = useState<Readonly<Record<LabelKind, readonly Label[]>> | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
   const series = useAsnSeries(api);
   const [nextIn, setNextIn] = useState('');
   // The series arrive after the form is first drawn: show the number with its prefix.
@@ -144,7 +145,7 @@ export function DocumentDetails({
     }
     const result = await api.patch(record.sha256, patch);
     if (!result.ok) {
-      setMessage({ ok: false, text: result.message });
+      setMessage({ ok: false, text: result });
       return;
     }
     setDraft(draftOf(result.value, series));
@@ -155,7 +156,7 @@ export function DocumentDetails({
   const nextAsn = async () => {
     const result = await api.nextAsn(nextIn === '' ? undefined : nextIn);
     if (result.ok) set({ asn: asnLabel(result.value.asn, series) });
-    else setMessage({ ok: false, text: result.message });
+    else setMessage({ ok: false, text: result });
   };
 
   return (
@@ -322,9 +323,7 @@ export function DocumentDetails({
         <button type="submit" disabled={unchanged}>
           {t('Save details')}
         </button>
-        {message === null ? null : (
-          <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>
-        )}
+        <Status notice={message} inline />
       </p>
     </form>
   );

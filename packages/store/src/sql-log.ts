@@ -17,12 +17,14 @@ export class SqlEventLog implements EventLog {
 
   async append(events: readonly CaptureEvent[]): Promise<void> {
     if (events.length === 0) return;
-    await this.driver.transaction(async () => {
+    await this.driver.transaction(async (tx) => {
       for (const event of events) {
-        await this.driver.run(
-          'INSERT INTO capture_log (doc_id, at, type, payload) VALUES (?, ?, ?, ?)',
-          [event.docId, event.at, event.type, JSON.stringify(event)],
-        );
+        await tx.run('INSERT INTO capture_log (doc_id, at, type, payload) VALUES (?, ?, ?, ?)', [
+          event.docId,
+          event.at,
+          event.type,
+          JSON.stringify(event),
+        ]);
       }
     });
   }

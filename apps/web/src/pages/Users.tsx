@@ -6,9 +6,10 @@ import {
   type Role,
   type User,
 } from '@sheaf/protocol';
-import type { Api } from '../api';
+import type { Api, Result } from '../api';
 import { when } from '../format';
 import { mark, t } from '../i18n';
+import { Status, type Problem } from '../status';
 
 // English: each is put through `t` where it is drawn.
 const ROLE_NAMES: Readonly<Record<Role, string>> = {
@@ -26,7 +27,7 @@ const ROLE_SHORT: Readonly<Record<Role, string>> = {
 /** People who sign in, and what each may do. */
 export function Users({ api }: { api: Api }) {
   const [users, setUsers] = useState<readonly User[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('viewer');
@@ -35,17 +36,17 @@ export function Users({ api }: { api: Api }) {
   const load = useCallback(async () => {
     const result = await api.users();
     if (result.ok) setUsers(result.value.users);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const run = async (change: Promise<{ ok: boolean; message?: string }>) => {
+  const run = async (change: Promise<Result<unknown>>) => {
     const result = await change;
     if (!result.ok) {
-      setError(result.message ?? t('That did not work.'));
+      setError(result);
       return false;
     }
     setError(null);
@@ -73,7 +74,7 @@ export function Users({ api }: { api: Api }) {
           'People who sign in with a username and password. The admin token and paired phones keep working alongside them.',
         )}
       </p>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
       {users === null ? <p className="muted">{t('Loading…')}</p> : null}
       {users !== null && users.length === 0 ? <p className="muted">{t('No users yet.')}</p> : null}
       <ul className="list">

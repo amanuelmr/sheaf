@@ -14,6 +14,7 @@ import { Pages } from './Pages';
 import { Access } from './Access';
 import { Similar } from './Similar';
 import { Stamp } from './Stamp';
+import { Status, type Problem } from '../status';
 
 const LABELS: Readonly<Record<string, string>> = {
   title: mark('Title'),
@@ -33,7 +34,13 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   const [fields, setFields] = useState<readonly FieldEntry[]>([]);
   const [events, setEvents] = useState<readonly HistoryEvent[]>([]);
   const [pdf, setPdf] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
+  const [pdfError, setPdfError] = useState<Problem | null>(null);
+
+  const name = record?.title ?? record?.suggestions?.title;
+  useEffect(() => {
+    document.title = `${name ?? t('The document')} · Sheaf`;
+  }, [name]);
 
   useEffect(() => {
     let url: string | null = null;
@@ -45,7 +52,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
         api.pdf(sha256),
       ]);
       if (!r.ok) {
-        setError(r.message);
+        setError(r);
         return;
       }
       setRecord(r.value);
@@ -54,6 +61,8 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
       if (p.ok) {
         url = p.value;
         setPdf(url);
+      } else if (!r.value.bytesReleased) {
+        setPdfError(p);
       }
     })();
     return () => {
@@ -64,9 +73,10 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   const [confirmTrash, setConfirmTrash] = useState(false);
 
   const moveToTrash = async () => {
+    setError(null);
     const result = await api.trashDocument(sha256);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     window.dispatchEvent(new Event(INBOX_CHANGED));
@@ -74,9 +84,10 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   };
 
   const restore = async () => {
+    setError(null);
     const result = await api.restore([sha256]);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     const r = await api.record(sha256);
@@ -92,18 +103,28 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
     if (h.ok) setEvents(h.value.events);
   };
 
-  if (error !== null) return <p className="error">{error}</p>;
-  if (record === null) return <p className="muted">Loading…</p>;
+  if (record === null)
+    return (
+      <>
+        <Status error={error} />
+        {error === null ? <p className="muted">Loading…</p> : null}
+      </>
+    );
 
   return (
     <div className="document">
       <div className="pdf">
         {pdf === null ? (
-          <p className="muted">
-            {record.bytesReleased
-              ? t('The file was released once a connector confirmed it.')
-              : t('Loading…')}
-          </p>
+          <>
+            <Status error={pdfError} />
+            {pdfError === null ? (
+              <p className="muted">
+                {record.bytesReleased
+                  ? t('The file was released once a connector confirmed it.')
+                  : t('Loading…')}
+              </p>
+            ) : null}
+          </>
         ) : (
           <>
             <iframe title={t('The document')} src={pdf} />
@@ -115,7 +136,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
                   void api
                     .downloadSearchable(sha256, record.title ?? shortSha(sha256))
                     .then((r) => {
-                      if (!r.ok) setError(r.message);
+                      setError(r.ok ? null : r);
                     })
                 }
               >
@@ -139,6 +160,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        <Status error={error} />
         {record.trashedAt === undefined ? null : (
           <p className="card">
             {t('In the trash since {when}.', { when: when(record.trashedAt) })}{' '}

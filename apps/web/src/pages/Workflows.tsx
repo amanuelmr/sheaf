@@ -18,18 +18,19 @@ import {
   type LabelMode,
   type WorkflowForm,
 } from '../workflow-form';
+import { Status, type Problem } from '../status';
 
 /** Workflows: when a document is added or edited, and it is like this, do that. */
 export function Workflows({ api }: { api: Api }) {
   const [workflows, setWorkflows] = useState<readonly Workflow[] | null>(null);
   const [fields, setFields] = useState<readonly CustomField[]>([]);
   const [editing, setEditing] = useState<{ id: number | null; form: WorkflowForm } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.workflows();
     if (result.ok) setWorkflows(result.value.workflows);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export function Workflows({ api }: { api: Api }) {
         ? await api.createWorkflow(made.body)
         : await api.replaceWorkflow(editing.id, made.body);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setError(null);
@@ -64,13 +65,13 @@ export function Workflows({ api }: { api: Api }) {
     const made = toBody({ ...toForm(workflow, fields), enabled: !workflow.enabled }, fields);
     if (!made.ok) return;
     const result = await api.replaceWorkflow(workflow.id, made.body);
-    if (!result.ok) setError(result.message);
+    if (!result.ok) setError(result);
     await load();
   };
 
   const remove = async (id: number) => {
     const result = await api.deleteWorkflow(id);
-    if (!result.ok) setError(result.message);
+    if (!result.ok) setError(result);
     await load();
   };
 
@@ -82,7 +83,7 @@ export function Workflows({ api }: { api: Api }) {
           'When a document is added, or you edit one, and it is like this, do that. They run in order, after the label rules.',
         )}
       </p>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
       {workflows === null ? <p className="muted">{t('Loading…')}</p> : null}
       {workflows !== null && workflows.length === 0 ? (
         <p className="muted">{t('No workflows yet.')}</p>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api as makeApi, signIn, type Api } from './api';
 import { paths, type Role, type SsoResponse } from '@sheaf/protocol';
 import {
@@ -19,20 +19,23 @@ import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
+import { finishSingleSignOn, startSingleSignOn } from './sso';
 import { LANGUAGES, mark, setLanguage, t, useLanguage, type Language } from './i18n';
+import { Status, type Problem } from './status';
 
 /**
- * Back from single sign-on: the server put a session token and its own address in
- * the fragment. Keep them like any connection, and take them out of the address
- * bar and the history at once.
+ * Back from single sign-on: keep the session like any connection, and take the
+ * fragment out of the address bar and the history at once, even when refused.
  */
 function fromSingleSignOn(): Connection | null {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  const token = params.get('sso');
-  const server = params.get('server');
-  if (token === null || server === null || !/^https?:\/\//.test(server)) return null;
-  const connection: Connection = { baseUrl: server, token };
-  saveConnection(connection);
+  if (!/(^#|&)sso=/.test(window.location.hash)) return null;
+  let connection: Connection | null = null;
+  try {
+    connection = finishSingleSignOn(window.location.hash, sessionStorage);
+  } catch {
+    // Storage refused: no sign-in this tab started can be told apart, so none is.
+  }
+  if (connection !== null) saveConnection(connection);
   window.history.replaceState(
     null,
     '',
@@ -63,7 +66,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
   const [useAccount, setUseAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -73,7 +76,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
       if (server === '' || username.trim() === '' || password === '') return;
       const signed = await signIn(server, username.trim().toLowerCase(), password);
       if (!signed.ok) {
-        setError(t('Couldn’t sign in: {reason}', { reason: signed.message }));
+        setError(signed);
         return;
       }
       secret = signed.value.token;
@@ -83,7 +86,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
     // Check before keeping it, so a typo is caught here rather than on every page.
     const health = await makeApi(connection).health();
     if (!health.ok) {
-      setError(t('Couldn’t connect: {reason}', { reason: health.message }));
+      setError(health);
       return;
     }
     saveConnection(connection);
@@ -155,7 +158,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
             />
           </>
         )}
-        {error === null ? null : <p className="error">{error}</p>}
+        <Status error={error} />
         <button type="submit">{t('Connect')}</button>
         <SingleSignOn baseUrl={baseUrl} />
         <p className="muted small">{t('The token is forgotten when you close this tab.')}</p>
@@ -180,20 +183,36 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'system' }, label: mark('System') },
 ];
 
+function pageName(page: Route['page']): string {
+  return NAV.find(({ route }) => route.page === page)?.label ?? mark('The document');
+}
+
 function Shell({ connection, onDisconnect }: { connection: Connection; onDisconnect: () => void }) {
   const api = useMemo(() => makeApi(connection), [connection]);
   const route = useRoute();
   // Every page below is drawn again in the new language when it changes.
-  useLanguage();
+  const language = useLanguage();
+  const main = useRef<HTMLElement>(null);
+  const shown = useRef<string | null>(null);
+  const where = route.page === 'document' ? route.sha256 : route.page;
+  // A new page gets its own title, and focus moves to it so a screen reader says so.
+  // Not on the first load, nor when typing in a search rewrites the address.
+  useEffect(() => {
+    if (route.page !== 'document') document.title = `${t(pageName(route.page))} · Sheaf`;
+    if (shown.current !== null && shown.current !== where) main.current?.focus();
+    shown.current = where;
+  }, [route.page, where, language]);
   const toReview = useInboxCount(api, route);
   const [role, setRole] = useState<Role | null>(null);
   const [who, setWho] = useState<string | null>(null);
+  const [failed, setFailed] = useState<Problem | null>(null);
   useEffect(() => {
     void api.me().then((result) => {
       if (result.ok) {
         setRole(result.value.role);
         setWho(result.value.name);
       }
+      setFailed(result.ok ? null : result);
     });
   }, [api]);
   const signOut = async () => {
@@ -228,7 +247,8 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
           {who === null ? t('Disconnect') : t('Sign out {name}', { name: who })}
         </button>
       </header>
-      <main>
+      <main ref={main} tabIndex={-1}>
+        <Status error={failed} />
         {role !== null && role !== 'admin' && ADMIN_PAGES.has(route.page) ? (
           <p className="muted">
             {t('This page is for admins.')}{' '}
@@ -323,8 +343,18 @@ function SingleSignOn({ baseUrl }: { baseUrl: string }) {
   }, [server]);
   if (provider === null) return null;
   return (
-    <a className="button secondary" href={new URL(paths.ssoStart(), server).toString()}>
+    <button
+      type="button"
+      className="secondary"
+      onClick={() => {
+        try {
+          window.location.assign(startSingleSignOn(server, sessionStorage));
+        } catch {
+          setProvider(null);
+        }
+      }}
+    >
       {t('Sign in with {provider}', { provider })}
-    </a>
+    </button>
   );
 }

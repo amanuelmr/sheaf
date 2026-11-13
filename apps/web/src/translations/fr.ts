@@ -1,7 +1,5 @@
 /** French, keyed by the English it replaces. */
 export const fr: Readonly<Record<string, string>> = {
-  'Couldn’t sign in: {reason}': 'Connexion impossible : {reason}',
-  'Couldn’t connect: {reason}': 'Impossible de se connecter : {reason}',
   'Your documents, on your server. Connect with the admin token it was started with.':
     'Vos documents, sur votre serveur. Connectez-vous avec le jeton d’administration avec lequel il a été démarré.',
   'Server address': 'Adresse du serveur',
@@ -254,7 +252,6 @@ export const fr: Readonly<Record<string, string>> = {
   'New document type': 'Nouveau type de document',
   'Add document type': 'Ajouter le type de document',
   'Delete document type {name}': 'Supprimer le type de document {name}',
-  'That did not work.': 'Cela n’a pas fonctionné.',
   'Filed 1 document.': '1 document classé.',
   'Filed {count} documents.': '{count} documents classés.',
   'The names documents are filed under. Renaming or merging one changes every document that carries it.':
@@ -427,7 +424,6 @@ export const fr: Readonly<Record<string, string>> = {
   'At least {count} characters.': 'Au moins {count} caractères.',
   Role: 'Rôle',
   'Add user': 'Ajouter l’utilisateur',
-  'Couldn’t reach the server: {reason}': 'Impossible de joindre le serveur : {reason}',
   Storage: 'Stockage',
   'Documents held': 'Documents conservés',
   Forwarding: 'Transfert',
@@ -519,4 +515,41 @@ export const fr: Readonly<Record<string, string>> = {
   'Nothing stored yet. Scan something.': 'Rien n’est encore stocké. Numérisez quelque chose.',
   'Nothing here.': 'Rien ici.',
   'Saved view': 'Vue',
+  'Your sign-in has ended or the token is wrong. Sign in again.':
+    'Votre session a expiré ou le jeton est incorrect. Reconnectez-vous.',
+  'You don’t have permission to do that.': 'Vous n’avez pas l’autorisation de faire cela.',
+  'That isn’t there any more; it may have been deleted.':
+    'Cet élément n’existe plus ; il a peut-être été supprimé.',
+  'That is too large for the server to take.': 'C’est trop volumineux pour le serveur.',
+  'Too many tries. Wait a few minutes, then try again.':
+    'Trop de tentatives. Attendez quelques minutes, puis réessayez.',
+  'This device was removed from the server.': 'Cet appareil a été retiré du serveur.',
+  'That pairing code has run out or was used already.':
+    'Ce code d’appairage a expiré ou a déjà été utilisé.',
+  'Sending documents on isn’t set up on this server.':
+    'L’envoi des documents vers un autre système n’est pas configuré sur ce serveur.',
+  'This document was handed on and isn’t kept here any more.':
+    'Ce document a été transmis et n’est plus conservé ici.',
+  'The file changed on its way to the server. Try again.':
+    'Le fichier a été modifié en route vers le serveur. Réessayez.',
+  'That clashes with something already saved.':
+    'Cela entre en conflit avec quelque chose de déjà enregistré.',
+  'The server didn’t accept that.': 'Le serveur ne l’a pas accepté.',
+  'The server didn’t accept that: {reason}': 'Le serveur ne l’a pas accepté : {reason}',
+  'Something went wrong on the server. Try again in a moment.':
+    'Un problème est survenu sur le serveur. Réessayez dans un instant.',
+  'Something went wrong on the server. Try again; the server log has it as {id}.':
+    'Un problème est survenu sur le serveur. Réessayez ; le journal du serveur l’indique sous {id}.',
+  'The server answered with an error ({status}).':
+    'Le serveur a répondu par une erreur ({status}).',
+  'The server sent an answer the app can’t read. Is this the Sheaf server’s address?':
+    'Le serveur a envoyé une réponse que l’application ne peut pas lire. Est-ce bien l’adresse du serveur Sheaf ?',
+  'Couldn’t reach the server. Check the address and that the server is running.':
+    'Impossible de joindre le serveur. Vérifiez l’adresse et que le serveur est démarré.',
+  'Wrong username or password.': 'Nom d’utilisateur ou mot de passe incorrect.',
+  'The server sent something that isn’t a PDF.':
+    'Le serveur a envoyé quelque chose qui n’est pas un PDF.',
+  'Technical details': 'Détails techniques',
+  'In the list:': 'Dans la liste :',
+  'Documents to review': 'Documents à vérifier',
 };

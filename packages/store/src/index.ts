@@ -1,4 +1,5 @@
 export type { SqlDriver, SqlValue } from './driver.ts';
+export { queuedDriver, type QueuedDriver, type RawSql } from './queued.ts';
 export { SCHEMA_VERSION, migrate } from './schema.ts';
 export type { EventLog, EventRecord } from './log.ts';
 export { MemoryEventLog } from './memory-log.ts';

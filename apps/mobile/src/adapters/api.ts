@@ -1,7 +1,7 @@
 import { SheafClient, interpretPutStatus } from '@sheaf/client';
 import type { DocState, MetadataPatch, RemoteId, Suggestions } from '@sheaf/core';
 import type { EngineApi, UploadAccepted } from '@sheaf/engine';
-import { authorization, paths } from '@sheaf/protocol';
+import { MAX_DOCUMENT_BYTES, authorization, paths } from '@sheaf/protocol';
 import { err, ok, joinUrl, type ApiResult, type FetchLike } from '@sheaf/http';
 import { pdfFile } from './files';
 import { OCR_ENGINE } from './ocr';
@@ -46,6 +46,9 @@ export class SheafAdapter implements EngineApi {
         message: 'the local copy of this document is missing',
       });
     }
+    // The server refuses more; sending it only to hear so wastes mobile data, and
+    // retrying cannot make it smaller.
+    if ((file.size ?? 0) > MAX_DOCUMENT_BYTES) return err({ kind: 'too_large' });
 
     try {
       const result = await file.upload(

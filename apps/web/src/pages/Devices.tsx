@@ -5,6 +5,7 @@ import type { Api } from '../api';
 
 import { when } from '../format';
 import { t } from '../i18n';
+import { Status, type Problem } from '../status';
 
 /**
  * Phones that may use this server (ADR 0008). "Pair a phone" shows a QR code the
@@ -17,12 +18,12 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
   >(null);
   const [now, setNow] = useState(Date.now());
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.devices();
     if (result.ok) setDevices(result.value.devices);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
     setError(null);
     const result = await api.createPairingCode();
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     const qr = await QRCode.toDataURL(pairingUri(serverUrl, result.value.code, result.value.pin), {
@@ -57,7 +58,7 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
   const revoke = async (id: string) => {
     const result = await api.revoke(id);
     setConfirming(null);
-    if (!result.ok) setError(result.message);
+    if (!result.ok) setError(result);
     await load();
   };
 
@@ -70,7 +71,7 @@ export function Devices({ api, serverUrl }: { api: Api; serverUrl: string }) {
   return (
     <>
       <h1>{t('Phones')}</h1>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
 
       <div className="card">
         {justPaired !== undefined ? (

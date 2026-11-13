@@ -1,7 +1,5 @@
 /** Spanish, keyed by the English it replaces. */
 export const es: Readonly<Record<string, string>> = {
-  'Couldn’t sign in: {reason}': 'No se pudo iniciar sesión: {reason}',
-  'Couldn’t connect: {reason}': 'No se pudo conectar: {reason}',
   'Your documents, on your server. Connect with the admin token it was started with.':
     'Tus documentos, en tu servidor. Conéctate con el token de administración con el que se inició.',
   'Server address': 'Dirección del servidor',
@@ -249,7 +247,6 @@ export const es: Readonly<Record<string, string>> = {
   'New document type': 'Nuevo tipo de documento',
   'Add document type': 'Añadir tipo de documento',
   'Delete document type {name}': 'Eliminar el tipo de documento {name}',
-  'That did not work.': 'Eso no funcionó.',
   'Filed 1 document.': '1 documento archivado.',
   'Filed {count} documents.': '{count} documentos archivados.',
   'The names documents are filed under. Renaming or merging one changes every document that carries it.':
@@ -423,7 +420,6 @@ export const es: Readonly<Record<string, string>> = {
   'At least {count} characters.': 'Al menos {count} caracteres.',
   Role: 'Rol',
   'Add user': 'Añadir usuario',
-  'Couldn’t reach the server: {reason}': 'No se pudo contactar con el servidor: {reason}',
   Storage: 'Almacenamiento',
   'Documents held': 'Documentos guardados',
   Forwarding: 'Reenvío',
@@ -515,4 +511,38 @@ export const es: Readonly<Record<string, string>> = {
   'Nothing stored yet. Scan something.': 'Aún no hay nada guardado. Escanea algo.',
   'Nothing here.': 'No hay nada aquí.',
   'Saved view': 'Vista',
+  'Your sign-in has ended or the token is wrong. Sign in again.':
+    'Tu sesión ha caducado o el token no es correcto. Vuelve a iniciar sesión.',
+  'You don’t have permission to do that.': 'No tienes permiso para hacer eso.',
+  'That isn’t there any more; it may have been deleted.':
+    'Eso ya no existe; puede que se haya eliminado.',
+  'That is too large for the server to take.': 'Es demasiado grande para el servidor.',
+  'Too many tries. Wait a few minutes, then try again.':
+    'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
+  'This device was removed from the server.': 'Este dispositivo se quitó del servidor.',
+  'That pairing code has run out or was used already.':
+    'Ese código de vinculación ha caducado o ya se usó.',
+  'Sending documents on isn’t set up on this server.':
+    'El envío de documentos a otro sistema no está configurado en este servidor.',
+  'This document was handed on and isn’t kept here any more.':
+    'Este documento se entregó y ya no se guarda aquí.',
+  'The file changed on its way to the server. Try again.':
+    'El archivo cambió de camino al servidor. Vuelve a intentarlo.',
+  'That clashes with something already saved.': 'Eso choca con algo que ya está guardado.',
+  'The server didn’t accept that.': 'El servidor no lo aceptó.',
+  'The server didn’t accept that: {reason}': 'El servidor no lo aceptó: {reason}',
+  'Something went wrong on the server. Try again in a moment.':
+    'Algo salió mal en el servidor. Vuelve a intentarlo en un momento.',
+  'Something went wrong on the server. Try again; the server log has it as {id}.':
+    'Algo salió mal en el servidor. Vuelve a intentarlo; el registro del servidor lo tiene como {id}.',
+  'The server answered with an error ({status}).': 'El servidor respondió con un error ({status}).',
+  'The server sent an answer the app can’t read. Is this the Sheaf server’s address?':
+    'El servidor envió una respuesta que la aplicación no puede leer. ¿Es esta la dirección del servidor Sheaf?',
+  'Couldn’t reach the server. Check the address and that the server is running.':
+    'No se pudo contactar con el servidor. Comprueba la dirección y que el servidor esté en marcha.',
+  'Wrong username or password.': 'Usuario o contraseña incorrectos.',
+  'The server sent something that isn’t a PDF.': 'El servidor envió algo que no es un PDF.',
+  'Technical details': 'Detalles técnicos',
+  'In the list:': 'En la lista:',
+  'Documents to review': 'Documentos por revisar',
 };

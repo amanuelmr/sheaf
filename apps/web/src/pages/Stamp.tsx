@@ -11,6 +11,7 @@ import {
 import type { Api } from '../api';
 import { mark, t } from '../i18n';
 import { href } from '../route';
+import { Status, type Problem } from '../status';
 
 const POSITION_NAMES: Record<StampPosition, string> = {
   'top-right': mark('Top right'),
@@ -36,13 +37,13 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
     colour: 'red',
     pages: 'first',
   });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const problem = stampProblem(body);
 
   const stamp = async () => {
     const result = await api.stamp(sha256, body);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     window.location.hash = href({ page: 'document', sha256: result.value.sha256 });
@@ -126,7 +127,7 @@ export function Stamp({ api, sha256 }: { api: Api; sha256: string }) {
             {t('Every page, not just the first')}
           </label>
           {problem === null ? null : <p className="error">{problem}</p>}
-          {error === null ? null : <p className="error">{error}</p>}
+          <Status error={error} />
           <p className="actions">
             <button type="submit" disabled={problem !== null}>
               {t('Stamp it')}

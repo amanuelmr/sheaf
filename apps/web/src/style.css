@@ -163,6 +163,32 @@ button.secondary {
   margin-bottom: 16px;
 }
 
+/* Live regions: always in the page, taking no room until they say something. */
+.status.block,
+.status.block > .error,
+.status.block > .technical {
+  display: block;
+}
+
+.technical {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status.block > .technical {
+  margin: -8px 0 16px;
+}
+
+.status:not(.block) > .technical {
+  margin-left: 8px;
+}
+
+.technical code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .muted {
   color: var(--text-muted);
   font-size: 13px;
@@ -366,6 +392,13 @@ h2 {
 
 .list li.selected {
   background: var(--surface-raised);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.list.shortcuts:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .list li > a,
@@ -920,4 +953,9 @@ select.language {
 
 .page.narrow select.language {
   margin-bottom: 16px;
+}
+
+/* Focus moves here on a new page for screen readers; no ring for a mouse user. */
+main:focus {
+  outline: none;
 }

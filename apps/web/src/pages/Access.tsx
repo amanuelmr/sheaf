@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AccessLevel, DocumentPermissions, Me } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { t } from '../i18n';
+import { Status, type Notice } from '../status';
 
 /** Who a document belongs to and whom it is shared with. Hidden while there are no users. */
 export function Access({ api, sha256 }: { api: Api; sha256: string }) {
@@ -10,7 +11,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
   const [people, setPeople] = useState<readonly { id: number; username: string }[]>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [adding, setAdding] = useState('');
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -38,7 +39,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
   const save = async () => {
     const result = await api.setPermissions(sha256, draft);
     if (!result.ok) {
-      setMessage({ ok: false, text: result.message });
+      setMessage({ ok: false, text: result });
       return;
     }
     setPermissions(result.value);
@@ -160,9 +161,7 @@ export function Access({ api, sha256 }: { api: Api; sha256: string }) {
         <button type="button" disabled={!changed} onClick={() => void save()}>
           {t('Save')}
         </button>
-        {message === null ? null : (
-          <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>
-        )}
+        <Status notice={message} inline />
       </p>
     </section>
   );

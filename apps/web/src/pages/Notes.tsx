@@ -3,6 +3,7 @@ import { MAX_NOTE_LENGTH, type Note } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { when } from '../format';
 import { t } from '../i18n';
+import { Status, type Problem } from '../status';
 
 /** A document's notes: read them, add one, delete one. */
 export function Notes({
@@ -17,7 +18,7 @@ export function Notes({
 }) {
   const [notes, setNotes] = useState<readonly Note[]>([]);
   const [draft, setDraft] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -25,7 +26,7 @@ export function Notes({
       const result = await api.notes(sha256);
       if (!current) return;
       if (result.ok) setNotes(result.value.notes);
-      else setError(result.message);
+      else setError(result);
     })();
     return () => {
       current = false;
@@ -37,7 +38,7 @@ export function Notes({
     if (draft.trim() === '') return;
     const result = await api.addNote(sha256, draft);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setNotes((current) => [...current, result.value]);
@@ -49,7 +50,7 @@ export function Notes({
   const remove = async (id: number) => {
     const result = await api.deleteNote(sha256, id);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setNotes((current) => current.filter((note) => note.id !== id));
@@ -92,7 +93,7 @@ export function Notes({
           {t('Add note')}
         </button>
       </form>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
     </section>
   );
 }

@@ -7,10 +7,11 @@ import {
   type MatchingAlgorithm,
   type MatchingRule,
 } from '@sheaf/protocol';
-import type { Api } from '../api';
+import type { Api, Result } from '../api';
 import { mark, t } from '../i18n';
 import { ALGORITHM_NAMES, describeRule } from '../label-rule';
 import { href } from '../route';
+import { Status, type Problem } from '../status';
 
 /** Each kind's words, marked here and put through `t` where they are drawn. */
 const KIND_NAMES: Readonly<
@@ -56,7 +57,7 @@ type Editing =
 export function Labels({ api }: { api: Api }) {
   const [kind, setKind] = useState<LabelKind>('tag');
   const [labels, setLabels] = useState<readonly Label[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [name, setName] = useState('');
   const [applied, setApplied] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function Labels({ api }: { api: Api }) {
   const load = useCallback(async () => {
     const result = await api.labels(kind);
     if (result.ok) setLabels(result.value.labels);
-    else setError(result.message);
+    else setError(result);
   }, [api, kind]);
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export function Labels({ api }: { api: Api }) {
     void api.labels(kind).then((result) => {
       if (!current) return;
       if (result.ok) setLabels(result.value.labels);
-      else setError(result.message);
+      else setError(result);
     });
     return () => {
       current = false;
@@ -84,10 +85,10 @@ export function Labels({ api }: { api: Api }) {
   }, [api, kind]);
 
   /** Run one change, then show the list as the server now has it. */
-  const apply = async (change: Promise<{ ok: boolean; message?: string }>) => {
+  const apply = async (change: Promise<Result<unknown>>) => {
     const result = await change;
     if (!result.ok) {
-      setError(result.message ?? t('That did not work.'));
+      setError(result);
       return false;
     }
     setError(null);
@@ -105,7 +106,7 @@ export function Labels({ api }: { api: Api }) {
     setApplied(null);
     const result = await api.applyRules();
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     const { changed } = result.value;
@@ -138,7 +139,7 @@ export function Labels({ api }: { api: Api }) {
           </button>
         ))}
       </div>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
 
       {labels === null ? <p className="muted">{t('Loading…')}</p> : null}
       {labels !== null && labels.length === 0 ? <p className="muted">{t(names.none)}</p> : null}
@@ -232,7 +233,7 @@ export function Labels({ api }: { api: Api }) {
         <button type="button" className="secondary" onClick={() => void applyRules()}>
           {t('Apply rules to documents already here')}
         </button>{' '}
-        {applied === null ? null : <span className="badge ok">{applied}</span>}
+        <Status ok={applied} inline />
       </p>
 
       <h2>{t(names.heading)}</h2>
