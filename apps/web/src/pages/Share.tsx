@@ -3,6 +3,7 @@ import type { ShareLink } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { when } from '../format';
 import { mark, t } from '../i18n';
+import { Status, type Problem } from '../status';
 
 const EXPIRY: readonly { days: number | null; text: string }[] = [
   { days: 7, text: mark('for a week') },
@@ -15,7 +16,7 @@ const EXPIRY: readonly { days: number | null; text: string }[] = [
 export function Share({ api, sha256 }: { api: Api; sha256: string }) {
   const [links, setLinks] = useState<readonly ShareLink[]>([]);
   const [days, setDays] = useState<number | null>(7);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
   useEffect(() => {
@@ -31,7 +32,7 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
   const create = async () => {
     const result = await api.createShareLink(sha256, days);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setError(null);
@@ -41,7 +42,7 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
   const revoke = async (id: number) => {
     const result = await api.revokeShareLink(id);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setLinks((current) => current.filter((link) => link.id !== id));
@@ -109,7 +110,7 @@ export function Share({ api, sha256 }: { api: Api; sha256: string }) {
           {t('Make a link')}
         </button>
       </div>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
     </section>
   );
 }

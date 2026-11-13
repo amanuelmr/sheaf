@@ -1,4 +1,4 @@
-import type { ErrorBody } from '@sheaf/protocol';
+import type { ErrorBody, ErrorCode } from '@sheaf/protocol';
 import { t } from './i18n';
 
 /**
@@ -10,64 +10,64 @@ export interface Failure {
   readonly ok: false;
   readonly message: string;
   readonly detail?: string;
+  /** The server's error code, when it gave one or the status implies one. */
+  readonly code?: ErrorCode;
 }
 
-const failure = (message: string, detail?: string): Failure =>
-  detail === undefined || detail === '' ? { ok: false, message } : { ok: false, message, detail };
+const failure = (message: string, detail?: string, code?: ErrorCode | null): Failure => ({
+  ok: false,
+  message,
+  ...(detail === undefined || detail === '' ? {} : { detail }),
+  ...(code === undefined || code === null ? {} : { code }),
+});
 
 /** The server said no: its error code decides the sentence. */
 export function failureFor(status: number, body: Partial<ErrorBody> | null): Failure {
   const detail = body?.detail;
   const technical = [body?.error ?? `HTTP ${String(status)}`, detail].filter(Boolean).join(': ');
-  switch (body?.error ?? codeOf(status)) {
+  const code = body?.error ?? codeOf(status);
+  const said = (message: string) => failure(message, technical, code);
+  switch (code) {
     case 'unauthenticated':
-      return failure(t('Your sign-in has ended or the token is wrong. Sign in again.'), technical);
+      return said(t('Your sign-in has ended or the token is wrong. Sign in again.'));
     case 'forbidden':
-      return failure(t('You don’t have permission to do that.'), technical);
+      return said(t('You don’t have permission to do that.'));
     case 'not_found':
-      return failure(t('That isn’t there any more; it may have been deleted.'), technical);
+      return said(t('That isn’t there any more; it may have been deleted.'));
     case 'too_large':
-      return failure(t('That is too large for the server to take.'), technical);
+      return said(t('That is too large for the server to take.'));
     case 'rate_limited':
-      return failure(t('Too many tries. Wait a few minutes, then try again.'), technical);
+      return said(t('Too many tries. Wait a few minutes, then try again.'));
     case 'device_revoked':
-      return failure(t('This device was removed from the server.'), technical);
+      return said(t('This device was removed from the server.'));
     case 'pairing_invalid':
-      return failure(t('That pairing code has run out or was used already.'), technical);
+      return said(t('That pairing code has run out or was used already.'));
     case 'archive_disabled':
-      return failure(t('Sending documents on isn’t set up on this server.'), technical);
+      return said(t('Sending documents on isn’t set up on this server.'));
     case 'released':
-      return failure(t('This document was handed on and isn’t kept here any more.'), technical);
+      return said(t('This document was handed on and isn’t kept here any more.'));
     case 'hash_mismatch':
-      return failure(t('The file changed on its way to the server. Try again.'), technical);
+      return said(t('The file changed on its way to the server. Try again.'));
     // Written for people: what clashed, or what to change.
     case 'conflict':
-      return failure(
-        detail === undefined ? t('That clashes with something already saved.') : detail,
-        technical,
-      );
+      return said(detail === undefined ? t('That clashes with something already saved.') : detail);
     case 'bad_request':
     case 'malformed_id':
-      return failure(
+      return said(
         detail === undefined
           ? t('The server didn’t accept that.')
           : t('The server didn’t accept that: {reason}', { reason: detail }),
-        technical,
       );
     case 'server_error':
-      return failure(
+      return said(
         body?.requestId === undefined
           ? t('Something went wrong on the server. Try again in a moment.')
           : t('Something went wrong on the server. Try again; the server log has it as {id}.', {
               id: body.requestId,
             }),
-        technical,
       );
     case null:
-      return failure(
-        t('The server answered with an error ({status}).', { status: String(status) }),
-        technical,
-      );
+      return said(t('The server answered with an error ({status}).', { status: String(status) }));
   }
 }
 
@@ -97,7 +97,7 @@ export function unreachable(error: unknown): Failure {
   );
 }
 
-function codeOf(status: number): ErrorBody['error'] | null {
+function codeOf(status: number): ErrorCode | null {
   if (status === 401) return 'unauthenticated';
   if (status === 403) return 'forbidden';
   if (status === 404) return 'not_found';

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { TrashResponse } from '@sheaf/protocol';
-import type { Api } from '../api';
+import type { Api, Result } from '../api';
 
 import { shortSha, when } from '../format';
 import { t } from '../i18n';
 import { href } from '../route';
+import { Status, type Problem } from '../status';
 
 /**
  * Deleted documents, until the server deletes them for good. Restoring is one click;
@@ -12,33 +13,34 @@ import { href } from '../route';
  */
 export function Trash({ api }: { api: Api }) {
   const [trash, setTrash] = useState<TrashResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   /** The document about to be deleted for good, or 'all', awaiting a second click. */
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.trash();
     if (result.ok) setTrash(result.value);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const act = async (work: Promise<{ ok: boolean; message?: string }>) => {
+  const act = async (work: Promise<Result<unknown>>) => {
     const result = await work;
     setConfirming(null);
-    if (!result.ok) setError(result.message ?? t('That did not work.'));
+    if (!result.ok) setError(result);
     else setError(null);
     await load();
   };
 
   if (trash === null) {
-    return error === null ? (
-      <p className="muted">{t('Loading…')}</p>
-    ) : (
-      <p className="error">{error}</p>
+    return (
+      <>
+        <Status error={error} />
+        {error === null ? <p className="muted">{t('Loading…')}</p> : null}
+      </>
     );
   }
 
@@ -50,7 +52,7 @@ export function Trash({ api }: { api: Api }) {
           days: trash.purgeAfterDays,
         })}
       </p>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
       {trash.documents.length === 0 ? (
         <p className="muted">{t('The trash is empty.')}</p>
       ) : (

@@ -163,6 +163,23 @@ button.secondary {
   margin-bottom: 16px;
 }
 
+/* Live regions: always in the page, taking no room until they say something. */
+.status.block,
+.status.block > .error {
+  display: block;
+}
+
+.technical {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: -8px 0 16px;
+}
+
+.technical code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .muted {
   color: var(--text-muted);
   font-size: 13px;

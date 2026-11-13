@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CUSTOM_FIELD_TYPES, type CustomField, type CustomFieldType } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { mark, t } from '../i18n';
+import { Status, type Problem } from '../status';
 
 /** Each kind's name, marked here and put through `t` where it is drawn. */
 export const TYPE_LABELS: Readonly<Record<CustomFieldType, string>> = {
@@ -19,7 +20,7 @@ export const TYPE_LABELS: Readonly<Record<CustomFieldType, string>> = {
 /** Custom fields: the details you want to track that Sheaf does not read on its own. */
 export function Fields({ api }: { api: Api }) {
   const [fields, setFields] = useState<readonly CustomField[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [name, setName] = useState('');
   const [type, setType] = useState<CustomFieldType>('text');
   const [options, setOptions] = useState('');
@@ -29,7 +30,7 @@ export function Fields({ api }: { api: Api }) {
   const load = useCallback(async () => {
     const result = await api.customFields();
     if (result.ok) setFields(result.value.fields);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export function Fields({ api }: { api: Api }) {
       ...(required ? { required } : {}),
     });
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setName('');
@@ -62,7 +63,7 @@ export function Fields({ api }: { api: Api }) {
   const remove = async (id: number) => {
     const result = await api.deleteCustomField(id);
     setConfirming(null);
-    if (!result.ok) setError(result.message);
+    if (!result.ok) setError(result);
     await load();
   };
 
@@ -72,7 +73,7 @@ export function Fields({ api }: { api: Api }) {
       <p className="subtitle">
         {t('Details you want to keep on documents, like an invoice number or a warranty date.')}
       </p>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
 
       {fields === null ? <p className="muted">{t('Loading…')}</p> : null}
       {fields !== null && fields.length === 0 ? (
@@ -98,7 +99,7 @@ export function Fields({ api }: { api: Api }) {
                     void api
                       .updateCustomField(field.id, { required: event.target.checked })
                       .then((result) => {
-                        if (!result.ok) setError(result.message);
+                        if (!result.ok) setError(result);
                         return load();
                       })
                   }

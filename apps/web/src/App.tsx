@@ -21,6 +21,7 @@ import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
 import { finishSingleSignOn, startSingleSignOn } from './sso';
 import { LANGUAGES, mark, setLanguage, t, useLanguage, type Language } from './i18n';
+import { Status, type Problem } from './status';
 
 /**
  * Back from single sign-on: keep the session like any connection, and take the
@@ -65,7 +66,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
   const [useAccount, setUseAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -75,7 +76,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
       if (server === '' || username.trim() === '' || password === '') return;
       const signed = await signIn(server, username.trim().toLowerCase(), password);
       if (!signed.ok) {
-        setError(signed.message);
+        setError(signed);
         return;
       }
       secret = signed.value.token;
@@ -85,7 +86,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
     // Check before keeping it, so a typo is caught here rather than on every page.
     const health = await makeApi(connection).health();
     if (!health.ok) {
-      setError(health.message);
+      setError(health);
       return;
     }
     saveConnection(connection);
@@ -157,7 +158,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
             />
           </>
         )}
-        {error === null ? null : <p className="error">{error}</p>}
+        <Status error={error} />
         <button type="submit">{t('Connect')}</button>
         <SingleSignOn baseUrl={baseUrl} />
         <p className="muted small">{t('The token is forgotten when you close this tab.')}</p>
@@ -190,12 +191,14 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
   const toReview = useInboxCount(api, route);
   const [role, setRole] = useState<Role | null>(null);
   const [who, setWho] = useState<string | null>(null);
+  const [failed, setFailed] = useState<Problem | null>(null);
   useEffect(() => {
     void api.me().then((result) => {
       if (result.ok) {
         setRole(result.value.role);
         setWho(result.value.name);
       }
+      setFailed(result.ok ? null : result);
     });
   }, [api]);
   const signOut = async () => {
@@ -231,6 +234,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
         </button>
       </header>
       <main>
+        <Status error={failed} />
         {role !== null && role !== 'admin' && ADMIN_PAGES.has(route.page) ? (
           <p className="muted">
             {t('This page is for admins.')}{' '}

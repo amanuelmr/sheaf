@@ -5,6 +5,7 @@ import { shortSha, when } from '../format';
 import { t } from '../i18n';
 import { initialRows, move, pagesToSend, parseParts, turn, type PageRow } from '../page-edit';
 import { href } from '../route';
+import { Status, type Problem } from '../status';
 
 /** Turn, remove, reorder or split a document's pages, and see its earlier files. */
 export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
@@ -14,7 +15,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
   const [parts, setParts] = useState('');
   const [keepOriginal, setKeepOriginal] = useState(false);
   const [made, setMade] = useState<readonly string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -41,7 +42,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
     if (pages === null) return;
     const result = await api.editPages(sha256, pages);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     goTo(result.value.sha256);
@@ -60,7 +61,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
     }
     const result = await api.split(sha256, chosen, keepOriginal);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     setError(null);
@@ -70,7 +71,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
   const restore = async (version: string) => {
     const result = await api.restoreVersion(sha256, version);
     if (!result.ok) {
-      setError(result.message);
+      setError(result);
       return;
     }
     goTo(result.value.sha256);
@@ -79,7 +80,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
   const view = async (version: string) => {
     const result = await api.versionPdf(sha256, version);
     if (result.ok) window.open(result.value, '_blank', 'noopener');
-    else setError(result.message);
+    else setError(result);
   };
 
   if (count === null) return null;
@@ -228,7 +229,7 @@ export function Pages({ api, sha256 }: { api: Api; sha256: string }) {
           </ul>
         </>
       )}
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
     </section>
   );
 }

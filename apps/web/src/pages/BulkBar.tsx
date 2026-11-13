@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BulkAction, Label, LabelKind, SearchHit } from '@sheaf/protocol';
 import type { Api } from '../api';
 import { mark, t } from '../i18n';
+import { Status, type Notice } from '../status';
 
 type Choice =
   | 'setCorrespondent'
@@ -62,7 +63,7 @@ export function BulkBar({
 }) {
   const [choice, setChoice] = useState<Choice>('addTag');
   const [value, setValue] = useState('');
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
   const allShown = hits.length > 0 && hits.every((hit) => selected.has(hit.sha256));
 
   const names =
@@ -83,7 +84,7 @@ export function BulkBar({
       const ordered = hits.map((hit) => hit.sha256).filter((sha) => selected.has(sha));
       const merged = await api.merge(ordered, false);
       if (!merged.ok) {
-        setMessage({ ok: false, text: merged.message });
+        setMessage({ ok: false, text: merged });
         return;
       }
       setSelected(new Set());
@@ -94,7 +95,7 @@ export function BulkBar({
     if (action === null) return;
     const result = await api.bulkEdit([...selected], action);
     if (!result.ok) {
-      setMessage({ ok: false, text: result.message });
+      setMessage({ ok: false, text: result });
       return;
     }
     const { changed } = result.value;
@@ -169,9 +170,7 @@ export function BulkBar({
           </button>
         </form>
       )}
-      {message === null ? null : (
-        <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>
-      )}
+      <Status notice={message} inline />
     </div>
   );
 }

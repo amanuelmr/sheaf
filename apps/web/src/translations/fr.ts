@@ -252,7 +252,6 @@ export const fr: Readonly<Record<string, string>> = {
   'New document type': 'Nouveau type de document',
   'Add document type': 'Ajouter le type de document',
   'Delete document type {name}': 'Supprimer le type de document {name}',
-  'That did not work.': 'Cela n’a pas fonctionné.',
   'Filed 1 document.': '1 document classé.',
   'Filed {count} documents.': '{count} documents classés.',
   'The names documents are filed under. Renaming or merging one changes every document that carries it.':
@@ -425,7 +424,6 @@ export const fr: Readonly<Record<string, string>> = {
   'At least {count} characters.': 'Au moins {count} caractères.',
   Role: 'Rôle',
   'Add user': 'Ajouter l’utilisateur',
-  'Couldn’t reach the server: {reason}': 'Impossible de joindre le serveur : {reason}',
   Storage: 'Stockage',
   'Documents held': 'Documents conservés',
   Forwarding: 'Transfert',
@@ -551,4 +549,5 @@ export const fr: Readonly<Record<string, string>> = {
   'Wrong username or password.': 'Nom d’utilisateur ou mot de passe incorrect.',
   'The server sent something that isn’t a PDF.':
     'Le serveur a envoyé quelque chose qui n’est pas un PDF.',
+  'Technical details': 'Détails techniques',
 };

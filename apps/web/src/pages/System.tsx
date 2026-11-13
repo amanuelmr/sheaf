@@ -14,6 +14,8 @@ import { forgetAsnSeries } from '../asn-series';
 import { shortSha, when } from '../format';
 import { mark, t } from '../i18n';
 import { href } from '../route';
+import type { Failure } from '../errors';
+import { Status, type Problem, type Notice } from '../status';
 
 const POLL_MS = 5_000;
 
@@ -32,7 +34,7 @@ function withCode(text: string, name: string, code: string) {
 /** The server's own health: documents held, forwarding, reconciliation, retention. */
 export function System({ api }: { api: Api }) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +49,7 @@ export function System({ api }: { api: Api }) {
         setHealth(result.value);
         setError(null);
       } else {
-        setError(result.message);
+        setError(result);
       }
     }
 
@@ -63,9 +65,7 @@ export function System({ api }: { api: Api }) {
     <>
       <h1>{t('System')}</h1>
 
-      {error === null ? null : (
-        <p className="error">{t('Couldn’t reach the server: {reason}', { reason: error })}</p>
-      )}
+      <Status error={error} />
 
       {health === null ? (
         <p className="muted">{t('Loading…')}</p>
@@ -192,11 +192,13 @@ function AsnSeriesCard({ api }: { api: Api }) {
   const [series, setSeries] = useState<readonly AsnSeries[] | null>(null);
   const [prefix, setPrefix] = useState('');
   const [name, setName] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Problem | null>(null);
+  const [failed, setFailed] = useState<Failure | null>(null);
 
   const load = async () => {
     const result = await api.asnSeries();
     if (result.ok) setSeries(result.value.series);
+    setFailed(result.ok ? null : result);
   };
   useEffect(() => {
     void load();
@@ -211,7 +213,7 @@ function AsnSeriesCard({ api }: { api: Api }) {
       return;
     }
     const result = await api.createAsnSeries(body);
-    setMessage(result.ok ? null : result.message);
+    setMessage(result.ok ? null : result);
     if (!result.ok) return;
     setPrefix('');
     setName('');
@@ -221,12 +223,12 @@ function AsnSeriesCard({ api }: { api: Api }) {
 
   const remove = async (s: AsnSeries) => {
     const result = await api.deleteAsnSeries(s.prefix);
-    setMessage(result.ok ? null : result.message);
+    setMessage(result.ok ? null : result);
     forgetAsnSeries();
     await load();
   };
 
-  if (series === null) return null;
+  if (series === null) return <Unloaded title={t('Serial number series')} error={failed} />;
   return (
     <div className="card">
       <h2>{t('Serial number series')}</h2>
@@ -277,7 +279,7 @@ function AsnSeriesCard({ api }: { api: Api }) {
           </button>
         </div>
       </form>
-      {message === null ? null : <p className="error">{message}</p>}
+      <Status error={message} />
     </div>
   );
 }
@@ -285,9 +287,11 @@ function AsnSeriesCard({ api }: { api: Api }) {
 function RecentChanges({ api }: { api: Api }) {
   const [entries, setEntries] = useState<readonly AuditEntry[] | null>(null);
   const [more, setMore] = useState(true);
+  const [failed, setFailed] = useState<Failure | null>(null);
 
   const load = async (before?: number) => {
     const result = await api.audit(before);
+    setFailed(result.ok ? null : result);
     if (!result.ok) return;
     setEntries((current) => [
       ...(before === undefined ? [] : (current ?? [])),
@@ -300,10 +304,11 @@ function RecentChanges({ api }: { api: Api }) {
     void load();
   }, [api]);
 
-  if (entries === null) return null;
+  if (entries === null) return <Unloaded title={t('Recent changes')} error={failed} />;
   return (
     <div className="card">
       <h2>{t('Recent changes')}</h2>
+      {entries.length === 0 ? null : <Status error={failed} />}
       {entries.length === 0 ? <p className="muted">{t('Nothing changed yet.')}</p> : null}
       <ol className="timeline">
         {entries.map((entry) => (
@@ -343,10 +348,12 @@ function ServerSettingsCard({ api }: { api: Api }) {
     Record<keyof ServerSettings, SettingSource>
   > | null>(null);
   const [draft, setDraft] = useState<ServerSettings | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<Notice | null>(null);
+  const [failed, setFailed] = useState<Failure | null>(null);
 
   useEffect(() => {
     void api.settings().then((result) => {
+      setFailed(result.ok ? null : result);
       if (!result.ok) return;
       setSettings(result.value.settings);
       setSources(result.value.sources);
@@ -354,7 +361,8 @@ function ServerSettingsCard({ api }: { api: Api }) {
     });
   }, [api]);
 
-  if (settings === null || draft === null || sources === null) return null;
+  if (settings === null || draft === null || sources === null)
+    return <Unloaded title={t('Settings')} error={failed} />;
 
   const changed = (Object.keys(draft) as (keyof ServerSettings)[]).filter(
     (key) => draft[key] !== settings[key],
@@ -365,7 +373,7 @@ function ServerSettingsCard({ api }: { api: Api }) {
   const save = async (patch: Partial<Record<keyof ServerSettings, unknown>>) => {
     const result = await api.updateSettings(patch);
     if (!result.ok) {
-      setMessage({ ok: false, text: result.message });
+      setMessage({ ok: false, text: result });
       return;
     }
     setSettings(result.value.settings);
@@ -475,10 +483,19 @@ function ServerSettingsCard({ api }: { api: Api }) {
         <button type="submit" disabled={changed.length === 0 || problem !== null}>
           {t('Save settings')}
         </button>
-        {message === null ? null : (
-          <span className={message.ok ? 'badge ok' : 'error'}>{message.text}</span>
-        )}
+        <Status notice={message} inline />
       </p>
     </form>
+  );
+}
+
+/** A card that could not load: left out when it is not this person's, otherwise says why. */
+function Unloaded({ title, error }: { title: string; error: Failure | null }) {
+  if (error === null || error.code === 'forbidden') return null;
+  return (
+    <div className="card">
+      <h2>{title}</h2>
+      <Status error={error} />
+    </div>
   );
 }

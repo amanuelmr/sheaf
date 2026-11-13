@@ -6,6 +6,7 @@ import { shortSha, when } from '../format';
 import { href } from '../route';
 import { Upload } from './Upload';
 import { Accuracy } from './Accuracy';
+import { Status, type Problem } from '../status';
 
 /** Fired when the inbox changes, so the count in the navigation can follow. */
 export const INBOX_CHANGED = 'sheaf:inbox-changed';
@@ -17,12 +18,12 @@ export const INBOX_CHANGED = 'sheaf:inbox-changed';
 export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
   const [entries, setEntries] = useState<readonly InboxEntry[] | null>(null);
   const [selected, setSelected] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.inbox();
     if (result.ok) setEntries(result.value.documents);
-    else setError(result.message);
+    else setError(result);
   }, [api]);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
         ...(documentType === undefined ? {} : { documentType }),
         ...(tags === undefined ? {} : { tags }),
       });
-      if (!result.ok) setError(result.message);
+      if (!result.ok) setError(result);
       await load();
       window.dispatchEvent(new Event(INBOX_CHANGED));
     },
@@ -61,10 +62,11 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
   }, [entries, selected, accept]);
 
   if (entries === null)
-    return error === null ? (
-      <p className="muted">{t('Loading…')}</p>
-    ) : (
-      <p className="error">{error}</p>
+    return (
+      <>
+        <Status error={error} />
+        {error === null ? <p className="muted">{t('Loading…')}</p> : null}
+      </>
     );
 
   return (
@@ -76,7 +78,7 @@ export function Inbox({ api, canAdd }: { api: Api; canAdd: boolean }) {
         <kbd>j</kbd> <kbd>k</kbd> {t('to move')}, <kbd>a</kbd> {t('to accept')}, <kbd>e</kbd>{' '}
         {t('to edit')}.
       </p>
-      {error === null ? null : <p className="error">{error}</p>}
+      <Status error={error} />
       {entries.length === 0 ? (
         <p className="muted">{t('Nothing waiting. Everything read has been filed.')}</p>
       ) : null}
