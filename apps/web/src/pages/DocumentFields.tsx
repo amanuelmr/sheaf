@@ -47,7 +47,7 @@ export function DocumentFields({
       ]);
       if (!current) return;
       if (!defs.ok || !values.ok) {
-        setError(!defs.ok ? defs.message : !values.ok ? values.message : null);
+        setError(!defs.ok ? defs : !values.ok ? values : null);
         return;
       }
       setDefinitions(defs.value.fields);
