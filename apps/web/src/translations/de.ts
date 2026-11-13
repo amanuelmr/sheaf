@@ -1,7 +1,5 @@
 /** German, keyed by the English it replaces. */
 export const de: Readonly<Record<string, string>> = {
-  'Couldn’t sign in: {reason}': 'Anmeldung fehlgeschlagen: {reason}',
-  'Couldn’t connect: {reason}': 'Keine Verbindung: {reason}',
   'Your documents, on your server. Connect with the admin token it was started with.':
     'Deine Dokumente, auf deinem Server. Verbinde dich mit dem Admin-Token, mit dem er gestartet wurde.',
   'Server address': 'Serveradresse',
@@ -515,4 +513,38 @@ export const de: Readonly<Record<string, string>> = {
   'Nothing stored yet. Scan something.': 'Noch nichts gespeichert. Scanne etwas.',
   'Nothing here.': 'Hier ist nichts.',
   'Saved view': 'Ansicht',
+  'Your sign-in has ended or the token is wrong. Sign in again.':
+    'Deine Anmeldung ist abgelaufen oder das Token ist falsch. Melde dich erneut an.',
+  'You don’t have permission to do that.': 'Dazu hast du keine Berechtigung.',
+  'That isn’t there any more; it may have been deleted.':
+    'Das gibt es nicht mehr; vielleicht wurde es gelöscht.',
+  'That is too large for the server to take.': 'Das ist zu groß für den Server.',
+  'Too many tries. Wait a few minutes, then try again.':
+    'Zu viele Versuche. Warte ein paar Minuten und versuche es dann erneut.',
+  'This device was removed from the server.': 'Dieses Gerät wurde vom Server entfernt.',
+  'That pairing code has run out or was used already.':
+    'Dieser Kopplungscode ist abgelaufen oder wurde schon benutzt.',
+  'Sending documents on isn’t set up on this server.':
+    'Das Weitergeben von Dokumenten ist auf diesem Server nicht eingerichtet.',
+  'This document was handed on and isn’t kept here any more.':
+    'Dieses Dokument wurde weitergegeben und wird hier nicht mehr aufbewahrt.',
+  'The file changed on its way to the server. Try again.':
+    'Die Datei hat sich auf dem Weg zum Server verändert. Versuche es erneut.',
+  'That clashes with something already saved.':
+    'Das widerspricht etwas, das schon gespeichert ist.',
+  'The server didn’t accept that.': 'Der Server hat das nicht angenommen.',
+  'The server didn’t accept that: {reason}': 'Der Server hat das nicht angenommen: {reason}',
+  'Something went wrong on the server. Try again in a moment.':
+    'Auf dem Server ist etwas schiefgelaufen. Versuche es gleich noch einmal.',
+  'Something went wrong on the server. Try again; the server log has it as {id}.':
+    'Auf dem Server ist etwas schiefgelaufen. Versuche es erneut; im Serverprotokoll steht es unter {id}.',
+  'The server answered with an error ({status}).':
+    'Der Server hat mit einem Fehler geantwortet ({status}).',
+  'The server sent an answer the app can’t read. Is this the Sheaf server’s address?':
+    'Der Server hat eine Antwort geschickt, die die App nicht lesen kann. Ist das die Adresse des Sheaf-Servers?',
+  'Couldn’t reach the server. Check the address and that the server is running.':
+    'Der Server ist nicht erreichbar. Prüfe die Adresse und ob der Server läuft.',
+  'Wrong username or password.': 'Falscher Benutzername oder falsches Passwort.',
+  'The server sent something that isn’t a PDF.':
+    'Der Server hat etwas geschickt, das kein PDF ist.',
 };

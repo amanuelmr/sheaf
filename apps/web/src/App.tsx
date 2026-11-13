@@ -75,7 +75,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
       if (server === '' || username.trim() === '' || password === '') return;
       const signed = await signIn(server, username.trim().toLowerCase(), password);
       if (!signed.ok) {
-        setError(t('Couldn’t sign in: {reason}', { reason: signed.message }));
+        setError(signed.message);
         return;
       }
       secret = signed.value.token;
@@ -85,7 +85,7 @@ function ConnectScreen({ onConnect }: { onConnect: (connection: Connection) => v
     // Check before keeping it, so a typo is caught here rather than on every page.
     const health = await makeApi(connection).health();
     if (!health.ok) {
-      setError(t('Couldn’t connect: {reason}', { reason: health.message }));
+      setError(health.message);
       return;
     }
     saveConnection(connection);
