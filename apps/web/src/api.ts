@@ -165,7 +165,7 @@ export function api(connection: Connection) {
           headers: headers(),
         });
         if (!response.ok) return await refused(response);
-        return pdfUrl(await response.arrayBuffer());
+        return await pdfUrl(await response.blob());
       } catch (error) {
         return unreachable(error);
       }
@@ -315,7 +315,7 @@ export function api(connection: Connection) {
       try {
         const response = await fetch(url(paths.document(sha256)), { headers: headers() });
         if (!response.ok) return await refused(response);
-        return pdfUrl(await response.arrayBuffer());
+        return await pdfUrl(await response.blob());
       } catch (error) {
         return unreachable(error);
       }
@@ -349,15 +349,12 @@ export async function signIn(
 }
 
 /**
- * Bytes to show in the page as a PDF, refused unless they start like one. Whatever type
+ * A file to show in the page as a PDF, refused unless it starts like one. Whatever type
  * the server claims, the blob is a PDF, so HTML from a wrong server never runs here.
  */
-export function pdfUrl(bytes: ArrayBuffer): Result<string> {
-  const head = String.fromCharCode(...new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 5)));
-  if (head !== '%PDF-')
+export async function pdfUrl(file: Blob): Promise<Result<string>> {
+  if ((await file.slice(0, 5).text()) !== '%PDF-')
     return { ok: false, message: t('The server sent something that isn’t a PDF.') };
-  return {
-    ok: true,
-    value: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })),
-  };
+  // A slice with the type set shares the bytes rather than copying them.
+  return { ok: true, value: URL.createObjectURL(file.slice(0, file.size, 'application/pdf')) };
 }

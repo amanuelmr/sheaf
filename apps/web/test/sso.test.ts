@@ -61,15 +61,15 @@ suite('single sign-on in the web app', () => {
 });
 
 suite('showing a document', () => {
-  const bytes = (text: string) => new TextEncoder().encode(text).buffer;
+  const file = (text: string, type = 'text/html') => new Blob([text], { type });
 
-  it('shows a PDF as a PDF', () => {
-    const result = pdfUrl(bytes('%PDF-1.7\n...'));
+  it('shows a PDF as a PDF', async () => {
+    const result = await pdfUrl(file('%PDF-1.7\n...'));
     expect(result.ok).toBe(true);
   });
 
-  it('refuses anything else, so a page from a wrong server never runs', () => {
-    expect(pdfUrl(bytes('<script>steal()</script>')).ok).toBe(false);
-    expect(pdfUrl(bytes('')).ok).toBe(false);
+  it('refuses anything else, so a page from a wrong server never runs', async () => {
+    expect((await pdfUrl(file('<script>steal()</script>', 'application/pdf'))).ok).toBe(false);
+    expect((await pdfUrl(file(''))).ok).toBe(false);
   });
 });
