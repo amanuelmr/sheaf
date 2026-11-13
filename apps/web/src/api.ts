@@ -164,7 +164,7 @@ export function api(connection: Connection) {
           headers: headers(),
         });
         if (!response.ok) return { ok: false, message: await explain(response) };
-        return { ok: true, value: URL.createObjectURL(await response.blob()) };
+        return pdfUrl(await response.arrayBuffer());
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
@@ -314,7 +314,7 @@ export function api(connection: Connection) {
       try {
         const response = await fetch(url(paths.document(sha256)), { headers: headers() });
         if (!response.ok) return { ok: false, message: await explain(response) };
-        return { ok: true, value: URL.createObjectURL(await response.blob()) };
+        return pdfUrl(await response.arrayBuffer());
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
@@ -344,6 +344,19 @@ export async function signIn(
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * Bytes to show in the page as a PDF, refused unless they start like one. Whatever type
+ * the server claims, the blob is a PDF, so HTML from a wrong server never runs here.
+ */
+export function pdfUrl(bytes: ArrayBuffer): Result<string> {
+  const head = String.fromCharCode(...new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 5)));
+  if (head !== '%PDF-') return { ok: false, message: 'the server did not send a PDF' };
+  return {
+    ok: true,
+    value: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })),
+  };
 }
 
 async function explain(response: Response): Promise<string> {

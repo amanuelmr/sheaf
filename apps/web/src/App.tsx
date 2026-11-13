@@ -19,20 +19,22 @@ import { Search } from './pages/Search';
 import { System } from './pages/System';
 import { Trash } from './pages/Trash';
 import { href, useRoute, type Route } from './route';
+import { finishSingleSignOn, startSingleSignOn } from './sso';
 import { LANGUAGES, mark, setLanguage, t, useLanguage, type Language } from './i18n';
 
 /**
- * Back from single sign-on: the server put a session token and its own address in
- * the fragment. Keep them like any connection, and take them out of the address
- * bar and the history at once.
+ * Back from single sign-on: keep the session like any connection, and take the
+ * fragment out of the address bar and the history at once, even when refused.
  */
 function fromSingleSignOn(): Connection | null {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  const token = params.get('sso');
-  const server = params.get('server');
-  if (token === null || server === null || !/^https?:\/\//.test(server)) return null;
-  const connection: Connection = { baseUrl: server, token };
-  saveConnection(connection);
+  if (!/(^#|&)sso=/.test(window.location.hash)) return null;
+  let connection: Connection | null = null;
+  try {
+    connection = finishSingleSignOn(window.location.hash, sessionStorage);
+  } catch {
+    // Storage refused: no sign-in this tab started can be told apart, so none is.
+  }
+  if (connection !== null) saveConnection(connection);
   window.history.replaceState(
     null,
     '',
@@ -323,8 +325,18 @@ function SingleSignOn({ baseUrl }: { baseUrl: string }) {
   }, [server]);
   if (provider === null) return null;
   return (
-    <a className="button secondary" href={new URL(paths.ssoStart(), server).toString()}>
+    <button
+      type="button"
+      className="secondary"
+      onClick={() => {
+        try {
+          window.location.assign(startSingleSignOn(server, sessionStorage));
+        } catch {
+          setProvider(null);
+        }
+      }}
+    >
       {t('Sign in with {provider}', { provider })}
-    </a>
+    </button>
   );
 }
