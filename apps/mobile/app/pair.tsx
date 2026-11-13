@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -30,41 +30,45 @@ export default function Pair() {
   const { palette, connect } = useApp();
   const router = useRouter();
   const { server, code } = useLocalSearchParams<{ server?: string; code?: string }>();
-  const link = readPairingLink(server, code);
-  const [phase, setPhase] = useState<Phase>(
-    link.ok
-      ? { kind: 'confirm', link }
-      : {
-          kind: 'failed',
-          title: 'That isn’t a Sheaf pairing code.',
-          body: 'Open “Pair a phone” on your server and scan the code it shows.',
-        },
-  );
+  const [phase, setPhase] = useState<Phase>(() => firstPhase(server, code));
   // A code works once: never send it twice, even on a second tap.
   const started = useRef(false);
+  // The link on screen. The router may keep this screen open for a second link;
+  // that one starts over, and an answer about the first is no longer shown.
+  const shown = useRef(`${server ?? ''} ${code ?? ''}`);
+  useEffect(() => {
+    const key = `${server ?? ''} ${code ?? ''}`;
+    if (key === shown.current) return;
+    shown.current = key;
+    started.current = false;
+    setPhase(firstPhase(server, code));
+  }, [server, code]);
 
   const pair = useCallback(
     (target: Extract<PairingLink, { ok: true }>) => {
       if (started.current) return;
       started.current = true;
       setPhase({ kind: 'pairing' });
+      const key = shown.current;
       const deviceName = Constants.deviceName ?? 'Phone';
       void pairDevice(target.server, transport, { code: target.code, deviceName }).then(
         async (result) => {
           if (!result.ok) {
-            setPhase(
-              result.reason.kind === 'rejected'
-                ? {
-                    kind: 'failed',
-                    title: 'That code didn’t work.',
-                    body: 'Codes last five minutes and work once. Make a new one on your server and scan it again.',
-                  }
-                : { kind: 'failed', ...explained(result.reason) },
-            );
+            if (key === shown.current)
+              setPhase(
+                result.reason.kind === 'rejected'
+                  ? {
+                      kind: 'failed',
+                      title: 'That code didn’t work.',
+                      body: 'Codes last five minutes and work once. Make a new one on your server and scan it again.',
+                    }
+                  : { kind: 'failed', ...explained(result.reason) },
+              );
             return;
           }
+          // Said yes to, so it is kept even if another link is on screen by now.
           await connect({ name: target.host, baseUrl: target.server, token: result.value.token });
-          setPhase({ kind: 'paired', host: target.host });
+          if (key === shown.current) setPhase({ kind: 'paired', host: target.host });
         },
       );
     },
@@ -124,6 +128,17 @@ export default function Pair() {
       )}
     </View>
   );
+}
+
+function firstPhase(server: string | undefined, code: string | undefined): Phase {
+  const link = readPairingLink(server, code);
+  return link.ok
+    ? { kind: 'confirm', link }
+    : {
+        kind: 'failed',
+        title: 'That isn’t a Sheaf pairing code.',
+        body: 'Open “Pair a phone” on your server and scan the code it shows.',
+      };
 }
 
 function explained(reason: Parameters<typeof explainFailure>[0]): { title: string; body: string } {
