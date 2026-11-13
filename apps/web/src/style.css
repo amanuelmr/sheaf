@@ -165,17 +165,26 @@ button.secondary {
 
 /* Live regions: always in the page, taking no room until they say something. */
 .status.block,
-.status.block > .error {
+.status.block > .error,
+.status.block > .technical {
   display: block;
 }
 
 .technical {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.status.block > .technical {
   margin: -8px 0 16px;
 }
 
+.status:not(.block) > .technical {
+  margin-left: 8px;
+}
+
 .technical code {
+  display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
