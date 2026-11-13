@@ -58,13 +58,13 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
    * A transaction within one: a savepoint, so its failure undoes only its own writes.
    * Two started at once take turns, since rolling one back would undo the other too.
    */
-  const nested = <T>(parent: Scope, work: () => Promise<T>): Promise<T> => {
+  const nested = <T>(parent: Scope, work: (tx: SqlDriver) => Promise<T>): Promise<T> => {
     const turn = parent.queue.then(async () => {
       const name = `sheaf_${String(++savepoints)}`;
       const scope: Scope = { active: true, queue: Promise.resolve() };
       db.exec(`SAVEPOINT ${name}`);
       try {
-        const result = await inside.run(scope, work);
+        const result = await inside.run(scope, () => work(driver));
         db.exec(`RELEASE ${name}`);
         return result;
       } catch (error) {
@@ -79,7 +79,7 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
     return turn;
   };
 
-  const transaction = <T>(work: () => Promise<T>): Promise<T> => {
+  const transaction = <T>(work: (tx: SqlDriver) => Promise<T>): Promise<T> => {
     const current = inside.getStore();
     if (current?.active === true) return nested(current, work);
     const turn = queue.then(async () => {
@@ -89,7 +89,7 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
       try {
         db.exec('BEGIN');
         try {
-          const result = await inside.run(state, work);
+          const result = await inside.run(state, () => work(driver));
           db.exec('COMMIT');
           return result;
         } catch (error) {
@@ -107,7 +107,7 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
     return turn;
   };
 
-  return {
+  const driver: NodeSqliteDriver = {
     exec: (sql) => query(() => void db.exec(sql)),
     run: (sql, params: readonly SqlValue[] = []) =>
       query(() => void db.prepare(sql).run(...params)),
@@ -116,4 +116,5 @@ export function nodeSqliteDriver(filename = ':memory:'): NodeSqliteDriver {
     transaction,
     close: () => db.close(),
   };
+  return driver;
 }
