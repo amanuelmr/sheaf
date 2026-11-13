@@ -37,6 +37,11 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   const [error, setError] = useState<Problem | null>(null);
   const [pdfError, setPdfError] = useState<Problem | null>(null);
 
+  const name = record?.title ?? record?.suggestions?.title;
+  useEffect(() => {
+    document.title = `${name ?? t('The document')} · Sheaf`;
+  }, [name]);
+
   useEffect(() => {
     let url: string | null = null;
     void (async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api as makeApi, signIn, type Api } from './api';
 import { paths, type Role, type SsoResponse } from '@sheaf/protocol';
 import {
@@ -183,11 +183,25 @@ const NAV: readonly { route: Route; label: string }[] = [
   { route: { page: 'system' }, label: mark('System') },
 ];
 
+function pageName(page: Route['page']): string {
+  return NAV.find(({ route }) => route.page === page)?.label ?? mark('The document');
+}
+
 function Shell({ connection, onDisconnect }: { connection: Connection; onDisconnect: () => void }) {
   const api = useMemo(() => makeApi(connection), [connection]);
   const route = useRoute();
   // Every page below is drawn again in the new language when it changes.
-  useLanguage();
+  const language = useLanguage();
+  const main = useRef<HTMLElement>(null);
+  const shown = useRef<string | null>(null);
+  const where = route.page === 'document' ? route.sha256 : route.page;
+  // A new page gets its own title, and focus moves to it so a screen reader says so.
+  // Not on the first load, nor when typing in a search rewrites the address.
+  useEffect(() => {
+    if (route.page !== 'document') document.title = `${t(pageName(route.page))} · Sheaf`;
+    if (shown.current !== null && shown.current !== where) main.current?.focus();
+    shown.current = where;
+  }, [route.page, where, language]);
   const toReview = useInboxCount(api, route);
   const [role, setRole] = useState<Role | null>(null);
   const [who, setWho] = useState<string | null>(null);
@@ -233,7 +247,7 @@ function Shell({ connection, onDisconnect }: { connection: Connection; onDisconn
           {who === null ? t('Disconnect') : t('Sign out {name}', { name: who })}
         </button>
       </header>
-      <main>
+      <main ref={main} tabIndex={-1}>
         <Status error={failed} />
         {role !== null && role !== 'admin' && ADMIN_PAGES.has(route.page) ? (
           <p className="muted">

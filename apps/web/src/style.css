@@ -945,3 +945,8 @@ select.language {
 .page.narrow select.language {
   margin-bottom: 16px;
 }
+
+/* Focus moves here on a new page for screen readers; no ring for a mouse user. */
+main:focus {
+  outline: none;
+}
