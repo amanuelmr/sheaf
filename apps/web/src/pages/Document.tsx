@@ -73,6 +73,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   const [confirmTrash, setConfirmTrash] = useState(false);
 
   const moveToTrash = async () => {
+    setError(null);
     const result = await api.trashDocument(sha256);
     if (!result.ok) {
       setError(result);
@@ -83,6 +84,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
   };
 
   const restore = async () => {
+    setError(null);
     const result = await api.restore([sha256]);
     if (!result.ok) {
       setError(result);
@@ -134,7 +136,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
                   void api
                     .downloadSearchable(sha256, record.title ?? shortSha(sha256))
                     .then((r) => {
-                      if (!r.ok) setError(r);
+                      setError(r.ok ? null : r);
                     })
                 }
               >
@@ -158,6 +160,7 @@ export function Document({ api, sha256 }: { api: Api; sha256: string }) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        <Status error={error} />
         {record.trashedAt === undefined ? null : (
           <p className="card">
             {t('In the trash since {when}.', { when: when(record.trashedAt) })}{' '}

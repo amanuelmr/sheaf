@@ -489,9 +489,12 @@ function ServerSettingsCard({ api }: { api: Api }) {
   );
 }
 
-/** A card that could not load: left out when it is not this person's, otherwise says why. */
+/**
+ * A card that could not load: left out when it is not this person's or the server
+ * has no such feature set up (it answers "not found"), otherwise says why.
+ */
 function Unloaded({ title, error }: { title: string; error: Failure | null }) {
-  if (error === null || error.code === 'forbidden') return null;
+  if (error === null || error.code === 'forbidden' || error.code === 'not_found') return null;
   return (
     <div className="card">
       <h2>{title}</h2>
