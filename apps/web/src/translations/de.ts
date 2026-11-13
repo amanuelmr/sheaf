@@ -546,4 +546,6 @@ export const de: Readonly<Record<string, string>> = {
   'The server sent something that isn’t a PDF.':
     'Der Server hat etwas geschickt, das kein PDF ist.',
   'Technical details': 'Technische Details',
+  'In the list:': 'In der Liste:',
+  'Documents to review': 'Dokumente zum Prüfen',
 };

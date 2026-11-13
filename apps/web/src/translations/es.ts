@@ -543,4 +543,6 @@ export const es: Readonly<Record<string, string>> = {
   'Wrong username or password.': 'Usuario o contraseña incorrectos.',
   'The server sent something that isn’t a PDF.': 'El servidor envió algo que no es un PDF.',
   'Technical details': 'Detalles técnicos',
+  'In the list:': 'En la lista:',
+  'Documents to review': 'Documentos por revisar',
 };

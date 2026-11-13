@@ -90,7 +90,7 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
             type="file"
             multiple
             accept="application/pdf,application/epub+zip,.epub,image/*"
-            hidden
+            className="visually-hidden"
             onChange={(event) => {
               void send([...(event.target.files ?? [])]);
               event.target.value = '';
@@ -103,7 +103,7 @@ export function Upload({ api, onDone }: { api: Api; onDone: () => void }) {
             type="file"
             accept="image/*"
             capture="environment"
-            hidden
+            className="visually-hidden"
             onChange={(event) => {
               void send([...(event.target.files ?? [])]);
               event.target.value = '';
