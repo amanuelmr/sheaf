@@ -5,6 +5,12 @@ export interface RawSql {
   exec(sql: string): Promise<void>;
   run(sql: string, params: readonly SqlValue[]): Promise<void>;
   all<T>(sql: string, params: readonly SqlValue[]): Promise<readonly T[]>;
+  close(): Promise<void>;
+}
+
+/** The queued driver, closed in its turn so nothing is cut off halfway. */
+export interface QueuedDriver extends SqlDriver {
+  close(): Promise<void>;
 }
 
 /**
@@ -17,7 +23,7 @@ export interface RawSql {
  * A query made inside a transaction through the outer driver would wait for that
  * transaction forever: inside, always use the one handed in.
  */
-export function queuedDriver(raw: RawSql): SqlDriver {
+export function queuedDriver(raw: RawSql): QueuedDriver {
   let tail: Promise<unknown> = Promise.resolve();
   const turn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = tail.then(work);
@@ -26,7 +32,7 @@ export function queuedDriver(raw: RawSql): SqlDriver {
   };
   let savepoints = 0;
 
-  const outer: SqlDriver = {
+  const outer: QueuedDriver = {
     exec: (sql) => turn(() => raw.exec(sql)),
     run: (sql, params = []) => turn(() => raw.run(sql, params)),
     all: <T>(sql: string, params: readonly SqlValue[] = []) => turn(() => raw.all<T>(sql, params)),
@@ -35,6 +41,7 @@ export function queuedDriver(raw: RawSql): SqlDriver {
         await raw.exec('BEGIN');
         return held(work, 'COMMIT', 'ROLLBACK');
       }),
+    close: () => turn(() => raw.close()),
   };
 
   /**
@@ -81,15 +88,46 @@ export function queuedDriver(raw: RawSql): SqlDriver {
         return next;
       },
     };
-    try {
-      const result = await work(tx);
-      await raw.exec(done);
-      return result;
-    } catch (error) {
-      for (const sql of typeof undo === 'string' ? [undo] : undo) await raw.exec(sql);
-      throw error;
-    } finally {
+    // Nested transactions the work started but left running end before this one
+    // does; after that, anything else it left running queues.
+    const close = async () => {
+      let seen: Promise<unknown>;
+      do {
+        seen = inner;
+        await seen;
+      } while (seen !== inner);
       open = false;
+    };
+    let result: T;
+    try {
+      result = await work(tx);
+    } catch (error) {
+      await close();
+      await undoAll(undo);
+      throw error;
+    }
+    await close();
+    try {
+      await raw.exec(done);
+    } catch (error) {
+      await undoAll(undo);
+      throw error;
+    }
+    return result;
+  }
+
+  /**
+   * Each undo step runs even if one before it fails: SQLite may have rolled back on
+   * its own (a full disk, an I/O error), and then the error worth reporting is the
+   * one that caused it, not "no transaction is active".
+   */
+  async function undoAll(undo: string | readonly string[]) {
+    for (const sql of typeof undo === 'string' ? [undo] : undo) {
+      try {
+        await raw.exec(sql);
+      } catch {
+        // Already undone; the caller rethrows the cause.
+      }
     }
   }
 

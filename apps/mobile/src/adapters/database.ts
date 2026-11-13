@@ -1,11 +1,10 @@
 import * as SQLite from 'expo-sqlite';
 import { migrateArchiveCache } from '@sheaf/archive-cache';
 import { migrateOutboxOcr } from '@sheaf/outbox-ocr';
-import { migrate, queuedDriver, type SqlDriver, type SqlValue } from '@sheaf/store';
+import { migrate, queuedDriver, type QueuedDriver, type SqlValue } from '@sheaf/store';
 
-export interface Database extends SqlDriver {
-  close(): Promise<void>;
-}
+/** Closing waits its turn, so it never cuts off an append. */
+export type Database = QueuedDriver;
 
 /**
  * `expo-sqlite` behind the store's driver interface, so the schema and queries that
@@ -22,15 +21,15 @@ export async function openDatabase(name = 'sheaf.db'): Promise<Database> {
 
   // Not `withTransactionAsync`: Expo includes in it any query that runs while it is
   // open, from anywhere in the app, so a rollback could take an append with it.
-  const queued = queuedDriver({
+  const driver = queuedDriver({
     exec: (sql) => db.execAsync(sql),
     run: async (sql, params) => {
       await db.runAsync(sql, params as SQLite.SQLiteBindValue[]);
     },
     all: <T>(sql: string, params: readonly SqlValue[]) =>
       db.getAllAsync(sql, params as SQLite.SQLiteBindValue[]) as Promise<readonly T[]>,
+    close: () => db.closeAsync(),
   });
-  const driver: Database = { ...queued, close: () => db.closeAsync() };
 
   await migrate(driver);
   // Separate tables with nothing in common with the capture log except the file

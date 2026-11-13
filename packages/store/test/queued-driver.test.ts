@@ -15,6 +15,7 @@ async function table() {
     run: (sql, params: readonly SqlValue[]) => tick(() => void db.prepare(sql).run(...params)),
     all: <T>(sql: string, params: readonly SqlValue[]) =>
       tick(() => db.prepare(sql).all(...params) as unknown as readonly T[]),
+    close: () => tick(() => db.close()),
   });
   await driver.exec('CREATE TABLE t (v TEXT)');
   const values = async () =>
@@ -91,6 +92,43 @@ suite('the queued driver', () => {
       }),
     ).rejects.toThrow();
     expect(await values()).toEqual(['first', 'late']);
+  });
+
+  it('ends a nested transaction left running before the one around it', async () => {
+    const { driver, values } = await table();
+    await expect(
+      driver.transaction(async (tx) => {
+        void tx.transaction(async (inner) => {
+          await later(10);
+          await inner.run("INSERT INTO t VALUES ('nested')");
+        });
+        await Promise.resolve();
+        throw new Error('outer gave up');
+      }),
+    ).rejects.toThrow('outer gave up');
+    expect(await values()).toEqual([]);
+  });
+
+  it('reports what went wrong when SQLite already rolled back on its own', async () => {
+    const { driver, values } = await table();
+    await expect(
+      driver.transaction(async (tx) => {
+        await tx.exec('ROLLBACK');
+        throw new Error('disk full');
+      }),
+    ).rejects.toThrow('disk full');
+    await driver.run("INSERT INTO t VALUES ('after')");
+    expect(await values()).toEqual(['after']);
+  });
+
+  it('closes only once the open transaction ends', async () => {
+    const { driver } = await table();
+    const writing = driver.transaction(async (tx) => {
+      await later(10);
+      await tx.run("INSERT INTO t VALUES ('kept')");
+    });
+    await driver.close();
+    await expect(writing).resolves.toBeUndefined();
   });
 
   it('carries on after BEGIN itself fails', async () => {
