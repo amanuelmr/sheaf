@@ -25,6 +25,15 @@ suite('failures in the web app', () => {
     expect(failure.message).toContain('abc-123');
   });
 
+  it('goes by the status when the code is not one it knows', () => {
+    const failure = failureFor(404, { error: 'Not Found' as never });
+    expect(failure.message).toBe('That isn’t there any more; it may have been deleted.');
+    expect(failure.code).toBe('not_found');
+    expect(failureFor(418, { error: 'teapot' as never }).message).toBe(
+      'The server answered with an error (418).',
+    );
+  });
+
   it('reads the status when the answer is not the server’s JSON', async () => {
     const failure = await refused(new Response('<html>Bad gateway</html>', { status: 502 }));
     expect(failure.message).toBe('Something went wrong on the server. Try again in a moment.');

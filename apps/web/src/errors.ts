@@ -1,4 +1,4 @@
-import type { ErrorBody, ErrorCode } from '@sheaf/protocol';
+import { ERROR_STATUS, type ErrorBody, type ErrorCode } from '@sheaf/protocol';
 import { t } from './i18n';
 
 /**
@@ -23,9 +23,17 @@ const failure = (message: string, detail?: string, code?: ErrorCode | null): Fai
 
 /** The server said no: its error code decides the sentence. */
 export function failureFor(status: number, body: Partial<ErrorBody> | null): Failure {
-  const detail = body?.detail;
-  const technical = [body?.error ?? `HTTP ${String(status)}`, detail].filter(Boolean).join(': ');
-  const code = body?.error ?? codeOf(status);
+  const detail = typeof body?.detail === 'string' ? body.detail : undefined;
+  const technical = [
+    typeof body?.error === 'string' ? body.error : `HTTP ${String(status)}`,
+    detail,
+  ]
+    .filter(Boolean)
+    .join(': ');
+  // A code this app doesn't know, from a newer server or something else entirely,
+  // counts for no more than the status.
+  const given = body?.error;
+  const code = known(given) ? given : codeOf(status);
   const said = (message: string) => failure(message, technical, code);
   switch (code) {
     case 'unauthenticated':
@@ -95,6 +103,10 @@ export function unreachable(error: unknown): Failure {
     t('Couldn’t reach the server. Check the address and that the server is running.'),
     detail,
   );
+}
+
+function known(code: unknown): code is ErrorCode {
+  return typeof code === 'string' && Object.hasOwn(ERROR_STATUS, code);
 }
 
 function codeOf(status: number): ErrorCode | null {
