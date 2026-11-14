@@ -154,6 +154,8 @@ export function Chips({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // A sideways row must not grow into the height the list below it needs.
+      style={styles.chipScroller}
       contentContainerStyle={styles.chipRow}
       accessibilityLabel={label}
     >
@@ -226,7 +228,13 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl },
   emptyTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center' },
   emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 300 },
-  chipRow: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, gap: spacing.sm },
+  chipScroller: { flexGrow: 0 },
+  chipRow: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    gap: spacing.sm,
+  },
   chip: {
     minHeight: TOUCH_TARGET - 8,
     borderWidth: StyleSheet.hairlineWidth,
