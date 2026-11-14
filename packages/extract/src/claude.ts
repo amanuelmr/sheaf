@@ -13,15 +13,23 @@ import { MODEL_OUTPUT_SCHEMA, documentMessage, systemPrompt, toFields } from './
 const VERSION = 1;
 export const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
+/**
+ * Pinned on purpose: a new version can change what a request may send. This one
+ * refuses sampling settings such as `temperature`, so the request sends none, and
+ * every current model accepts it.
+ */
+const API_VERSION = '2026-10-21';
 const TOOL = 'record_fields';
 
 /**
  * US dollars per million tokens: input, output, cache read, cache write. Only models
  * whose prices are known here; any other model reports its cost as unknown rather
- * than a wrong number. Checked against Anthropic's published pricing, October 2026.
+ * than a wrong number. Checked against Anthropic's published pricing, November 2026.
+ * Haiku 5.5's are for a prompt of up to 100K tokens, which a document's text is.
  */
 const PRICES: Readonly<Record<string, readonly [number, number, number, number]>> = {
   'claude-haiku-4-5-20251001': [1, 5, 0.1, 1.25],
+  'claude-haiku-5-5': [0.1, 0.5, 0.01, 0.125],
 };
 
 export interface ClaudeOptions {
@@ -49,7 +57,6 @@ export function claudeExtractor(options: ClaudeOptions): Extractor {
       const body = {
         model,
         max_tokens: 1024,
-        temperature: 0,
         system: [
           {
             type: 'text',
@@ -77,7 +84,7 @@ export function claudeExtractor(options: ClaudeOptions): Extractor {
           headers: {
             'content-type': 'application/json',
             'x-api-key': options.apiKey,
-            'anthropic-version': '2023-06-01',
+            'anthropic-version': API_VERSION,
           },
           body: JSON.stringify(body),
         });
