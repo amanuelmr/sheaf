@@ -53,6 +53,16 @@ export default defineConfig({
       // Type declarations and re-export barrels carry no logic to cover.
       exclude: ['**/events.ts', '**/types.ts', '**/index.ts'],
       thresholds: {
+        // Everything not named below. A little under today's numbers, so a change
+        // that drops tests fails CI; raise them as coverage grows.
+        statements: 85,
+        branches: 80,
+        functions: 90,
+        lines: 85,
+        // The server: sign-in, routing, migrations, storage.
+        'services/ingest/src/**': { statements: 85, branches: 80, functions: 95, lines: 85 },
+        // The capture log the phone writes and the server reads.
+        'packages/store/src/**': { statements: 93, branches: 85, functions: 93, lines: 93 },
         // The sync core is the part that must not be wrong. Keep the bar high here.
         'packages/core/src/**': { statements: 90, branches: 85, functions: 90, lines: 90 },
         'packages/engine/src/**': { statements: 90, branches: 90, functions: 90, lines: 90 },

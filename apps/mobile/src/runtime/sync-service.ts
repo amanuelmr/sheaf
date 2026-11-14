@@ -58,6 +58,8 @@ export class SyncService {
     this.unsubscribeNet = NetInfo.addEventListener((state) => {
       const previous = this.net;
       this.net = classify(state);
+      // Whatever shows the connection follows it, not a copy taken at some earlier moment.
+      if (previous !== this.net) this.options.onChange();
       // Connectivity returning is the one moment worth a free retry.
       if (previous === 'offline' && this.net !== 'offline') {
         void this.engine.retryAfterReconnect().then(() => this.tick());

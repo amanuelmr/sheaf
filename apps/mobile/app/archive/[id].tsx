@@ -8,6 +8,7 @@ import {
   starCachedDocument,
   type CachedDocument,
 } from '../../src/adapters/archive-cache';
+import { current } from '../../src/adapters/files';
 import { useApp } from '../../src/runtime/app-context';
 import { radius, spacing, TOUCH_TARGET } from '../../src/theme';
 import { Button, Chips, Divider, EmptyState, Field } from '../../src/ui/components';
@@ -195,7 +196,9 @@ export default function ArchiveDetail() {
           created: load.document.created,
           contentSnippet: load.document.contentSnippet,
           thumbnail:
-            load.document.thumbnailPath === null ? null : { uri: load.document.thumbnailPath },
+            load.document.thumbnailPath === null
+              ? null
+              : { uri: current(load.document.thumbnailPath) },
         };
 
   const input = [

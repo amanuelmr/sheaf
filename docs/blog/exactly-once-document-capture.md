@@ -272,9 +272,9 @@ would have made them sufficient.
 
 ## What is not done
 
-The app has never run on a physical phone. It builds, boots in the iOS Simulator,
-and passes typecheck, lint and bundling; the camera, permission prompts and the
-end-to-end flows are untested on hardware. Android has never been built. The
+The app has been used by hand on one phone, an iPhone 12 Pro on iOS 27: it paired,
+scanned, delivered, and sent what it had queued offline once back on Wi-Fi. The
+end-to-end flows have not run on hardware, and Android has never been built. The
 acceptance triage swipe is unimplemented. Search is BM25, not semantic.
 
 I would rather say that plainly than let a green tick imply more than it does. The

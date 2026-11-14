@@ -1,6 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import type { DocState } from '@sheaf/core';
 import type { EngineFiles } from '@sheaf/engine';
+import { underCurrentFolder } from '../lib/paths';
 
 /**
  * Local storage is content-addressed, exactly like the server's view of it: a
@@ -15,6 +16,11 @@ function directory(name: string): Directory {
   const dir = new Directory(Paths.document, name);
   if (!dir.exists) dir.create({ intermediates: true });
   return dir;
+}
+
+/** A saved path to one of this app's files, where that file is now (see `lib/paths`). */
+export function current(saved: string): string {
+  return underCurrentFolder(saved, Paths.document.uri);
 }
 
 export function pdfFile(sha256: string): File {
@@ -62,7 +68,8 @@ export async function readPageBytes(uri: string): Promise<Uint8Array> {
  *
  * Takes the list of confirmed ids rather than working it out here, so there is no
  * way for this to decide on its own that something is safe to delete. Returns how
- * many were actually removed.
+ * many were actually removed. Thumbnails stay: the documents are still on the
+ * server, and a few kilobytes keep each one recognisable in the outbox.
  */
 export function releaseSyncedCopies(confirmed: readonly string[]): number {
   let freed = 0;
@@ -72,8 +79,6 @@ export function releaseSyncedCopies(confirmed: readonly string[]): number {
       pdf.delete();
       freed += 1;
     }
-    const thumb = thumbnailFile(sha256);
-    if (thumb.exists) thumb.delete();
   }
   return freed;
 }
@@ -86,12 +91,10 @@ export const engineFiles: EngineFiles = {
   release: (state: DocState) => {
     const pdf = pdfFile(state.sha256);
     if (pdf.exists) pdf.delete();
-    // The thumbnail goes with the document. Keeping it would leave the outbox
-    // showing a picture of something no longer here.
-    const thumb = thumbnailFile(state.sha256);
-    if (thumb.exists) thumb.delete();
+    // The thumbnail stays: the document is still on the server, and the outbox
+    // keeps showing what it is.
     for (const page of state.pages) {
-      const file = new File(page.path);
+      const file = new File(current(page.path));
       if (file.exists) file.delete();
     }
     return Promise.resolve();

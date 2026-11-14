@@ -165,9 +165,10 @@ suite('the claude extractor, specifically', () => {
     await claudeExtractor({ apiKey: 'sk-test-key-1234', fetch }).extract(input());
 
     expect(sent!.url).toBe('https://api.anthropic.com/v1/messages');
-    expect(sent!.headers['anthropic-version']).toBe('2023-06-01');
+    // This API version refuses sampling settings on every model, so none are sent.
+    expect(sent!.headers['anthropic-version']).toBe('2026-10-21');
     expect(sent!.body['tool_choice']).toEqual({ type: 'tool', name: 'record_fields' });
-    expect(sent!.body['temperature']).toBe(0);
+    expect(sent!.body).not.toHaveProperty('temperature');
     const system = sent!.body['system'] as { text: string; cache_control: unknown }[];
     expect(system[0]!.cache_control).toEqual({ type: 'ephemeral' });
     expect(system[0]!.text).toContain('Cinema City');
@@ -180,6 +181,13 @@ suite('the claude extractor, specifically', () => {
     }).extract(input());
     // 900 fresh × $1 + 1000 cached × $0.10 + 120 out × $5, per million tokens.
     expect(known.ok && known.value.usage.costUsd).toBeCloseTo(0.0016, 6);
+    const haiku55 = await claudeExtractor({
+      apiKey: 'k',
+      model: 'claude-haiku-5-5',
+      fetch: answering(200, claudeWire(MODEL_ANSWER)),
+    }).extract(input());
+    // A tenth of that: 900 × $0.10 + 1000 × $0.01 + 120 × $0.50.
+    expect(haiku55.ok && haiku55.value.usage.costUsd).toBeCloseTo(0.00016, 7);
     const other = await claudeExtractor({
       apiKey: 'k',
       model: 'claude-some-future-model',
