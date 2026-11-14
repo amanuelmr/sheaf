@@ -12,7 +12,7 @@
   "engines": {
     "node": ">=22.6"
   },
-  "packageManager": "pnpm@10.30.2",
+  "packageManager": "pnpm@10.34.9",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @sheaf/mobile run typecheck && pnpm --filter @sheaf/web run typecheck",
     "lint": "eslint .",
