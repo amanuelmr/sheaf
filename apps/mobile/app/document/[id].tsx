@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import type { DocState, MetadataPatch } from '@sheaf/core';
@@ -30,13 +30,21 @@ export default function DocumentDetail() {
   const [saved, setSaved] = useState(false);
 
   const row = outbox.find((r) => r.docId === id) ?? null;
+  // The outbox is rebuilt on every sync pass; only a change to this row is news.
+  const rowKey = row === null ? '' : JSON.stringify(row);
+  // Once something is typed here, a refresh must not write over it.
+  const edited = useRef(false);
+  const edit = (set: (value: string) => void) => (value: string) => {
+    edited.current = true;
+    set(value);
+  };
 
   const load = useCallback(async () => {
     if (store === null || id === undefined) return;
     const [next, trail] = await Promise.all([store.state(id), store.trail(id)]);
     setState(next);
     setEntries(trail);
-    if (next !== null) {
+    if (next !== null && !edited.current) {
       const m = next.metadata ?? {};
       const s = next.suggestions ?? {};
       setTitle(m.title ?? s.title ?? '');
@@ -46,9 +54,10 @@ export default function DocumentDetail() {
     }
   }, [store, id]);
 
+  // Suggestions and history arrive after the screen opens, so it follows them.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, rowKey]);
 
   const save = async () => {
     if (id === undefined) return;
@@ -68,6 +77,7 @@ export default function DocumentDetail() {
           }),
     };
     await accept(id, patch);
+    edited.current = false;
     setSaved(true);
     await load();
   };
@@ -123,7 +133,7 @@ export default function DocumentDetail() {
       <Field label="Title" palette={palette}>
         <TextInput
           value={title}
-          onChangeText={setTitle}
+          onChangeText={edit(setTitle)}
           placeholder="Amazon receipt"
           placeholderTextColor={palette.textMuted}
           accessibilityLabel="Document title"
@@ -133,7 +143,7 @@ export default function DocumentDetail() {
       <Field label="From" palette={palette}>
         <TextInput
           value={correspondent}
-          onChangeText={setCorrespondent}
+          onChangeText={edit(setCorrespondent)}
           placeholder="Who it is from"
           placeholderTextColor={palette.textMuted}
           accessibilityLabel="Correspondent"
@@ -143,7 +153,7 @@ export default function DocumentDetail() {
       <Field label="Type" palette={palette}>
         <TextInput
           value={documentType}
-          onChangeText={setDocumentType}
+          onChangeText={edit(setDocumentType)}
           placeholder="Receipt, invoice, letter…"
           placeholderTextColor={palette.textMuted}
           accessibilityLabel="Document type"
@@ -153,7 +163,7 @@ export default function DocumentDetail() {
       <Field label="Tags" palette={palette} hint="Separated by commas">
         <TextInput
           value={tags}
-          onChangeText={setTags}
+          onChangeText={edit(setTags)}
           placeholder="shopping, electronics"
           placeholderTextColor={palette.textMuted}
           accessibilityLabel="Tags"
