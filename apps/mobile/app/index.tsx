@@ -343,7 +343,7 @@ export default function Shutter() {
           <Text style={styles.idleTitle}>Ready to scan</Text>
           <Text style={styles.idleBody}>
             Tap the button. The scanner finds the page, straightens it, and lets you add more before
-            you finish.
+            you finish. To take each page yourself, tap Shutter in the scanner.
           </Text>
         </View>
       )}
