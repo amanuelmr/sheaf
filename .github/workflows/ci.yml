@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Nothing here writes to the repository, so the token can only read it.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -14,6 +18,8 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
+    # A normal run takes a few minutes; a hung step should not take six hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -77,10 +83,21 @@ jobs:
 
       # Extraction accuracy is a number, and a change that lowers it fails the build
       # (ADR 0010). Models answer from recordings, so no API key is needed here.
+      # The receipts come from someone else's server, so they are kept between runs
+      # and a build does not fail because that server is down.
+      - name: Cache the receipt dataset
+        id: receipts
+        uses: actions/cache@v6
+        with:
+          path: packages/extract/eval/cache/sroie.jsonl
+          key: sroie-${{ hashFiles('packages/extract/eval/fetch-sroie.ts', 'packages/extract/eval/golden.ts', 'packages/extract/eval/sroie-sample.json') }}
+
+      - name: Fetch the receipt dataset
+        if: steps.receipts.outputs.cache-hit != 'true'
+        run: pnpm --filter @sheaf/extract eval:fetch
+
       - name: Extraction eval
-        run: |
-          pnpm --filter @sheaf/extract eval:fetch
-          pnpm --filter @sheaf/extract eval -- --replay --check
+        run: pnpm --filter @sheaf/extract eval -- --replay --check
 
       # The app cannot be run here, so bundle it instead. Metro resolving every
       # workspace import and every screen is a far stronger signal than typecheck
