@@ -1,7 +1,7 @@
 # The OCR sidecar: the official OCRmyPDF image plus a forty-line HTTP wrapper.
 # Pinned, for the same reason as Paperless: a new release changes what OCR produces,
 # so moving it is a choice rather than an accident.
-FROM jbarlow83/ocrmypdf-alpine:v17.13.0
+FROM jbarlow83/ocrmypdf-alpine:v17.14.1
 
 WORKDIR /srv
 COPY services/ocr/server.py /srv/server.py
