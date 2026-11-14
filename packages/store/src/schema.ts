@@ -7,7 +7,7 @@ import type { SqlDriver } from './driver.ts';
  * writes a well-meaning UPDATE; as a trigger it is enforced by the database, and
  * the guarantee crash recovery rests on cannot be undone by a future commit.
  */
-const MIGRATIONS: readonly (readonly string[])[] = [
+export const MIGRATIONS: readonly (readonly string[])[] = [
   // 1
   [
     `CREATE TABLE IF NOT EXISTS capture_log (
