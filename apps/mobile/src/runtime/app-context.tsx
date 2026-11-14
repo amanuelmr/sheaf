@@ -272,6 +272,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }),
       onChange: () => {
         void store.outbox().then(setOutbox);
+        setOffline(running.connectivity === 'offline');
       },
     });
     setAdapter(api);
