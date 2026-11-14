@@ -1,39 +1,25 @@
-# Patched dependencies
+# Patches and overrides
 
-Patches are a liability: they rot silently when the upstream package moves. Each one
-here records what it does, why, and what should make it go away.
+Patches and overrides are a liability: they rot silently when the upstream package
+moves. Each one here records what it does, why, and what should make it go away.
 
-## `expo-modules-jsi@57.0.5`
+## Patches
 
-**Symptom.** `expo run:ios` fails during _Build ExpoModulesJSI xcframework_:
+None. The last one, for `expo-modules-jsi@57.0.5`, removed a `SWIFT_RETURNS_RETAINED`
+annotation from two constructors that Swift 6.2 (Xcode 26) rejects. Expo fixed it
+upstream in 57.1.0, and SDK 57's own packages now require that version.
 
-```
-RuntimeScheduler.h:61:26: error: 'RuntimeScheduler' cannot be annotated with either
-SWIFT_RETURNS_RETAINED or SWIFT_RETURNS_UNRETAINED because it is not returning a
-SWIFT_SHARED_REFERENCE type
-```
+## Overrides
 
-**Cause.** Two _constructors_ of `expo::RuntimeScheduler` are annotated
-`SWIFT_RETURNS_RETAINED`. A constructor has no return type, so Swift's C++ importer
-rejects the annotation. Older toolchains ignored it; Swift 6.2 (Xcode 26) diagnoses
-it. Nothing about this project triggers it — any SDK 57 app hits it on a current
-Xcode, and 57.0.5 is the latest published version.
+`package.json` pins `react-native-worklets` to 0.10.1 and `react-native-reanimated`
+to 4.5.1, the versions Expo tested with SDK 57.
 
-**Fix.** Delete the annotation from the two constructors. Two lines.
+**Why.** pnpm once resolved worklets to 0.12.1, outside the range expo-modules-core
+declares (`^0.7.4 || ^0.8.0 || ^0.9.0 || ^0.10.0`). That version dropped
+`WorkletRuntime::executeSync`, which expo-modules-core still calls, so the iOS build
+failed.
 
-**Why that is safe.** The annotation was redundant, which was verified rather than
-assumed. Swift already imports constructors of a `SWIFT_SHARED_REFERENCE` type as
-`+1`, so removing it changes nothing about ownership. A minimal reproduction with
-instrumented `retain`/`release` was built and run:
-
-```
-101 constructions from Swift -> 101 releases, 101 deletes, 0 spurious retains
-```
-
-Balanced: no leak, and no over-release. The same experiment also confirmed the
-annotation is only rejected on constructors — a `static` factory returning the same
-type keeps it happily, so this is not a general problem with the type's design.
-
-**Removal criteria.** Delete this patch when `expo-modules-jsi` ships a version whose
-`RuntimeScheduler.h` no longer annotates its constructors. Worth reporting upstream;
-it affects every SDK 57 iOS build on Xcode 26.
+**Remove them** when moving to an SDK whose expo-modules-core accepts the worklets
+version pnpm picks on its own, after checking that `expo install --check` agrees.
+They also move to `pnpm-workspace.yaml` on pnpm 11, which no longer reads the `pnpm`
+field of `package.json`.

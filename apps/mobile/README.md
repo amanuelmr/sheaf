@@ -103,9 +103,8 @@ build without them first.
 
 ### iOS
 
-The iOS build requires one patched dependency: `expo-modules-jsi@57.0.5` annotates
-two constructors with `SWIFT_RETURNS_RETAINED`, which Swift 6.2 (Xcode 26) rejects.
-It is a two-line, verified-redundant removal — see [`patches/README.md`](../../patches/README.md).
+The iOS build needs no patched dependencies. Two native versions are pinned; see
+[`patches/README.md`](../../patches/README.md) for why and when to unpin them.
 
 ## End-to-end tests
 
