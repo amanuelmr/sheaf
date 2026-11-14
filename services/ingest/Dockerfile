@@ -24,17 +24,18 @@ COPY packages/store/src              packages/store/src
 COPY services/ingest/package.json    services/ingest/package.json
 COPY services/ingest/src             services/ingest/src
 
+RUN npm install --no-save --no-package-lock --ignore-scripts --omit=dev \
+      pdf-lib@1.17.1 jpeg-js@0.4.4 @zxing/library@0.21.3 \
+  && npm cache clean --force
+
 # One symlink per workspace package the service imports, directly or transitively.
-# Miss one and it fails at startup rather than at build, so they are listed
-# explicitly rather than globbed.
+# Made after npm install, which removes from node_modules anything it did not put
+# there itself. Miss one and it fails at startup rather than at build, so they are
+# listed explicitly rather than globbed.
 RUN mkdir -p node_modules/@sheaf \
   && for pkg in core extract http protocol paperless store; do \
        ln -s "/srv/packages/$pkg" "node_modules/@sheaf/$pkg"; \
      done
-
-RUN npm install --no-save --no-package-lock --ignore-scripts --omit=dev \
-      pdf-lib@1.17.1 jpeg-js@0.4.4 @zxing/library@0.21.3 \
-  && npm cache clean --force
 
 ENV SHEAF_DATA_DIR=/data
 ENV PORT=8787
