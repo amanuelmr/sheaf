@@ -78,6 +78,20 @@ jobs:
           cat server.log
           exit 1
 
+      # Docker is how people run the server, and its image lists the packages by hand.
+      # Build it and check that it starts and answers, as the step above does for
+      # the source.
+      - name: Build and start the server image
+        run: |
+          docker build -f services/ingest/Dockerfile -t sheaf-ingest .
+          docker run -d --name sheaf -p 8798:8787 -e SHEAF_TOKEN=ci-check-0123456789abcdef sheaf-ingest
+          for i in $(seq 1 30); do
+            curl -sf -H "authorization: Bearer ci-check-0123456789abcdef" localhost:8798/v1/health && exit 0
+            sleep 1
+          done
+          docker logs sheaf
+          exit 1
+
       - name: OCR sidecar tests
         run: python3 -m unittest discover services/ocr/test
 
