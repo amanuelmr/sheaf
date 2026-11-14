@@ -37,6 +37,8 @@ token.
 - A wrong password costs the same time as an unknown username, and repeated wrong
   passwords lock the account for fifteen minutes.
 - Pairing codes are one-time, expire after five minutes, and are rate-limited.
+  The phone asks before pairing with the server a code or link names, and refuses
+  addresses whose shown name hides the real host.
 - Sessions last 30 days and end at sign-out. Disabling a person ends theirs at once.
 
 **What each person may see.** People have roles: admin, editor or viewer. A viewer
@@ -44,12 +46,18 @@ cannot change anything.
 
 - A document belongs to whoever uploaded it, and is shared with others only when
   they choose; search, similar-document hints and custom field suggestions only
-  draw on documents the person may see.
-- Admin pages (users, phones, workflows, settings) refuse everyone but admins.
+  draw on documents the person may see. Documents made by splitting or merging
+  keep the owner and sharing of the ones they came from.
+- Admin pages and actions (users, phones, workflows, settings, retrying background
+  steps) refuse everyone but admins.
 - Changes made through the API are written to an audit log.
 
 **Single sign-on** (OpenID Connect) uses PKCE, `state` and `nonce`. The ID token's
-signature is checked against the provider's published keys.
+signature is checked against the provider's published keys, and the provider must
+name the issuer it was configured with. Someone new gets in only with an email the
+provider has verified and `SHEAF_OIDC_ALLOWED_EMAILS` lists; unset, only people
+already linked can sign in. The web app accepts a sign-in only if it started it,
+and keeps the server it chose, so a crafted link cannot send it elsewhere.
 
 **Share links** are random 192-bit addresses that open one document without a
 token. They can expire, and can be revoked. Anyone with the link can read the
@@ -75,8 +83,14 @@ A scan is never deleted from the phone until the server has confirmed it has it.
 certificate error stops the upload and is shown; it is never retried past or
 ignored.
 
+**In the browser.** The web app's Content Security Policy lets only its own
+scripts and styles run, and a document is shown only if its bytes are a PDF.
+Server responses carry `nosniff`, `no-referrer` and a header that stops other sites
+framing them.
+
 **Logs.** `Authorization` headers and tokens are never logged. Document text is
-not logged.
+not logged. Each request gets an id, shown with server errors, so a report can be
+matched to its log line.
 
 ## Where documents can leave the server
 
@@ -96,6 +110,8 @@ Only to places you configure:
 
 Files and mail come from outside, so the server reads them defensively:
 
+- The token is checked before a request's body is read. A caller without a valid
+  one may send at most 64 KB, enough to sign in or pair a phone.
 - An upload must hash to the address it is sent to, and is limited in size.
 - A PDF must start with `%PDF-`. EPUBs are unpacked with limits on size and
   number of files, so a ZIP bomb is refused.
