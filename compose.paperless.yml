@@ -2,6 +2,7 @@
 # handed on to Paperless, for its OCR, search and tagging.
 #
 #   echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")" >> .env
+#   echo "PAPERLESS_SECRET_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" >> .env
 #   docker compose -f compose.yml -f compose.paperless.yml up -d
 #
 # Service and volume names are the ones the single-file stack used before
@@ -37,9 +38,9 @@ services:
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env}
       PAPERLESS_TIME_ZONE: UTC
       PAPERLESS_OCR_LANGUAGE: eng
-      # Paperless refuses to start without this; the default is self-describing
-      # rather than a real key, so nobody mistakes it for one.
-      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:-insecure-development-key-do-not-use-for-real-documents}
+      # Signs Paperless's sessions. A default would be written here, in public, so
+      # anyone could use it; there is none. Changing it signs everyone out once.
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY:?set PAPERLESS_SECRET_KEY in .env}
     volumes:
       - paperless-data:/usr/src/paperless/data
       - paperless-media:/usr/src/paperless/media

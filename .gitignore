@@ -27,8 +27,7 @@ web-build/
 # secrets & local config
 .env
 .env.*
-# The server's own settings for docker compose: secrets live here.
-server.env
+# The server's own settings for docker compose: secrets live here (see below for copies).
 !.env.example
 *.pem
 
@@ -48,6 +47,24 @@ yarn-error.*
 
 # local server data
 .sheaf-data/
+# Copies of a database or a backup hold document text and password hashes, and a
+# copy of server.env holds every key. The one test fixture database is kept.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+!services/ingest/test/fixtures/*.db
+server.env*
+backups/
+
+# Python build output
+__pycache__/
+*.pyc
+
+# Notes kept beside the code but not published with it
+review/
+docs/research/
 
 # Downloaded research data and recorded model replies. The eval's fetch script and
 # golden sample are committed; the raw dataset and the live-response cache are not,

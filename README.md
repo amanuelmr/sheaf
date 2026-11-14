@@ -222,6 +222,7 @@ Optional add-ons combine:
 ```bash
 # forward copies to Paperless-ngx (it fetches its own token once it has booted)
 echo "PAPERLESS_ADMIN_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))")" >> .env
+echo "PAPERLESS_SECRET_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" >> .env
 docker compose -f compose.yml -f compose.paperless.yml up -d
 
 # read documents that arrive with no text, with OCRmyPDF
