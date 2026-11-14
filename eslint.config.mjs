@@ -13,6 +13,7 @@ export default tseslint.config(
       // CommonJS build config, outside any TypeScript project.
       'apps/*/babel.config.js',
       'apps/*/metro.config.js',
+      'apps/mobile/plugins/*.js',
     ],
   },
   js.configs.recommended,
