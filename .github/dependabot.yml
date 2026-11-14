@@ -1,0 +1,38 @@
+# Updates arrive as a few grouped pull requests a week, each checked by CI.
+# A release must be a week old first, so a bad or hijacked one has time to be pulled.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # The phone's platform moves together, one SDK at a time, by hand: see
+      # docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough.
+      - dependency-name: 'expo*'
+        update-types: [version-update:semver-major]
+      - dependency-name: 'react-native*'
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: 'react'
+        update-types: [version-update:semver-major]
+      - dependency-name: 'react-dom'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories: [/services/ingest, /services/ocr]
+    schedule:
+      interval: weekly
