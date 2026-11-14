@@ -3,6 +3,7 @@ import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-nati
 import { useLocalSearchParams } from 'expo-router';
 import type { DocState, MetadataPatch } from '@sheaf/core';
 import type { TrailEntry } from '@sheaf/store';
+import { current } from '../../src/adapters/files';
 import { useApp } from '../../src/runtime/app-context';
 import { clockTime, formatBytes, pageLabel, shortId, timeAgo } from '../../src/lib/format';
 import { radius, spacing, TOUCH_TARGET } from '../../src/theme';
@@ -94,7 +95,7 @@ export default function DocumentDetail() {
           <View style={[styles.thumbFallback, { backgroundColor: palette.surfaceRaised }]} />
         ) : (
           <Image
-            source={{ uri: state.thumbnailPath }}
+            source={{ uri: current(state.thumbnailPath) }}
             style={[styles.thumb, { backgroundColor: palette.surfaceRaised }]}
             resizeMode="cover"
             accessibilityIgnoresInvertColors

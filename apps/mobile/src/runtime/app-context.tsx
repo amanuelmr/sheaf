@@ -15,7 +15,7 @@ import { SheafAdapter, createClient } from '../adapters/api';
 import { deviceLockAvailable, unlockDevice } from '../adapters/auth';
 import { openDatabase, type Database } from '../adapters/database';
 import type { ServerConfig } from '../adapters/credentials';
-import { engineFiles } from '../adapters/files';
+import { current, engineFiles } from '../adapters/files';
 import { outboxText, releasingText } from '../adapters/ocr';
 import {
   addProfile,
@@ -83,6 +83,13 @@ interface AppValue {
 
 const AppContext = createContext<AppValue | null>(null);
 
+/** The outbox, with each thumbnail where it is now rather than where it was saved. */
+async function outboxRows(store: DocumentStore): Promise<readonly OutboxRow[]> {
+  const rows = await store.outbox();
+  return rows.map((row) =>
+    row.thumbnailPath === null ? row : { ...row, thumbnailPath: current(row.thumbnailPath) },
+  );
+}
 export function useApp(): AppValue {
   const value = useContext(AppContext);
   if (value === null) throw new Error('useApp must be used inside AppProvider');
@@ -115,7 +122,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (store === null) return;
-    setOutbox(await store.outbox());
+    setOutbox(await outboxRows(store));
     setOffline(service?.connectivity === 'offline');
   }, [store, service]);
 
@@ -271,7 +278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         keepLocalAfterSync: settings.keepLocalAfterSync,
       }),
       onChange: () => {
-        void store.outbox().then(setOutbox);
+        void outboxRows(store).then(setOutbox);
         setOffline(running.connectivity === 'offline');
       },
     });

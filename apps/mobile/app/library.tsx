@@ -3,6 +3,7 @@ import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'r
 import { useRouter } from 'expo-router';
 import type { ArchiveVocabulary } from '@sheaf/protocol';
 import { searchCache } from '../src/adapters/archive-cache';
+import { current } from '../src/adapters/files';
 import { useApp } from '../src/runtime/app-context';
 import { Chips, EmptyState } from '../src/ui/components';
 import { spacing, radius, TOUCH_TARGET } from '../src/theme';
@@ -81,7 +82,7 @@ export default function Library() {
             documentType: item.documentType,
             created: item.created,
             contentSnippet: item.contentSnippet,
-            thumbnail: item.thumbnailPath === null ? null : { uri: item.thumbnailPath },
+            thumbnail: item.thumbnailPath === null ? null : { uri: current(item.thumbnailPath) },
           })),
         );
         setHasMore(false);
