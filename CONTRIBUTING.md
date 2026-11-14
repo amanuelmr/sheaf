@@ -12,7 +12,7 @@ pnpm install
 pnpm verify      # format check + lint + typecheck + tests
 ```
 
-Node 22.6+ (the server uses `node:sqlite`; `.nvmrc` pins 24) and pnpm.
+Node 24 (what `.nvmrc`, CI and the Docker image use) and pnpm.
 
 `pnpm verify` is the everyday check. CI runs a little more: tests with coverage
 floors (`pnpm test:coverage`), the search benchmark (`pnpm bench:search`), the
