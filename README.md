@@ -145,7 +145,7 @@ What works today, and how each part is checked:
 | Search                                           | Done                                               | FTS5; p95 16.7 ms over 10,000 documents (`pnpm bench:search`)                                                       |
 | On-device text sent to the server                | Done                                               | Engine tests and the simulator                                                                                      |
 | Reading details (title, date, total…)            | Done: rules by default; Claude or Ollama by choice | [Eval](packages/extract/eval/report.md) on 50 held-out SROIE receipts: date 98%, total 84%, sender 96%; gated in CI |
-| Phone app (iOS)                                  | Builds and boots in the Simulator                  | Typecheck, Metro bundle in CI. **Not yet used on a real phone**                                                     |
+| Phone app (iOS)                                  | Done                                               | Typecheck, Metro bundle in CI. Used on an iPhone 12 Pro (iOS 27): pairing, scans, offline queue, Face ID, library   |
 | Phone app (Android)                              | Configured                                         | **Not yet built**                                                                                                   |
 | Web app                                          | Done                                               | Typecheck, 54 tests, bundled in CI. Used in a browser, against a seeded server                                      |
 | Accounts, roles, sharing, single sign-on         | Done                                               | Router, users and permissions tests; OpenID Connect flow against a stand-in provider                                |
@@ -161,11 +161,11 @@ What works today, and how each part is checked:
 | Chaos under load                                 | Done                                               | `pnpm chaos`: 20 phones × 25 documents, 3 `SIGKILL`s, 0 lost / 0 duplicated — green on four seeds                   |
 | Inbox on the phone                               | Done (buttons; swipe pending)                      | Projection tests; typecheck and bundle. **Not yet tapped**                                                          |
 
-**Not done, stated plainly:** no physical-device run yet (the camera and permission
-prompts are untested), Android unbuilt, the inbox swipe gesture unimplemented, the
-phone app does not yet check the certificate pin a pairing code carries (so it
-cannot pair with a self-signed HTTPS server), the phone app is in English only, and
-search is BM25 rather than semantic. See [`docs/FOR-REVIEWERS.md`](docs/FOR-REVIEWERS.md).
+**Not done, stated plainly:** the Maestro flows have not run on a phone, Android
+unbuilt, the inbox swipe gesture unimplemented, the phone app does not yet check
+the certificate pin a pairing code carries (so it cannot pair with a self-signed
+HTTPS server), the phone app is in English only, and search is BM25
+rather than semantic. See [`docs/FOR-REVIEWERS.md`](docs/FOR-REVIEWERS.md).
 
 ## Architecture
 
@@ -255,7 +255,7 @@ The other entry points: `pnpm test:contract` (a real Paperless-ngx),
 | `ingest`      | The server: job convergence under crashes, connector independence, migrations against a real old database, search p95 at 10,000 documents.           |
 | `paperless`   | Every branch against an injected transport — **and** contract tests against a real Paperless-ngx, weekly in CI.                                      |
 | `extract`     | One suite over all three extractors, plus an eval on held-out data that fails CI if accuracy regresses.                                              |
-| `apps/mobile` | Typechecked and linted. **Never run on a device** — see above.                                                                                       |
+| `apps/mobile` | Typechecked, linted and bundled; a Release build used by hand on an iPhone 12 Pro running iOS 27.                                                    |
 | `apps/web`    | 54 tests over routing, forms, uploads and translations; typechecked, linted and bundled in CI; driven in a real browser against a seeded server.     |
 
 **Defects were found by tests and probes written to be hard rather than to pass.**

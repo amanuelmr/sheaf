@@ -37,10 +37,10 @@ Start with the [README](../README.md) (two minutes), then pick a row.
 
 Stated here so you do not have to find them:
 
-- **The app has never run on a physical device.** It builds, boots in the iOS
-  Simulator and passes typecheck/lint/bundle; the camera, permission prompts and
-  the Maestro flows have not been exercised on hardware. Android has never been
-  built (no SDK on the dev machine).
+- **The phone app has been used by hand on one iPhone, not tested on devices.** A
+  Release build on an iPhone 12 Pro (iOS 27) paired, scanned, delivered, queued
+  offline, locked with Face ID and browsed the library. The Maestro flows have not
+  run on hardware, and Android has never been built (no SDK on the dev machine).
 - **Paperless-ngx v3 compatibility** is a _contract_ result, not a guarantee — it
   is re-checked weekly, and a failure on `latest` is the signal to act.
 - **The swipe gesture** on the phone's inbox is unimplemented; it needs

@@ -150,9 +150,11 @@ That is a real signal, and it caught two things typecheck could not: a missing
 `@expo/metro-runtime` peer, and pnpm's strict symlinked layout being unresolvable by
 Metro (hence `node-linker=hoisted` in the root `.npmrc`).
 
-It does not run the app. That has been done once, by hand, in the iOS Simulator: it
-built, booted without a crash, and the native SQLite write and the layout ran.
-Nothing has run on a real phone or on Android: no camera capture, no permission
-flow, nothing that needs a finger. The engine underneath it is covered by
-[`@sheaf/sim`](../../packages/sim), but the wiring in `adapters/` is otherwise
-compile-checked only. Treat first launch on a phone as the real test.
+It does not run the app. That has been done by hand: a Release build on an iPhone
+12 Pro running iOS 27 paired with a server by QR code, scanned with the camera,
+delivered the scans, queued them offline and sent them once back on Wi-Fi, locked
+behind Face ID, and browsed and edited the server's library. That run found two
+bugs, both fixed: iOS 27 stops an app that does not use scenes at launch (see
+`plugins/with-scene-lifecycle.js`), and the offline banner could stay on after the
+network came back. Nothing has run on Android, and the Maestro flows in `e2e/` have
+not run on a phone.
