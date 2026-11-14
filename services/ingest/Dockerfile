@@ -1,6 +1,6 @@
 # Node runs the TypeScript directly, so there is no build step and nothing compiled
 # that could differ from what the tests ran against.
-FROM node:24-alpine
+FROM node:25-alpine
 
 WORKDIR /srv
 
