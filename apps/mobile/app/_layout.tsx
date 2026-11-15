@@ -59,7 +59,7 @@ function Shell() {
           contentStyle: { backgroundColor: palette.background },
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ headerShown: false, title: 'Scan' }} />
         <Stack.Screen name="connect" options={{ title: 'Connect your server' }} />
         <Stack.Screen name="pair" options={{ title: 'Pairing' }} />
         <Stack.Screen name="scan-pairing" options={{ title: 'Scan pairing code' }} />
