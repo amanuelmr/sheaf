@@ -11,7 +11,7 @@
     "e2e": "bash scripts/e2e.sh"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~57.0.18",
+    "@expo/metro-runtime": "~58.0.17",
     "@react-native-community/netinfo": "12.0.1",
     "@sheaf/archive-cache": "workspace:*",
     "@sheaf/client": "workspace:*",
